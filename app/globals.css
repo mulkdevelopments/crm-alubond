@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  --font-display: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+  --bg: #FAFAFA;
+  --surface: #FFFFFF;
+  --surface-2: #F4F4F5;
+  --border: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.1);
+  --text: #18181B;
+  --text-2: #54545C;
+  --text-3: #8E8E96;
+}
+
+.dark {
+  --bg: #0A0A0B;
+  --surface: #131316;
+  --surface-2: #1B1B1F;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.1);
+  --text: #F4F4F5;
+  --text-2: #B7B7BD;
+  --text-3: #6E6E76;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  border-color: var(--border);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+}
+
+@layer components {
+  .surface {
+    background: var(--surface);
+  }
+  .surface-2 {
+    background: var(--surface-2);
+  }
+  .text-2 {
+    color: var(--text-2);
+  }
+  .text-3 {
+    color: var(--text-3);
+  }
+  .border-soft {
+    border-color: var(--border);
+  }
+  .border-strong {
+    border-color: var(--border-strong);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+  }
+
+  .num-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kbd {
+    @apply px-1.5 py-0.5 rounded-md text-[10px] font-medium;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+
+  .dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full;
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .radial-glow {
+    background: radial-gradient(circle at 50% 0%, rgba(227, 6, 19, 0.18), transparent 60%);
+  }
+
+  /* Map dot for static map preview */
+  .map-pin {
+    @apply absolute -translate-x-1/2 -translate-y-1/2;
+  }
+}
+
+@layer utilities {
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent);
+            mask-image: linear-gradient(to bottom, black 60%, transparent);
+  }
+  .mask-fade-r {
+    -webkit-mask-image: linear-gradient(to right, black 70%, transparent);
+            mask-image: linear-gradient(to right, black 70%, transparent);
+  }
+}
