@@ -1,0 +1,65 @@
+databases:
+  - name: alubond-crm-db
+    plan: free
+    databaseName: alubond_crm
+    user: alubond
+
+services:
+  - type: web
+    name: alubond-crm-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm ci && npm run prisma:generate && npm run build
+    startCommand: npm run prisma:push && npm run start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: API_PREFIX
+        value: /api/v1
+      - key: FILE_STORAGE_PROVIDER
+        value: vercel_blob
+      - key: BLOB_ACCESS
+        value: private
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: DATABASE_URL
+        fromDatabase:
+          name: alubond-crm-db
+          property: connectionString
+      - key: FRONTEND_ORIGIN
+        value: https://alubond-crm-web.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: ADMIN_SETUP_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@alubondcrm.local
+      - key: ADMIN_PASSWORD
+        value: Admin@12345
+      - key: ADMIN_FIRST_NAME
+        value: System
+      - key: ADMIN_LAST_NAME
+        value: Admin
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: BLOB_READ_WRITE_TOKEN
+        sync: false
+
+  - type: web
+    name: alubond-crm-web
+    runtime: node
+    rootDir: frontend
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://alubond-crm-api.onrender.com/api/v1

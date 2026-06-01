@@ -1,0 +1,28 @@
+import './globals.css';
+import type { Metadata, Viewport } from 'next';
+import { ProtectedApp } from '@/components/auth/ProtectedApp';
+
+export const metadata: Metadata = {
+  title: 'Alubond CRM — Sales Intelligence',
+  description:
+    'A modern, mobile-first sales war room for façade systems and ACP — built for Alubond.',
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FAFAFA' },
+    { media: '(prefers-color-scheme: dark)', color: '#0A0A0B' },
+  ],
+  width: 'device-width',
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className="antialiased">
+        <ProtectedApp>{children}</ProtectedApp>
+      </body>
+    </html>
+  );
+}

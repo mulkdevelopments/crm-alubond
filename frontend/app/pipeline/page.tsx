@@ -1,0 +1,1191 @@
+'use client';
+
+import { useEffect, useState, type FormEvent } from 'react';
+import Link from 'next/link';
+import { Filter, GripVertical, MoreHorizontal, Plus, Search, Flame, Clock, Pencil, X, MapPin } from 'lucide-react';
+import { useAuth } from '@/components/auth/AuthContext';
+import { LocationPickerMap } from '@/components/map/LocationPickerMap';
+import { PageHeader } from '@/components/shell/PageHeader';
+import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
+import { STAGES, type Stage } from '@/lib/data';
+import { listManagers, listMyTeam, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
+import {
+  createProject as createProjectApi,
+  listProjects as listProjectsApi,
+  updateProject as updateProjectApi,
+  type ApiProject,
+} from '@/lib/projects-api';
+import { cn, formatAED } from '@/lib/utils';
+
+type ProjectAssignment = {
+  managerId: string;
+  managerName: string;
+  salesRepIds: string[];
+  salesRepNames: string[];
+};
+
+type ProjectFormState = {
+  name: string;
+  city: string;
+  country: string;
+  developer: string;
+  value: string;
+  itemName: string;
+  itemQuantity: string;
+  lat: string;
+  lng: string;
+  stage: Stage;
+  probability: string;
+  competitor: string;
+  managerId: string;
+  salesRepIds: string[];
+};
+
+type PipelineProject = {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  developer: string;
+  stage: Stage;
+  value: number;
+  itemName: string;
+  itemQuantity: number;
+  lat: number;
+  lng: number;
+  probability: number;
+  daysInStage: number;
+  competitor: string | null;
+  owner: string;
+  managerId: string;
+  managerName: string;
+  salesRepIds: string[];
+  salesRepNames: string[];
+  updatedAt: string;
+};
+
+const PIPELINE_STAGES: Stage[] = [...STAGES, 'Lost', 'Won'];
+const COUNTRIES = [
+  'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina', 'Armenia',
+  'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium',
+  'Belize', 'Benin', 'Bhutan', 'Bolivia', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei', 'Bulgaria',
+  'Burkina Faso', 'Burundi', 'Cabo Verde', 'Cambodia', 'Cameroon', 'Canada', 'Central African Republic', 'Chad',
+  'Chile', 'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', "Cote d'Ivoire", 'Croatia', 'Cuba', 'Cyprus',
+  'Czech Republic', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'DR Congo', 'Ecuador', 'Egypt',
+  'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France',
+  'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala', 'Guinea',
+  'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq',
+  'Ireland', 'Israel', 'Italy', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kiribati',
+  'Kuwait', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein',
+  'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta',
+  'Marshall Islands', 'Mauritania', 'Mauritius', 'Mexico', 'Micronesia', 'Moldova', 'Monaco', 'Mongolia',
+  'Montenegro', 'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru', 'Nepal', 'Netherlands',
+  'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway', 'Oman',
+  'Pakistan', 'Palau', 'Palestine', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland',
+  'Portugal', 'Qatar', 'Romania', 'Russia', 'Rwanda', 'Saint Kitts and Nevis', 'Saint Lucia',
+  'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe', 'Saudi Arabia',
+  'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia',
+  'Solomon Islands', 'Somalia', 'South Africa', 'South Korea', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan',
+  'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Taiwan', 'Tajikistan', 'Tanzania', 'Thailand', 'Timor-Leste',
+  'Togo', 'Tonga', 'Trinidad and Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Tuvalu', 'Uganda', 'Ukraine',
+  'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan', 'Vanuatu',
+  'Vatican City', 'Venezuela', 'Vietnam', 'Yemen', 'Zambia', 'Zimbabwe',
+] as const;
+
+const EMPTY_FORM: ProjectFormState = {
+  name: '',
+  city: '',
+  country: '',
+  developer: '',
+  value: '',
+  itemName: '',
+  itemQuantity: '',
+  lat: '',
+  lng: '',
+  stage: 'Lead Identified',
+  probability: '',
+  competitor: '',
+  managerId: '',
+  salesRepIds: [],
+};
+
+export default function PipelinePage() {
+  const { user, token } = useAuth();
+  const [items, setItems] = useState<PipelineProject[]>([]);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [mobileStage, setMobileStage] = useState<Stage>('Lead Identified');
+  const [mobileQuery, setMobileQuery] = useState('');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<ProjectFormState>(EMPTY_FORM);
+  const [assignments, setAssignments] = useState<Record<string, ProjectAssignment>>({});
+  const [managers, setManagers] = useState<UserListItem[]>([]);
+  const [salesReps, setSalesReps] = useState<UserListItem[]>([]);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [locationSearchLoading, setLocationSearchLoading] = useState(false);
+  const [locationSearchError, setLocationSearchError] = useState<string | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [commercialPrompt, setCommercialPrompt] = useState<{
+    projectId: string;
+    targetStage: Stage;
+    value: string;
+    itemName: string;
+    itemQuantity: string;
+    error: string | null;
+    saving: boolean;
+  } | null>(null);
+
+  const isAdmin = user?.role === 'ADMIN';
+  const isManager = user?.role === 'MANAGER';
+  const canCreateProject = isAdmin || isManager;
+  const editingProject = editingId ? items.find((p) => p.id === editingId) ?? null : null;
+  const managerForForm =
+    (isManager && user?.id ? user.id : form.managerId) || '';
+
+  const repsForSelectedManager = isManager
+    ? salesReps
+    : salesReps.filter((rep) => rep.managerId === managerForForm);
+
+  function totalFor(stage: Stage) {
+    return items.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
+  }
+
+  function requiresCommercialDetails(stage: Stage) {
+    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
+  }
+
+  async function persistProjectStageUpdate(
+    project: PipelineProject,
+    nextStage: Stage,
+    value: number,
+    itemName: string,
+    itemQuantity: number,
+  ) {
+    const nextDaysInStage = project.stage === nextStage ? project.daysInStage : 1;
+    setItems((prev) =>
+      prev.map((p) =>
+        p.id === project.id
+          ? { ...p, stage: nextStage, daysInStage: nextDaysInStage, value, itemName, itemQuantity }
+          : p,
+      ),
+    );
+    if (!token) return;
+    await updateProjectApi(token, project.id, {
+      name: project.name,
+      city: project.city,
+      country: project.country,
+      developer: project.developer,
+      stage: nextStage,
+      valueAed: value,
+      itemName,
+      itemQuantity,
+      lat: project.lat,
+      lng: project.lng,
+      probability: project.probability,
+      daysInStage: nextDaysInStage,
+      competitor: project.competitor,
+      managerId: project.managerId,
+      salesRepIds: project.salesRepIds,
+    });
+  }
+
+  async function refreshProjects(activeToken: string) {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const data = await listProjectsApi(activeToken);
+      const mapped = data.map(toPipelineProject);
+      setItems(mapped);
+      setAssignments(
+        Object.fromEntries(
+          mapped.map((project) => [
+            project.id,
+            {
+              managerId: project.managerId,
+              managerName: project.managerName,
+              salesRepIds: project.salesRepIds,
+              salesRepNames: project.salesRepNames,
+            },
+          ]),
+        ),
+      );
+    } catch {
+      setProjectsError('Failed to load projects from server.');
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    async function loadPeople() {
+      if (!token || !canCreateProject) {
+        setManagers([]);
+        setSalesReps([]);
+        return;
+      }
+
+      setPeopleError(null);
+      try {
+        if (isAdmin) {
+          const [managerData, userData] = await Promise.all([listManagers(token), listUsers(token)]);
+          const managerUsers: UserListItem[] = managerData.map((manager) => ({
+            id: manager.id,
+            email: manager.email,
+            firstName: manager.firstName,
+            lastName: manager.lastName,
+            role: 'MANAGER',
+            managerId: null,
+            isActive: true,
+            createdAt: new Date(0).toISOString(),
+            manager: null,
+          }));
+          setManagers(managerUsers);
+          setSalesReps(userData.filter((entry) => entry.role === 'SALES_REP'));
+          return;
+        }
+
+        const teamData: TeamMember[] = await listMyTeam(token);
+        setManagers(
+          user
+            ? [
+                {
+                  id: user.id,
+                  email: user.email,
+                  firstName: user.firstName ?? '',
+                  lastName: user.lastName ?? '',
+                  role: 'MANAGER',
+                  managerId: null,
+                  isActive: true,
+                  createdAt: new Date(0).toISOString(),
+                  manager: null,
+                },
+              ]
+            : [],
+        );
+        setSalesReps(
+          teamData.map((entry) => ({
+            id: entry.id,
+            email: entry.email,
+            firstName: entry.firstName,
+            lastName: entry.lastName,
+            role: entry.role,
+            managerId: entry.managerId,
+            isActive: true,
+            createdAt: new Date(0).toISOString(),
+            manager: null,
+          })),
+        );
+      } catch {
+        setPeopleError('Could not load managers/reps for assignment.');
+      }
+    }
+
+    loadPeople();
+  }, [token, canCreateProject, isAdmin, isManager, user]);
+
+  useEffect(() => {
+    if (!token) {
+      setItems([]);
+      setAssignments({});
+      setProjectsLoading(false);
+      return;
+    }
+    void refreshProjects(token);
+  }, [token]);
+
+  function onDrop(stage: Stage) {
+    if (!dragging) return;
+    const dragged = items.find((item) => item.id === dragging);
+    if (!dragged) {
+      setDragging(null);
+      return;
+    }
+    requestStageChange(dragged, stage);
+    setDragging(null);
+  }
+
+  function requestStageChange(project: PipelineProject, stage: Stage) {
+    if (requiresCommercialDetails(stage)) {
+      setCommercialPrompt({
+        projectId: project.id,
+        targetStage: stage,
+        value: String(project.value > 0 ? project.value : ''),
+        itemName: project.itemName ?? '',
+        itemQuantity: String(project.itemQuantity > 0 ? project.itemQuantity : ''),
+        error: null,
+        saving: false,
+      });
+      return;
+    }
+
+    void persistProjectStageUpdate(project, stage, project.value, project.itemName, project.itemQuantity).catch(() => {
+      setProjectsError('Failed to update stage. Please retry.');
+    });
+  }
+
+  function closeCommercialPrompt() {
+    setCommercialPrompt(null);
+    setDragging(null);
+  }
+
+  async function submitCommercialPrompt() {
+    if (!commercialPrompt) return;
+    const project = items.find((item) => item.id === commercialPrompt.projectId);
+    if (!project) {
+      closeCommercialPrompt();
+      return;
+    }
+
+    const nextValue = Number(commercialPrompt.value);
+    const nextItemName = commercialPrompt.itemName.trim();
+    const nextItemQuantity = Number(commercialPrompt.itemQuantity);
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      setCommercialPrompt((prev) => (prev ? { ...prev, error: 'Value must be greater than 0.' } : prev));
+      return;
+    }
+    if (!Number.isFinite(nextItemQuantity) || nextItemQuantity <= 0) {
+      setCommercialPrompt((prev) =>
+        prev ? { ...prev, error: 'Item quantity must be greater than 0.' } : prev,
+      );
+      return;
+    }
+    if (!nextItemName) {
+      setCommercialPrompt((prev) =>
+        prev ? { ...prev, error: 'Item name is required.' } : prev,
+      );
+      return;
+    }
+
+    setCommercialPrompt((prev) => (prev ? { ...prev, error: null, saving: true } : prev));
+    try {
+      await persistProjectStageUpdate(
+        project,
+        commercialPrompt.targetStage,
+        nextValue,
+        nextItemName,
+        Math.round(nextItemQuantity),
+      );
+      closeCommercialPrompt();
+    } catch {
+      setCommercialPrompt((prev) =>
+        prev ? { ...prev, saving: false, error: 'Failed to update stage. Please retry.' } : prev,
+      );
+    }
+  }
+
+  function openCreateForm() {
+    if (!canCreateProject) return;
+    setEditingId(null);
+    setFormError(null);
+    setLocationQuery('');
+    setLocationSearchError(null);
+    setForm({
+      ...EMPTY_FORM,
+      managerId: isManager && user?.id ? user.id : '',
+    });
+    setIsFormOpen(true);
+  }
+
+  function openEditForm(project: PipelineProject) {
+    if (!canCreateProject) return;
+    const existing = assignments[project.id];
+    setEditingId(project.id);
+    setFormError(null);
+    setLocationQuery(project.city);
+    setLocationSearchError(null);
+    setForm({
+      name: project.name,
+      city: project.city,
+      country: project.country,
+      developer: project.developer,
+      value: String(project.value),
+      itemName: project.itemName ?? '',
+      itemQuantity: String(project.itemQuantity),
+      lat: String(project.lat),
+      lng: String(project.lng),
+      stage: project.stage,
+      probability: String(project.probability),
+      competitor: project.competitor ?? '',
+      managerId: existing?.managerId ?? (isManager && user?.id ? user.id : ''),
+      salesRepIds: existing?.salesRepIds ?? [],
+    });
+    setIsFormOpen(true);
+  }
+
+  function closeForm() {
+    setIsFormOpen(false);
+    setEditingId(null);
+    setFormError(null);
+    setLocationQuery('');
+    setLocationSearchError(null);
+    setForm({
+      ...EMPTY_FORM,
+      managerId: isManager && user?.id ? user.id : '',
+    });
+  }
+
+  function toggleSalesRep(repId: string) {
+    setForm((prev) => ({
+      ...prev,
+      salesRepIds: prev.salesRepIds.includes(repId)
+        ? prev.salesRepIds.filter((id) => id !== repId)
+        : [...prev.salesRepIds, repId],
+    }));
+  }
+
+  function pickLocationFromMap(lat: number, lng: number) {
+    setLocationSearchError(null);
+    setForm((prev) => ({
+      ...prev,
+      lat: lat.toFixed(5),
+      lng: lng.toFixed(5),
+    }));
+  }
+
+  async function searchLocation() {
+    const query = locationQuery.trim();
+    if (!query) {
+      setLocationSearchError('Enter a place to search.');
+      return;
+    }
+
+    setLocationSearchLoading(true);
+    setLocationSearchError(null);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&accept-language=en&q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            Accept: 'application/json',
+          },
+        },
+      );
+      if (!response.ok) {
+        throw new Error('Location lookup failed');
+      }
+      const results = (await response.json()) as Array<{ lat: string; lon: string; display_name?: string }>;
+      const first = results[0] ?? null;
+      if (!first) {
+        setLocationSearchError('No location found. Try city, address, or country name.');
+        setFormError(null);
+        return;
+      }
+      const lat = Number(first.lat);
+      const lng = Number(first.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        setLocationSearchError('Location result is invalid.');
+        setFormError(null);
+        return;
+      }
+      pickLocationFromMap(lat, lng);
+      if (first.display_name) {
+        setLocationQuery(first.display_name.split(',')[0] ?? first.display_name);
+      }
+    } catch {
+      setLocationSearchError('Unable to search location right now.');
+    } finally {
+      setLocationSearchLoading(false);
+    }
+  }
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!canCreateProject) return;
+    if (!token) {
+      setFormError('Session expired. Please login again.');
+      return;
+    }
+    setFormError(null);
+
+    const name = form.name.trim();
+    const city = form.city.trim();
+    const country = form.country.trim();
+    const developer = form.developer.trim();
+    const value = Number(form.value);
+    const itemName = form.itemName.trim();
+    const itemQuantity = Number(form.itemQuantity);
+    const lat = Number(form.lat);
+    const lng = Number(form.lng);
+    const hasProbability = form.probability.trim() !== '';
+    const probability = Math.max(0, Math.min(100, Number(form.probability)));
+    const normalizedItemName = itemName;
+    const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
+    const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
+    const managerId = managerForForm;
+    const salesRepNames = selectedReps.map((rep) => `${rep.firstName} ${rep.lastName}`.trim()).filter(Boolean);
+
+    if (!name || !city || !country || !developer) {
+      setFormError('Fill project name, city, country, and developer.');
+      return;
+    }
+    if (!Number.isFinite(value) || value <= 0) {
+      setFormError('Project value must be greater than 0.');
+      return;
+    }
+    if (requiresCommercialDetails(form.stage) && (!Number.isFinite(itemQuantity) || itemQuantity <= 0)) {
+      setFormError('Item quantity is required for Tender stage and later.');
+      return;
+    }
+    if (requiresCommercialDetails(form.stage) && !itemName) {
+      setFormError('Item name is required for Tender stage and later.');
+      return;
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setFormError('Pick a valid map location (latitude/longitude).');
+      return;
+    }
+    if (!hasProbability) {
+      setFormError('Enter win probability.');
+      return;
+    }
+    if (!managerId) {
+      setFormError('Assign a manager to this project.');
+      return;
+    }
+    if (salesRepNames.length === 0) {
+      setFormError('Select at least one sales rep.');
+      return;
+    }
+
+    if (editingProject) {
+      const nextDaysInStage = editingProject.stage === form.stage ? editingProject.daysInStage : 1;
+      try {
+        await updateProjectApi(token, editingProject.id, {
+          name,
+          city,
+          country,
+          developer,
+          stage: form.stage,
+          valueAed: value,
+          itemName: normalizedItemName,
+          itemQuantity: normalizedItemQuantity,
+          lat,
+          lng,
+          probability,
+          daysInStage: nextDaysInStage,
+          competitor: form.competitor.trim() || null,
+          managerId,
+          salesRepIds: selectedReps.map((rep) => rep.id),
+        });
+        await refreshProjects(token);
+        closeForm();
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : 'Failed to update project.');
+      }
+      return;
+    }
+    try {
+      await createProjectApi(token, {
+        name,
+        city,
+        country,
+        developer,
+        stage: form.stage,
+        valueAed: value,
+        itemName: normalizedItemName,
+        itemQuantity: normalizedItemQuantity,
+        lat,
+        lng,
+        probability,
+        daysInStage: 1,
+        competitor: form.competitor.trim() || null,
+        managerId,
+        salesRepIds: selectedReps.map((rep) => rep.id),
+      });
+      await refreshProjects(token);
+      closeForm();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to create project.');
+    }
+  }
+
+  const mobileStageItems = items
+    .filter((project) => project.stage === mobileStage)
+    .filter((project) => {
+      const q = mobileQuery.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        project.name.toLowerCase().includes(q) ||
+        project.city.toLowerCase().includes(q) ||
+        project.developer.toLowerCase().includes(q)
+      );
+    });
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Pipeline"
+        title="Project pipeline"
+        subtitle={`${items.length} deals · ${formatAED(items.reduce((a, b) => a + b.value, 0), true)} total · drag a card across stages`}
+        actions={
+          <>
+            <div className="relative hidden md:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
+              <input className="pl-9 pr-3 h-9 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm placeholder:text-3 w-64" placeholder="Filter projects…" />
+            </div>
+            <Button variant="secondary" size="sm" icon={<Filter className="h-4 w-4" />}>Filters</Button>
+            {canCreateProject && (
+              <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreateForm}>Add project</Button>
+            )}
+          </>
+        }
+      />
+
+      {projectsLoading && <p className="px-4 lg:px-8 pb-2 text-sm text-3">Loading projects...</p>}
+      {projectsError && <p className="px-4 lg:px-8 pb-2 text-sm text-rose-600">{projectsError}</p>}
+      {!projectsLoading && !projectsError && items.length === 0 && (
+        <p className="px-4 lg:px-8 pb-2 text-sm text-3">No projects yet. Create your first project.</p>
+      )}
+
+      <div className="md:hidden px-4 pb-8 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
+            <input
+              value={mobileQuery}
+              onChange={(event) => setMobileQuery(event.target.value)}
+              placeholder="Search in this stage..."
+              className="w-full h-10 pl-9 pr-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+            />
+          </div>
+          {canCreateProject && (
+            <Button variant="primary" size="sm" onClick={openCreateForm} icon={<Plus className="h-4 w-4" />}>
+              Add
+            </Button>
+          )}
+        </div>
+
+        <div className="overflow-x-auto -mx-4 px-4 pb-1">
+          <div className="inline-flex gap-2 min-w-max">
+            {PIPELINE_STAGES.map((stage) => {
+              const count = items.filter((project) => project.stage === stage).length;
+              return (
+                <button
+                  key={`mobile-stage-${stage}`}
+                  type="button"
+                  onClick={() => setMobileStage(stage)}
+                  className={cn(
+                    'h-8 px-3 rounded-full border text-xs font-medium inline-flex items-center gap-1.5',
+                    mobileStage === stage
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-[var(--surface)] text-2 border-[var(--border)]'
+                  )}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', stageDot(stage), mobileStage === stage && 'bg-white')} />
+                  {stageTitle(stage)}
+                  <span className={cn('text-[10px]', mobileStage === stage ? 'text-white/90' : 'text-3')}>{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5">
+          <p className="text-[11px] text-3">Stage value</p>
+          <p className="text-sm font-semibold">{formatAED(totalFor(mobileStage), true)}</p>
+        </div>
+
+        <div className="space-y-2">
+          {mobileStageItems.map((project) => (
+            <article key={`mobile-${project.id}`} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-soft">
+              <div className="flex items-start gap-2">
+                <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
+                  <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2">{project.name}</h4>
+                  <p className="mt-1 text-[11px] text-3 truncate">{project.city} · {project.developer}</p>
+                </Link>
+                <button
+                  onClick={() => openEditForm(project)}
+                  className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                  aria-label={`Edit ${project.name}`}
+                  disabled={!canCreateProject}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <p className="text-base font-bold tracking-tight num-tabular">{formatAED(project.value, true)}</p>
+                <span className="text-[10px] text-3 num-tabular inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3" /> {project.daysInStage}d
+                </span>
+              </div>
+
+              <div className="mt-1.5 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                <div className="h-full bg-brand-600" style={{ width: `${project.probability}%` }} />
+              </div>
+
+              <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px]">
+                <div>
+                  <p className="text-3">Manager</p>
+                  <p className="font-medium truncate">{project.managerName}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-3">Reps</p>
+                  <p className="font-medium">{project.salesRepNames.length}</p>
+                </div>
+              </div>
+
+              <div className="mt-2">
+                <label className="text-[11px] text-3 block mb-1">Move stage</label>
+                <select
+                  value={project.stage}
+                  onChange={(event) => requestStageChange(project, event.target.value as Stage)}
+                  className="h-9 w-full px-2.5 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-xs"
+                >
+                  {PIPELINE_STAGES.map((stage) => (
+                    <option key={`mobile-move-${project.id}-${stage}`} value={stage}>
+                      {stageTitle(stage)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </article>
+          ))}
+          {mobileStageItems.length === 0 && (
+            <div className="text-center py-8 text-xs text-3 border border-dashed border-[var(--border-strong)] rounded-xl">
+              No projects in {stageTitle(mobileStage)}.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="hidden md:block px-4 lg:px-8">
+        <div className="overflow-x-auto -mx-4 lg:-mx-8 px-4 lg:px-8 pb-8">
+          <div className="flex gap-3 min-w-max">
+            {PIPELINE_STAGES.map((stage) => {
+              const cards = items.filter((p) => p.stage === stage);
+              return (
+                <div
+                  key={stage}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => onDrop(stage)}
+                  className="w-[300px] shrink-0 rounded-2xl bg-[var(--surface-2)]/60 border border-[var(--border)] flex flex-col"
+                >
+                  <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cn('h-2 w-2 rounded-full shrink-0', stageDot(stage))} />
+                      <h3 className="text-sm font-semibold tracking-tight truncate">{stageTitle(stage)}</h3>
+                      <Badge tone="neutral" className="!text-[10px]">{cards.length}</Badge>
+                    </div>
+                    <button className="text-3 hover:text-[var(--text)]"><MoreHorizontal className="h-4 w-4" /></button>
+                  </div>
+                  <div className="px-4 pb-2 text-[11px] text-3 num-tabular">
+                    {formatAED(totalFor(stage), true)}
+                  </div>
+
+                  <div className="flex-1 min-h-[200px] p-2 space-y-2">
+                    {cards.map((p) => (
+                      <article
+                        key={p.id}
+                        draggable
+                        onDragStart={() => setDragging(p.id)}
+                        onDragEnd={() => setDragging(null)}
+                        className={cn(
+                          'group surface rounded-xl border border-[var(--border)] p-3 shadow-soft transition-all cursor-grab active:cursor-grabbing',
+                          dragging === p.id ? 'opacity-50' : 'hover:shadow-card hover:-translate-y-0.5',
+                        )}
+                      >
+                        <div className="flex items-start gap-2">
+                          <GripVertical className="h-3.5 w-3.5 text-3 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start gap-2">
+                              <Link href={`/projects/${p.id}`} className="block flex-1 min-w-0">
+                                <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2 group-hover:text-brand-600 transition-colors">
+                                  {p.name}
+                                </h4>
+                              </Link>
+                              <button
+                                onClick={() => openEditForm(p)}
+                                className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                                aria-label={`Edit ${p.name}`}
+                                disabled={!canCreateProject}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <p className="mt-1 text-[11px] text-3 truncate">{p.city} · {p.developer}</p>
+                            <div className="mt-2 flex items-center justify-between">
+                              <span className="text-sm font-bold tracking-tight num-tabular">{formatAED(p.value, true)}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-3 truncate max-w-[110px]">
+                                  {p.itemName ? `${p.itemName}: ` : ''}{p.itemQuantity} qty
+                                </span>
+                                <span className="flex items-center gap-1 text-[10px] text-3 num-tabular">
+                                  <Clock className="h-2.5 w-2.5" /> {p.daysInStage}d
+                                </span>
+                              </div>
+                            </div>
+                            <div className="mt-2 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                              <div className="h-full bg-brand-600" style={{ width: `${p.probability}%` }} />
+                            </div>
+                            <div className="mt-2.5 flex items-center justify-between">
+                              <div className="min-w-0">
+                                <p className="text-[10px] text-3">Manager</p>
+                                <p className="text-[11px] font-medium truncate">{p.managerName}</p>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="chip !text-[9px] !px-1.5 !py-0">{p.salesRepNames.length} reps</span>
+                                {p.value > 5_000_000 && <Flame className="h-3 w-3 text-amber-500" />}
+                                {p.competitor && <span className="chip !text-[9px] !px-1.5 !py-0">vs {p.competitor}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                    {cards.length === 0 && (
+                      <div className="text-center py-10 text-[11px] text-3 border border-dashed border-[var(--border-strong)] rounded-xl">
+                        Drop projects here
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {commercialPrompt && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 flex items-center justify-center">
+          <div className="w-full max-w-md surface border border-[var(--border)] rounded-2xl shadow-card p-4">
+            <h2 className="text-base font-semibold tracking-tight">Required before moving stage</h2>
+            <p className="mt-1 text-sm text-2">
+              To move this project to <span className="font-semibold">{stageTitle(commercialPrompt.targetStage)}</span>, provide value and item quantity.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              <input
+                type="number"
+                min={1}
+                value={commercialPrompt.value}
+                onChange={(e) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, value: e.target.value, error: null } : prev))
+                }
+                placeholder="Value (AED)"
+                className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+              />
+              <input
+                type="text"
+                value={commercialPrompt.itemName}
+                onChange={(e) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, itemName: e.target.value, error: null } : prev))
+                }
+                placeholder="Item name"
+                className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+              />
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={commercialPrompt.itemQuantity}
+                onChange={(e) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, itemQuantity: e.target.value, error: null } : prev))
+                }
+                placeholder="Item quantity"
+                className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+              />
+              {commercialPrompt.error && <p className="text-xs text-rose-600">{commercialPrompt.error}</p>}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={closeCommercialPrompt}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => void submitCommercialPrompt()}
+                disabled={commercialPrompt.saving}
+              >
+                {commercialPrompt.saving ? 'Saving...' : 'Save and move'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isFormOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-[min(1400px,100%)] h-[calc(100vh-2rem)] mx-auto surface border border-[var(--border)] rounded-2xl shadow-card flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+              <h2 className="text-base font-semibold tracking-tight">{editingId ? 'Edit project' : 'Add project'}</h2>
+              <button
+                onClick={closeForm}
+                className="h-8 w-8 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                aria-label="Close form"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[430px,1fr]">
+              <div className="min-h-0 overflow-y-auto p-4 space-y-3 border-b xl:border-b-0 xl:border-r border-[var(--border)]">
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Project name"
+                  required
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <input
+                  value={form.city}
+                  onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
+                  placeholder="City"
+                  required
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <input
+                  value={form.developer}
+                  onChange={(e) => setForm((prev) => ({ ...prev, developer: e.target.value }))}
+                  placeholder="Developer"
+                  required
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <input
+                  list="project-country-options"
+                  value={form.country}
+                  onChange={(e) => setForm((prev) => ({ ...prev, country: e.target.value }))}
+                  placeholder="Select or search country"
+                  required
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <datalist id="project-country-options">
+                  {COUNTRIES.map((country) => (
+                    <option key={country} value={country} />
+                  ))}
+                </datalist>
+                <select
+                  value={form.stage}
+                  onChange={(e) => setForm((prev) => ({ ...prev, stage: e.target.value as Stage }))}
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                >
+                  {PIPELINE_STAGES.map((stage) => (
+                    <option key={stage} value={stage}>
+                      {stageTitle(stage)}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  value={form.value}
+                  onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
+                  placeholder="Value (AED)"
+                  required
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <input
+                  type="text"
+                  value={form.itemName}
+                  onChange={(e) => setForm((prev) => ({ ...prev, itemName: e.target.value }))}
+                  placeholder="Item name"
+                  required={requiresCommercialDetails(form.stage)}
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.itemQuantity}
+                  onChange={(e) => setForm((prev) => ({ ...prev, itemQuantity: e.target.value }))}
+                  placeholder="Item quantity"
+                  required={requiresCommercialDetails(form.stage)}
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                {requiresCommercialDetails(form.stage) && (
+                  <p className="text-[11px] text-amber-600">
+                    Tender stage and later require value, item name, and item quantity.
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    step="any"
+                    value={form.lat}
+                    onChange={(e) => setForm((prev) => ({ ...prev, lat: e.target.value }))}
+                    placeholder="Latitude"
+                    required
+                    className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  />
+                  <input
+                    type="number"
+                    step="any"
+                    value={form.lng}
+                    onChange={(e) => setForm((prev) => ({ ...prev, lng: e.target.value }))}
+                    placeholder="Longitude"
+                    required
+                    className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  />
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.probability}
+                  onChange={(e) => setForm((prev) => ({ ...prev, probability: e.target.value }))}
+                  placeholder="Probability (%)"
+                  required
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <input
+                  value={form.competitor}
+                  onChange={(e) => setForm((prev) => ({ ...prev, competitor: e.target.value }))}
+                  placeholder="Competitor (optional)"
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                />
+                <select
+                  value={managerForForm}
+                  onChange={(e) => setForm((prev) => ({ ...prev, managerId: e.target.value, salesRepIds: [] }))}
+                  disabled={isManager}
+                  required
+                  className={cn(
+                    'h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full',
+                    isManager && 'opacity-70 cursor-not-allowed',
+                  )}
+                >
+                  <option value="">{isManager ? 'Your manager profile' : 'Assign manager'}</option>
+                  {managers.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.firstName} {entry.lastName}
+                    </option>
+                  ))}
+                </select>
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                  <p className="text-xs font-semibold mb-2">Assign sales reps</p>
+                  {repsForSelectedManager.length === 0 ? (
+                    <p className="text-xs text-3">No sales reps found under this manager.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {repsForSelectedManager.map((rep) => {
+                        const checked = form.salesRepIds.includes(rep.id);
+                        return (
+                          <label
+                            key={rep.id}
+                            className={cn(
+                              'flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer border',
+                              checked
+                                ? 'border-brand-600/50 bg-brand-600/10 text-[var(--text)]'
+                                : 'border-[var(--border)] hover:bg-[var(--surface)]',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-brand-600"
+                              checked={checked}
+                              onChange={() => toggleSalesRep(rep.id)}
+                            />
+                            <span>{rep.firstName} {rep.lastName}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {peopleError && <p className="text-xs text-rose-600">{peopleError}</p>}
+                {formError && <p className="text-xs text-rose-600">{formError}</p>}
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <Button type="button" variant="secondary" size="sm" onClick={closeForm}>Cancel</Button>
+                  <Button type="submit" variant="primary" size="sm">{editingId ? 'Save changes' : 'Create project'}</Button>
+                </div>
+              </div>
+
+              <div className="min-h-0 p-4 flex flex-col">
+                <div className="mb-2 flex gap-2">
+                  <input
+                    value={locationQuery}
+                    onChange={(e) => setLocationQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void searchLocation();
+                      }
+                    }}
+                    placeholder="Search place or address"
+                    className="h-9 flex-1 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void searchLocation()}
+                    disabled={locationSearchLoading}
+                  >
+                    {locationSearchLoading ? 'Searching...' : 'Go'}
+                  </Button>
+                </div>
+                <p className="text-xs text-2 mb-2 inline-flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5" /> Click map or drag marker to set location
+                </p>
+                <div className="flex-1 min-h-[340px] rounded-2xl overflow-hidden border border-[var(--border)]">
+                  <LocationPickerMap
+                    lat={form.lat.trim() === '' ? null : Number(form.lat)}
+                    lng={form.lng.trim() === '' ? null : Number(form.lng)}
+                    onPick={pickLocationFromMap}
+                    heightClassName="h-full"
+                  />
+                </div>
+                {locationSearchError && <p className="mt-2 text-xs text-rose-600">{locationSearchError}</p>}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function stageDot(s: Stage) {
+  return ({
+    'Lead Identified': 'bg-ink-400',
+    'Consultant Contacted': 'bg-sky-500',
+    Specification: 'bg-violet-500',
+    'Sample Submitted': 'bg-indigo-500',
+    Tender: 'bg-amber-500',
+    Negotiation: 'bg-orange-500',
+    Approved: 'bg-teal-500',
+    'PO Expected': 'bg-emerald-500',
+    Won: 'bg-emerald-600',
+    Lost: 'bg-rose-500',
+  } as Record<Stage, string>)[s];
+}
+
+function stageTitle(stage: Stage) {
+  if (stage === 'Lost') return 'Loss';
+  if (stage === 'Won') return 'Win';
+  return stage;
+}
+
+function toPipelineProject(project: ApiProject): PipelineProject {
+  return {
+    id: project.id,
+    name: project.name,
+    city: project.city,
+    country: project.country,
+    developer: project.developer,
+    stage: toStage(project.stage),
+    value: project.valueAed,
+    itemName: project.itemName,
+    itemQuantity: project.itemQuantity,
+    lat: project.lat,
+    lng: project.lng,
+    probability: project.probability,
+    daysInStage: project.daysInStage,
+    competitor: project.competitor,
+    owner: project.owner,
+    managerId: project.managerId,
+    managerName: project.managerName,
+    salesRepIds: project.salesRepIds,
+    salesRepNames: project.salesRepNames,
+    updatedAt: project.updatedAt,
+  };
+}
+
+function toStage(stage: string): Stage {
+  const all = [...PIPELINE_STAGES];
+  return (all.includes(stage as Stage) ? stage : 'Lead Identified') as Stage;
+}

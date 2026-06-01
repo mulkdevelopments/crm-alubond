@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: alubond-crm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alubond_crm
+      POSTGRES_USER: alubond
+      POSTGRES_PASSWORD: alubond
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alubond -d alubond_crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SALES_REP
+  MANAGER
+  REGIONAL_MANAGER
+  CEO
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  firstName    String
+  lastName     String
+  passwordHash String
+  role         UserRole
+  operationLocation String   @default("Not set")
+  regions      String[] @default([])
+  monthlyTarget Float?
+  isActive     Boolean  @default(true)
+
+  managerId String?
+  manager   User?    @relation("ManagerReps", fields: [managerId], references: [id], onDelete: SetNull)
+  reps      User[]   @relation("ManagerReps")
+  regionalManagerId String?
+  regionalManager   User?    @relation("RegionalManagerTeams", fields: [regionalManagerId], references: [id], onDelete: SetNull)
+  regionalTeam      User[]   @relation("RegionalManagerTeams")
+  projects  Project[] @relation("ManagerProjects")
+  ownedFollowUps FollowUp[] @relation("FollowUpOwner")
+  locationPings UserLocationPing[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([managerId])
+  @@index([regionalManagerId])
+}
+
+model Project {
+  id           String   @id @default(cuid())
+  name         String
+  city         String
+  country      String
+  developer    String
+  stage        String
+  valueAed     Float
+  itemName     String   @default("")
+  itemQuantity Int      @default(0)
+  lat          Float
+  lng          Float
+  probability  Int
+  daysInStage  Int
+  competitor   String?
+  owner        String
+
+  managerId    String
+  manager      User     @relation("ManagerProjects", fields: [managerId], references: [id], onDelete: Restrict)
+  managerName  String
+
+  salesRepIds   String[]
+  salesRepNames String[]
+  activities    ProjectActivity[]
+  stakeholders  ProjectStakeholder[]
+  followUps     FollowUp[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([stage])
+  @@index([managerId])
+}
+
+model FollowUp {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceActivityId String?
+  sourceActivity   ProjectActivity? @relation(fields: [sourceActivityId], references: [id], onDelete: SetNull)
+  ownerId     String?
+  owner       User?    @relation("FollowUpOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  contact     String
+  contactRole String
+  dueAt       DateTime
+  channel     String
+  status      String
+  note        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId, dueAt])
+  @@index([ownerId, status])
+  @@index([sourceActivityId])
+}
+
+model ProjectActivity {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type          String
+  message       String
+  visitWhatHappened String?
+  visitLat      Float?
+  visitLng      Float?
+  visitAccuracyM Float?
+  createdById   String?
+  createdByName String?
+  attachments   ProjectActivityAttachment[]
+  followUps     FollowUp[]
+  createdAt     DateTime @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+model ProjectActivityAttachment {
+  id           String   @id @default(cuid())
+  activityId   String
+  activity     ProjectActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  kind         String
+  name         String
+  filename     String
+  size         Int
+  mimeType     String
+  url          String
+  createdById  String?
+  createdByName String?
+  createdAt    DateTime @default(now())
+
+  @@index([activityId, createdAt])
+}
+
+model ProjectStakeholder {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role          String
+  name          String
+  organization  String?
+  email         String?
+  phone         String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  @@index([projectId, role])
+}
+
+model UserLocationPing {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lat        Float
+  lng        Float
+  accuracyM  Float?
+  recordedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId, recordedAt])
+}
