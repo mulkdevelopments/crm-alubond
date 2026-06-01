@@ -4,8 +4,10 @@ const USER_KEY = "alubond_auth_user";
 export type SessionUser = {
   id: string;
   email: string;
-  role: "SALES_REP" | "MANAGER" | "CEO" | "ADMIN";
+  role: "SALES_REP" | "MANAGER" | "REGIONAL_MANAGER" | "CEO" | "ADMIN";
   managerId: string | null;
+  regionalManagerId?: string | null;
+  regions?: string[];
   firstName?: string;
   lastName?: string;
 };

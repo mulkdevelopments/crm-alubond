@@ -239,9 +239,15 @@ export default function PipelinePage() {
             lastName: manager.lastName,
             role: 'MANAGER',
             managerId: null,
+            regionalManagerId: null,
+            regions: [],
+            operationLocation: 'Not set',
+            monthlyTarget: null,
             isActive: true,
             createdAt: new Date(0).toISOString(),
+            lastLocationPingAt: null,
             manager: null,
+            regionalManager: null,
           }));
           setManagers(managerUsers);
           setSalesReps(userData.filter((entry) => entry.role === 'SALES_REP'));
@@ -259,9 +265,15 @@ export default function PipelinePage() {
                   lastName: user.lastName ?? '',
                   role: 'MANAGER',
                   managerId: null,
+                  regionalManagerId: user.regionalManagerId ?? null,
+                  regions: user.regions ?? [],
+                  operationLocation: 'Not set',
+                  monthlyTarget: null,
                   isActive: true,
                   createdAt: new Date(0).toISOString(),
+                  lastLocationPingAt: null,
                   manager: null,
+                  regionalManager: null,
                 },
               ]
             : [],
@@ -274,9 +286,15 @@ export default function PipelinePage() {
             lastName: entry.lastName,
             role: entry.role,
             managerId: entry.managerId,
+            regionalManagerId: null,
+            regions: [],
+            operationLocation: 'Not set',
+            monthlyTarget: null,
             isActive: true,
             createdAt: new Date(0).toISOString(),
+            lastLocationPingAt: null,
             manager: null,
+            regionalManager: null,
           })),
         );
       } catch {

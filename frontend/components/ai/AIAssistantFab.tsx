@@ -7,7 +7,18 @@ import { useAuth } from '@/components/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { askAssistant, type AssistantMessage } from '@/lib/ai-api';
 
-type SpeechRecognitionCtor = new () => SpeechRecognition;
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
 type SpeechRecognitionEvent = Event & {
   results: {
@@ -28,7 +39,7 @@ export function AIAssistantFab() {
   const [listening, setListening] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceEnabledRef = useRef(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {

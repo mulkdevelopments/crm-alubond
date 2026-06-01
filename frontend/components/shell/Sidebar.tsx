@@ -19,7 +19,14 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthContext';
 import { listFollowUps } from '@/lib/followups-api';
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  badge?: string;
+};
+
+const NAV: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/pipeline', label: 'Pipeline', icon: KanbanSquare },
   { href: '/map', label: 'Geo Intel', icon: MapPin },
@@ -32,7 +39,7 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout, token } = useAuth();
   const [followUpBadgeCount, setFollowUpBadgeCount] = useState<number | null>(null);
-  const navItems =
+  const navItems: NavItem[] =
     user?.role === 'ADMIN' ? [...NAV.slice(0, 5), { href: '/users', label: 'Users', icon: UserCog }, ...NAV.slice(5)] : NAV;
   const userName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() || user?.email || 'User';
 

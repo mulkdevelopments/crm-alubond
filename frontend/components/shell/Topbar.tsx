@@ -59,13 +59,14 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       setNotificationsError(null);
       return;
     }
+    const activeToken: string = token;
 
     let cancelled = false;
     async function loadNotifications() {
       setNotificationsLoading(true);
       setNotificationsError(null);
       try {
-        const [followUps, projects] = await Promise.all([listFollowUps(token), listProjects(token)]);
+        const [followUps, projects] = await Promise.all([listFollowUps(activeToken), listProjects(activeToken)]);
         if (cancelled) return;
         const now = Date.now();
         const followUpNotifications: TopbarNotification[] = followUps
@@ -99,7 +100,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
         const activityBuckets = await Promise.all(
           projectsForActivityFeed.map(async (project) => {
             try {
-              const items = await listProjectActivities(token, project.id);
+              const items = await listProjectActivities(activeToken, project.id);
               return items.map((activity) => ({ activity, project }));
             } catch {
               return [] as Array<{
