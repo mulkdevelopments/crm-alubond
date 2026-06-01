@@ -44,7 +44,7 @@ const corsOptions: cors.CorsOptions = {
 app.use(
   cors(corsOptions)
 );
-app.options("*", cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 if (env.FILE_STORAGE_PROVIDER === "local") {
   app.use("/uploads", express.static(uploadsDir));
