@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
 import { useAuth } from '@/components/auth/AuthContext';
 import { PageHeader } from '@/components/shell/PageHeader';
@@ -27,6 +27,7 @@ type SalesRepCard = {
   location: string;
   online: boolean;
   metrics: NodeMetrics;
+  visits: FlatActivity[];
 };
 
 type ManagerCard = {
@@ -35,6 +36,7 @@ type ManagerCard = {
   location: string;
   reps: SalesRepCard[];
   metrics: NodeMetrics;
+  visits: FlatActivity[];
 };
 
 type RegionalCard = {
@@ -43,13 +45,17 @@ type RegionalCard = {
   location: string;
   managers: ManagerCard[];
   metrics: NodeMetrics;
+  visits: FlatActivity[];
 };
 
 type FlatActivity = {
   id: string;
   projectId: string;
   type: ProjectActivity['type'];
+  message: string;
+  visitWhatHappened: string | null;
   createdById: string | null;
+  createdByName: string | null;
   createdAt: string;
 };
 
@@ -61,6 +67,7 @@ export default function TeamPage() {
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [activities, setActivities] = useState<FlatActivity[]>([]);
   const [selectedRegionalId, setSelectedRegionalId] = useState<string | null>(null);
+  const [visitPopup, setVisitPopup] = useState<{ ownerName: string; visits: FlatActivity[] } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -78,7 +85,10 @@ export default function TeamPage() {
                   id: item.id,
                   projectId: item.projectId,
                   type: item.type,
+                  message: item.message,
+                  visitWhatHappened: item.visitWhatHappened,
                   createdById: item.createdById,
+                  createdByName: item.createdByName,
                   createdAt: item.createdAt,
                 })
               );
@@ -100,6 +110,13 @@ export default function TeamPage() {
   }, [token]);
 
   const hierarchy = useMemo(() => buildHierarchy(users, projects, activities), [users, projects, activities]);
+  const projectNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const project of projects) {
+      map.set(project.id, project.name);
+    }
+    return map;
+  }, [projects]);
   const selectedRegional = useMemo(
     () => hierarchy.find((regional) => regional.id === selectedRegionalId) ?? null,
     [hierarchy, selectedRegionalId]
@@ -168,6 +185,7 @@ export default function TeamPage() {
                   location={(card as RegionalCard).location}
                   metrics={card.metrics}
                   topPerformer={card.id === bestPerformerId}
+                  onVisitsClick={() => setVisitPopup({ ownerName: card.name, visits: (card as RegionalCard).visits })}
                   onClick={() => {
                     setSelectedRegionalId(card.id);
                   }}
@@ -181,6 +199,7 @@ export default function TeamPage() {
               location={selectedRegional.location}
               metrics={selectedRegional.metrics}
               topPerformer={selectedRegional.id === bestPerformerId}
+              onVisitsClick={() => setVisitPopup({ ownerName: selectedRegional.name, visits: selectedRegional.visits })}
             />
 
             <div className="space-y-3 border-l border-dashed border-[var(--border)] pl-4 ml-2">
@@ -194,6 +213,7 @@ export default function TeamPage() {
                     location={manager.location}
                     metrics={manager.metrics}
                     topPerformer={false}
+                    onVisitsClick={() => setVisitPopup({ ownerName: manager.name, visits: manager.visits })}
                   />
                   <div className="space-y-2 border-l border-dashed border-[var(--border)] pl-4 ml-2">
                     {manager.reps.length === 0 ? (
@@ -210,6 +230,7 @@ export default function TeamPage() {
                             metrics={rep.metrics}
                             topPerformer={false}
                             online={rep.online}
+                            onVisitsClick={() => setVisitPopup({ ownerName: rep.name, visits: rep.visits })}
                           />
                         </div>
                       ))
@@ -221,6 +242,50 @@ export default function TeamPage() {
           </div>
         ) : null}
       </section>
+
+      {visitPopup && (
+        <div className="fixed inset-0 z-[90] bg-black/55 px-4 py-8 overflow-y-auto" onClick={() => setVisitPopup(null)}>
+          <div
+            className="mx-auto w-full max-w-2xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 md:p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold">{visitPopup.ownerName} · Visit details</h3>
+                <p className="text-xs text-3 mt-0.5">{visitPopup.visits.length} total visit record(s)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVisitPopup(null)}
+                className="h-8 px-3 rounded-lg border border-[var(--border)] text-xs"
+              >
+                Close
+              </button>
+            </div>
+
+            {visitPopup.visits.length === 0 ? (
+              <p className="text-sm text-3 mt-4">No visits recorded.</p>
+            ) : (
+              <div className="mt-4 space-y-2.5">
+                {[...visitPopup.visits]
+                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                  .map((visit) => (
+                    <article key={visit.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium truncate">{projectNameById.get(visit.projectId) ?? 'Project'}</p>
+                        <span className="text-[11px] text-3">{new Date(visit.createdAt).toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs text-3 mt-1">By: {visit.createdByName ?? 'Unknown user'}</p>
+                      <p className="text-sm mt-2 whitespace-pre-wrap break-words">
+                        {visit.visitWhatHappened?.trim() || visit.message?.trim() || 'No visit note provided.'}
+                      </p>
+                    </article>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -232,6 +297,7 @@ function PerformanceCard({
   topPerformer,
   online,
   onClick,
+  onVisitsClick,
 }: {
   name: string;
   location: string;
@@ -239,8 +305,13 @@ function PerformanceCard({
   topPerformer: boolean;
   online?: boolean;
   onClick?: () => void;
+  onVisitsClick?: () => void;
 }) {
   const accent = metrics.attainmentPct >= 100 ? 'bg-emerald-400' : metrics.attainmentPct >= 75 ? 'bg-amber-400' : 'bg-rose-500';
+  const handleVisitsClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onVisitsClick?.();
+  };
   return (
     <article
       onClick={onClick}
@@ -280,14 +351,28 @@ function PerformanceCard({
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
         <Stat label="Pipeline" value={formatAED(metrics.pipelineAed, true)} />
-        <Stat label="Visits/wk" value={metrics.visitsWeek} />
+        <Stat label="Visits/wk" value={metrics.visitsWeek} onClick={handleVisitsClick} />
         <Stat label="Convert" value={`${metrics.conversionPct}%`} />
       </div>
     </article>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
+function Stat({ label, value, onClick }: { label: string; value: string | number; onClick?: (event: MouseEvent<HTMLButtonElement>) => void }) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-lg px-1 py-1.5 hover:bg-white/10 transition-colors"
+        title="View visit details"
+      >
+        <p className="text-[10px] uppercase tracking-widest text-white/45">{label}</p>
+        <p className="mt-1 text-sm font-semibold num-tabular">{value}</p>
+      </button>
+    );
+  }
+
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-white/45">{label}</p>
@@ -335,6 +420,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
           location: rep.operationLocation,
           online: isLive(rep.lastLocationPingAt, rep.isActive),
           metrics: computeMetrics(repProjects, rep.monthlyTarget, repVisits),
+          visits: repVisits,
         };
       });
       const targetFromReps = repCards.reduce((sum, rep) => sum + rep.metrics.targetAed, 0);
@@ -344,6 +430,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
         location: manager.operationLocation,
         reps: repCards,
         metrics: computeMetrics(managerProjects, targetFromReps || manager.monthlyTarget, managerVisits),
+        visits: managerVisits,
       };
     });
 
@@ -358,6 +445,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       location: regional.regions.join(', ') || regional.operationLocation || 'Regional coverage',
       managers: managerCards,
       metrics: computeMetrics(regionalProjects, targetFromManagers || regional.monthlyTarget, regionalVisits),
+      visits: regionalVisits,
     };
   });
 }
