@@ -482,7 +482,7 @@ apiRouter.get("/projects", authenticate, async (req, res) => {
 
 apiRouter.get("/projects/:projectId", authenticate, async (req, res) => {
   const scope = projectScopeForUser(req.user!);
-  const project = await getProjectById(req.params.projectId, scope);
+  const project = await getProjectById(req.params.projectId as string, scope);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -581,7 +581,7 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     res.status(403).json({ message: "Only managers/admins can update projects" });
     return;
   }
-  if (!(await canAccessProjectById(req.user, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
@@ -614,7 +614,7 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     return;
   }
 
-  const project = await updateProject(req.params.projectId, {
+  const project = await updateProject(req.params.projectId as string, {
     ...payload,
     itemName,
     owner: assignees.salesRepNames[0] ?? assignees.managerName,
@@ -638,20 +638,20 @@ apiRouter.get("/projects/:projectId/activities", authenticate, async (req, res) 
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
 
   const items = await activityModel.findMany({
-    where: { projectId: req.params.projectId },
+    where: { projectId: req.params.projectId as string },
     orderBy: { createdAt: "desc" },
     include: {
       attachments: {
@@ -681,14 +681,14 @@ apiRouter.post("/projects/:projectId/activities", authenticate, async (req, res)
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
@@ -702,7 +702,7 @@ apiRouter.post("/projects/:projectId/activities", authenticate, async (req, res)
 
   const activity = await activityModel.create({
     data: {
-      projectId: req.params.projectId,
+      projectId: req.params.projectId as string,
       type: parsed.data.type,
       message: parsed.data.message,
       visitWhatHappened:
@@ -777,7 +777,7 @@ apiRouter.post("/projects/:projectId/activities", authenticate, async (req, res)
 
     await followUpModel.create({
       data: {
-        projectId: req.params.projectId,
+        projectId: req.params.projectId as string,
         sourceActivityId: activity.id as string,
         ownerId: req.user!.id,
         contact: resolvedContact,
@@ -812,20 +812,20 @@ apiRouter.patch("/projects/:projectId/activities/:activityId", authenticate, asy
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
 
   const existing = await activityModel.findUnique({
-    where: { id: req.params.activityId },
+    where: { id: req.params.activityId as string },
     include: {
       attachments: {
         orderBy: { createdAt: "asc" }
@@ -837,7 +837,7 @@ apiRouter.patch("/projects/:projectId/activities/:activityId", authenticate, asy
     return;
   }
 
-  if (existing.projectId !== req.params.projectId) {
+  if (existing.projectId !== (req.params.projectId as string)) {
     res.status(400).json({ message: "Activity does not belong to this project" });
     return;
   }
@@ -852,7 +852,7 @@ apiRouter.patch("/projects/:projectId/activities/:activityId", authenticate, asy
   }
 
   const updated = await activityModel.update({
-    where: { id: req.params.activityId },
+    where: { id: req.params.activityId as string },
     data: {
       type: parsed.data.type,
       message: parsed.data.message,
@@ -891,20 +891,20 @@ apiRouter.delete("/projects/:projectId/activities/:activityId", authenticate, as
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
 
   const activity = await activityModel.findUnique({
-    where: { id: req.params.activityId },
+    where: { id: req.params.activityId as string },
     select: { id: true, projectId: true, createdById: true }
   }) as { id: string; projectId: string; createdById: string | null } | null;
   if (!activity) {
@@ -912,7 +912,7 @@ apiRouter.delete("/projects/:projectId/activities/:activityId", authenticate, as
     return;
   }
 
-  if (activity.projectId !== req.params.projectId) {
+  if (activity.projectId !== (req.params.projectId as string)) {
     res.status(400).json({ message: "Activity does not belong to this project" });
     return;
   }
@@ -928,10 +928,10 @@ apiRouter.delete("/projects/:projectId/activities/:activityId", authenticate, as
   }
 
   await followUpModel.deleteMany({
-    where: { sourceActivityId: req.params.activityId }
+    where: { sourceActivityId: req.params.activityId as string }
   });
   await activityModel.delete({
-    where: { id: req.params.activityId }
+    where: { id: req.params.activityId as string }
   });
   res.status(204).send();
 });
@@ -944,20 +944,20 @@ apiRouter.get("/projects/:projectId/stakeholders", authenticate, async (req, res
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
 
   const items = await stakeholderModel.findMany({
-    where: { projectId: req.params.projectId },
+    where: { projectId: req.params.projectId as string },
     orderBy: { createdAt: "desc" }
   });
   res.status(200).json({ items });
@@ -977,14 +977,14 @@ apiRouter.post("/projects/:projectId/stakeholders", authenticate, async (req, re
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
@@ -999,7 +999,7 @@ apiRouter.post("/projects/:projectId/stakeholders", authenticate, async (req, re
 
   const stakeholder = await stakeholderModel.create({
     data: {
-      projectId: req.params.projectId,
+      projectId: req.params.projectId as string,
       role: payload.role,
       name: payload.name,
       organization: payload.organization ?? null,
@@ -1027,29 +1027,29 @@ apiRouter.patch("/projects/:projectId/stakeholders/:stakeholderId", authenticate
   }
 
   const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId },
+    where: { id: req.params.projectId as string },
     select: { id: true }
   });
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
   }
-  if (!(await canAccessProjectById(req.user!, req.params.projectId))) {
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
 
   const existing = await stakeholderModel.findUnique({
-    where: { id: req.params.stakeholderId }
+    where: { id: req.params.stakeholderId as string }
   });
-  if (!existing || existing.projectId !== req.params.projectId) {
+  if (!existing || existing.projectId !== (req.params.projectId as string)) {
     res.status(404).json({ message: "Stakeholder not found" });
     return;
   }
 
   const payload = parsed.data;
   const stakeholder = await stakeholderModel.update({
-    where: { id: req.params.stakeholderId },
+    where: { id: req.params.stakeholderId as string },
     data: {
       role: payload.role,
       name: payload.name,
@@ -1164,7 +1164,7 @@ apiRouter.patch("/follow-ups/:followUpId", authenticate, async (req, res) => {
     return;
   }
   const existing = await prisma.followUp.findUnique({
-    where: { id: req.params.followUpId },
+    where: { id: req.params.followUpId as string },
     select: { id: true, projectId: true },
   });
   if (!existing) {
@@ -1178,7 +1178,7 @@ apiRouter.patch("/follow-ups/:followUpId", authenticate, async (req, res) => {
 
   const payload = parsed.data;
   const followUp = await followUpModel.update({
-    where: { id: req.params.followUpId },
+    where: { id: req.params.followUpId as string },
     data: {
       dueAt: payload.dueAt ? new Date(payload.dueAt) : undefined,
       channel: payload.channel,

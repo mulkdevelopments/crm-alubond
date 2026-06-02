@@ -237,7 +237,7 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
   const email = payload.email.toLowerCase();
 
   const existing = await prisma.user.findUnique({
-    where: { id: req.params.userId },
+    where: { id: req.params.userId as string },
     select: { id: true, email: true, role: true, passwordHash: true }
   });
   if (!existing) {
@@ -596,7 +596,8 @@ usersRouter.get("/:userId/location-attendance", authorize(UserRole.ADMIN, UserRo
     return;
   }
 
-  const access = await canAccessUser(req.user!.id, req.user!.role, req.params.userId);
+  const userId = req.params.userId as string;
+  const access = await canAccessUser(req.user!.id, req.user!.role, userId);
   if (!access) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
@@ -608,14 +609,20 @@ usersRouter.get("/:userId/location-attendance", authorize(UserRole.ADMIN, UserRo
     return;
   }
 
-  const [year, month] = parsed.data.month.split("-").map(Number);
+  const [yearPart, monthPart] = parsed.data.month.split("-").map(Number);
+  const year = yearPart ?? NaN;
+  const month = monthPart ?? NaN;
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    res.status(400).json({ message: "Invalid month format. Use YYYY-MM" });
+    return;
+  }
   const tzOffsetMinutes = parsed.data.tzOffsetMinutes ?? 0;
   const start = localBoundaryToUtc(year, month - 1, 1, tzOffsetMinutes);
   const end = localBoundaryToUtc(year, month, 1, tzOffsetMinutes);
 
   const pings = await locationModel.findMany({
     where: {
-      userId: req.params.userId,
+      userId,
       recordedAt: {
         gte: start,
         lt: end
@@ -658,7 +665,8 @@ usersRouter.get("/:userId/location-route", authorize(UserRole.ADMIN, UserRole.RE
     return;
   }
 
-  const access = await canAccessUser(req.user!.id, req.user!.role, req.params.userId);
+  const userId = req.params.userId as string;
+  const access = await canAccessUser(req.user!.id, req.user!.role, userId);
   if (!access) {
     res.status(403).json({ message: "Forbidden for your role" });
     return;
@@ -670,13 +678,20 @@ usersRouter.get("/:userId/location-route", authorize(UserRole.ADMIN, UserRole.RE
     return;
   }
 
-  const [year, month, day] = parsed.data.date.split("-").map(Number);
+  const [yearPart, monthPart, dayPart] = parsed.data.date.split("-").map(Number);
+  const year = yearPart ?? NaN;
+  const month = monthPart ?? NaN;
+  const day = dayPart ?? NaN;
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    res.status(400).json({ message: "Invalid date format. Use YYYY-MM-DD" });
+    return;
+  }
   const tzOffsetMinutes = parsed.data.tzOffsetMinutes ?? 0;
   const start = localBoundaryToUtc(year, month - 1, day, tzOffsetMinutes);
   const nextDayStart = localBoundaryToUtc(year, month - 1, day + 1, tzOffsetMinutes);
 
   const targetUser = await prisma.user.findUnique({
-    where: { id: req.params.userId },
+    where: { id: userId },
     select: { id: true, role: true }
   });
   if (!targetUser) {
@@ -696,7 +711,7 @@ usersRouter.get("/:userId/location-route", authorize(UserRole.ADMIN, UserRole.RE
   const [pings, projects] = await Promise.all([
     locationModel.findMany({
       where: {
-        userId: req.params.userId,
+        userId,
         recordedAt: {
           gte: start,
           lt: nextDayStart
@@ -710,9 +725,19 @@ usersRouter.get("/:userId/location-route", authorize(UserRole.ADMIN, UserRole.RE
     })
   ]);
 
-  const visits = projects
+  const geocodedProjects = projects.filter(
+    (project): project is (typeof projects)[number] & { lat: number; lng: number } =>
+      typeof project.lat === "number" && typeof project.lng === "number"
+  );
+
+  const visits = geocodedProjects
     .map((project) => {
-      const nearPing = pings.find((ping) => haversineMeters(ping.lat, ping.lng, project.lat, project.lng) <= 500);
+      const nearPing = pings.find(
+        (ping) =>
+          typeof ping.lat === "number" &&
+          typeof ping.lng === "number" &&
+          haversineMeters(ping.lat, ping.lng, project.lat, project.lng) <= 500
+      );
       if (!nearPing) return null;
       return {
         projectId: project.id,
@@ -732,7 +757,7 @@ usersRouter.get("/:userId/location-route", authorize(UserRole.ADMIN, UserRole.RE
       recordedAt: ping.recordedAt.toISOString()
     })),
     siteVisits: visits,
-    assignedProjects: projects.map((project) => ({
+    assignedProjects: geocodedProjects.map((project) => ({
       projectId: project.id,
       projectName: project.name,
       lat: project.lat,
