@@ -35,6 +35,12 @@ const corsOptions: cors.CorsOptions = {
       return;
     }
 
+    // Allow company-hosted frontend domains.
+    if (origin === "https://uniqube.build" || origin.endsWith(".uniqube.build")) {
+      callback(null, true);
+      return;
+    }
+
     callback(new Error("CORS origin not allowed"));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
