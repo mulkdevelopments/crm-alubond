@@ -132,7 +132,7 @@ export default function FollowUpsPage() {
         <Bucket count={grouped.upcoming.length} title="Upcoming" subtitle="Next 7 days" tone="success" icon={<Calendar className="h-5 w-5" />} />
       </section>
 
-      <section className="px-4 lg:px-8 grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <section className="px-4 lg:px-8 grid grid-cols-1 lg:grid-cols-3 gap-4 lg:items-start">
         <div className="lg:col-span-2 space-y-4">
           {loading ? (
             <Card className="p-5"><p className="text-sm text-3">Loading follow-ups...</p></Card>
@@ -147,7 +147,7 @@ export default function FollowUpsPage() {
           {error && <p className="text-sm text-rose-600 px-1">{error}</p>}
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 lg:sticky lg:top-20">
           <Card>
             <CardHeader title="Live summary" subtitle="Real-time follow-up workload" />
             <div className="px-5 pb-5">
@@ -279,9 +279,9 @@ function FollowUpList({
           </span>
         }
       />
-      <ul className="divide-y divide-[var(--border)]">
+      <ul className="p-4 space-y-3">
         {items.map((f) => (
-          <li key={f.id} className="px-5 py-4 hover:bg-[var(--surface-2)]/60 transition-colors">
+          <li key={f.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/40 p-3 hover:bg-[var(--surface-2)]/70 transition-colors">
             {(() => {
               const details = parseFollowUpNote(f.note);
               const phone = details.phone;
@@ -293,16 +293,27 @@ function FollowUpList({
                 <div className="flex items-start gap-3">
                   <Avatar name={f.contact} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold tracking-tight truncate">{f.contact}</p>
-                      <span className="text-[10px] text-3">·</span>
-                      <span className="text-[11px] text-2">{f.contactRole}</span>
-                      <Badge tone="neutral" className="!text-[10px]">{f.channel}</Badge>
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold tracking-tight truncate">{f.contact}</p>
+                          <span className="text-[10px] text-3">·</span>
+                          <span className="text-[11px] text-2">{f.contactRole}</span>
+                          <Badge tone="neutral" className="!text-[10px]">{f.channel}</Badge>
+                        </div>
+                        <Link href={`/projects/${f.projectId}`} className="text-xs text-3 hover:text-brand-600 transition-colors inline-flex items-center gap-1 mt-0.5">
+                          <MapPinIcon className="h-2.5 w-2.5" /> {f.projectName}
+                        </Link>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-[11px] text-3">{relativeTime(f.dueAt)}</p>
+                        <p className="text-[10px] text-3 mt-0.5">{new Date(f.dueAt).toLocaleString('en-AE')}</p>
+                        <p className="text-[10px] text-3 mt-0.5 truncate max-w-[150px]">{f.ownerName ?? 'Unassigned'}</p>
+                      </div>
                     </div>
-                    <Link href={`/projects/${f.projectId}`} className="text-xs text-3 hover:text-brand-600 transition-colors inline-flex items-center gap-1 mt-0.5">
-                      <MapPinIcon className="h-2.5 w-2.5" /> {f.projectName}
-                    </Link>
-                    <p className="mt-2 text-sm text-2 whitespace-pre-line">{details.summary}</p>
+                    <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
+                      <p className="text-sm text-2 whitespace-pre-line">{details.summary}</p>
+                    </div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {phone && <Badge tone="neutral" className="!text-[10px]">Phone</Badge>}
                       {email && <Badge tone="neutral" className="!text-[10px]">Email</Badge>}
@@ -335,12 +346,7 @@ function FollowUpList({
                         ))}
                       </div>
                     )}
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-[11px] text-3">{relativeTime(f.dueAt)}</p>
-                    <p className="text-[10px] text-3 mt-0.5">{new Date(f.dueAt).toLocaleString('en-AE')}</p>
-                    <p className="text-[10px] text-3 mt-0.5 truncate max-w-[140px]">{f.ownerName ?? 'Unassigned'}</p>
-                    <div className="mt-2 flex items-center gap-1">
+                    <div className="mt-3 flex items-center justify-end gap-1">
                       {phone && (
                         <Button
                           type="button"

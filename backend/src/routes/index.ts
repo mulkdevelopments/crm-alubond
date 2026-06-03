@@ -26,26 +26,21 @@ const activityAttachmentUpload = multer({
 const projectPayloadSchema = z.object({
   name: z.string().min(1),
   city: z.string().min(1),
-  country: z.string().min(1),
-  developer: z.string().min(1),
+  country: z.string().optional().default(""),
+  developer: z.string().optional().default(""),
+  businessDivision: z.enum(["alubond architecture", "alubond transport", "uniqube"]).nullable().optional(),
   stage: z.string().min(1),
-  valueAed: z.number().positive(),
-  itemName: z.string().trim().max(120),
-  itemQuantity: z.number().int().min(0),
-  lat: z.number().gte(-90).lte(90),
-  lng: z.number().gte(-180).lte(180),
-  probability: z.number().min(0).max(100),
-  daysInStage: z.number().int().min(0),
-  competitor: z.string().min(1).nullable(),
+  valueAed: z.number().min(0).optional().default(0),
+  itemName: z.string().trim().max(120).optional().default(""),
+  itemQuantity: z.number().int().min(0).optional().default(0),
+  lat: z.number().gte(-90).lte(90).optional().default(0),
+  lng: z.number().gte(-180).lte(180).optional().default(0),
+  probability: z.number().min(0).max(100).optional().default(0),
+  daysInStage: z.number().int().min(0).optional().default(1),
+  competitor: z.string().nullable().optional().default(null),
   managerId: z.string().cuid().or(z.string().uuid()),
   salesRepIds: z.array(z.string().cuid().or(z.string().uuid())).min(1)
 });
-
-const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Expected", "Won", "Lost"]);
-
-function requiresCommercialDetails(stage: string) {
-  return tenderOrLaterStages.has(stage);
-}
 
 function projectScopeForUser(user: { id: string; role: UserRole }): Prisma.ProjectWhereInput | undefined {
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
@@ -201,6 +196,7 @@ function projectStakeholderDelegate(): {
       phone: string | null;
     };
   }) => Promise<unknown>;
+  delete: (args: { where: { id: string } }) => Promise<unknown>;
 } | null {
   const delegate = (prisma as unknown as { projectStakeholder?: unknown }).projectStakeholder;
   if (!delegate || typeof delegate !== "object") {
@@ -231,15 +227,17 @@ function projectStakeholderDelegate(): {
         phone: string | null;
       };
     }) => Promise<unknown>;
+    delete?: (args: { where: { id: string } }) => Promise<unknown>;
   };
-  if (!candidate.findMany || !candidate.findUnique || !candidate.create || !candidate.update) {
+  if (!candidate.findMany || !candidate.findUnique || !candidate.create || !candidate.update || !candidate.delete) {
     return null;
   }
   return {
     findMany: candidate.findMany,
     findUnique: candidate.findUnique,
     create: candidate.create,
-    update: candidate.update
+    update: candidate.update,
+    delete: candidate.delete
   };
 }
 
@@ -545,15 +543,6 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
   const payload = parsed.data;
 
   const itemName = payload.itemName.trim();
-  if (requiresCommercialDetails(payload.stage) && !itemName) {
-    res.status(400).json({ message: "Item name is required for Tender stage and later." });
-    return;
-  }
-  if (requiresCommercialDetails(payload.stage) && payload.itemQuantity <= 0) {
-    res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
-    return;
-  }
-
   if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
     res.status(403).json({ message: "Managers can only assign projects to themselves" });
     return;
@@ -567,6 +556,7 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
 
   const project = await createProject({
     ...payload,
+    businessDivision: payload.businessDivision ?? null,
     itemName,
     owner: assignees.salesRepNames[0] ?? assignees.managerName,
     managerName: assignees.managerName,
@@ -594,15 +584,6 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   const payload = parsed.data;
 
   const itemName = payload.itemName.trim();
-  if (requiresCommercialDetails(payload.stage) && !itemName) {
-    res.status(400).json({ message: "Item name is required for Tender stage and later." });
-    return;
-  }
-  if (requiresCommercialDetails(payload.stage) && payload.itemQuantity <= 0) {
-    res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
-    return;
-  }
-
   if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
     res.status(403).json({ message: "Managers can only assign projects to themselves" });
     return;
@@ -616,6 +597,7 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
 
   const project = await updateProject(req.params.projectId as string, {
     ...payload,
+    businessDivision: payload.businessDivision ?? null,
     itemName,
     owner: assignees.salesRepNames[0] ?? assignees.managerName,
     managerName: assignees.managerName,
@@ -842,10 +824,7 @@ apiRouter.patch("/projects/:projectId/activities/:activityId", authenticate, asy
     return;
   }
 
-  const canEdit =
-    req.user?.role === UserRole.ADMIN ||
-    req.user?.role === UserRole.MANAGER ||
-    existing.createdById === req.user?.id;
+  const canEdit = existing.createdById === req.user?.id;
   if (!canEdit) {
     res.status(403).json({ message: "You can only edit your own activity" });
     return;
@@ -917,10 +896,7 @@ apiRouter.delete("/projects/:projectId/activities/:activityId", authenticate, as
     return;
   }
 
-  const canDelete =
-    req.user?.role === UserRole.ADMIN ||
-    req.user?.role === UserRole.MANAGER ||
-    activity.createdById === req.user?.id;
+  const canDelete = activity.createdById === req.user?.id;
 
   if (!canDelete) {
     res.status(403).json({ message: "You can only delete your own activity" });
@@ -1060,6 +1036,40 @@ apiRouter.patch("/projects/:projectId/stakeholders/:stakeholderId", authenticate
   });
 
   res.status(200).json({ stakeholder });
+});
+
+apiRouter.delete("/projects/:projectId/stakeholders/:stakeholderId", authenticate, async (req, res) => {
+  const stakeholderModel = projectStakeholderDelegate();
+  if (!stakeholderModel) {
+    res.status(503).json({ message: "Stakeholder service is unavailable. Restart backend once." });
+    return;
+  }
+
+  const project = await prisma.project.findUnique({
+    where: { id: req.params.projectId as string },
+    select: { id: true }
+  });
+  if (!project) {
+    res.status(404).json({ message: "Project not found" });
+    return;
+  }
+  if (!(await canAccessProjectById(req.user!, req.params.projectId as string))) {
+    res.status(403).json({ message: "Forbidden for your role" });
+    return;
+  }
+
+  const existing = await stakeholderModel.findUnique({
+    where: { id: req.params.stakeholderId as string }
+  });
+  if (!existing || existing.projectId !== (req.params.projectId as string)) {
+    res.status(404).json({ message: "Stakeholder not found" });
+    return;
+  }
+
+  await stakeholderModel.delete({
+    where: { id: req.params.stakeholderId as string }
+  });
+  res.status(204).send();
 });
 
 apiRouter.get("/follow-ups", authenticate, async (req, res) => {

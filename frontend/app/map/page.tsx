@@ -22,7 +22,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/components/auth/AuthContext';
-import { listProjects, type ApiProject } from '@/lib/projects-api';
+import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
 import { formatAED } from '@/lib/utils';
 
 const STAGE_META: Record<string, { color: string; icon: LucideIcon; tone: 'brand' | 'neutral' | 'success' | 'warning' | 'danger' | 'info' }> = {
@@ -51,12 +51,20 @@ const STAGE_LEGEND_ORDER = [
   'Lost',
 ];
 
+function stageLabel(stage: string) {
+  if (stage === 'Tender') return 'quatation';
+  return stage;
+}
+
 export default function MapPage() {
   const { token } = useAuth();
   const [projects, setProjects] = useState<ApiProject[]>([]);
+  const [latestActivityByProjectId, setLatestActivityByProjectId] = useState<Record<string, ProjectActivity | null>>({});
+  const [recentActivitiesByProjectId, setRecentActivitiesByProjectId] = useState<Record<string, ProjectActivity[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
+  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
 
   const validProjects = useMemo(
     () =>
@@ -102,6 +110,12 @@ export default function MapPage() {
     };
   }, [projects]);
 
+  const focusedProject = useMemo(
+    () => validProjects.find((project) => project.id === focusedProjectId) ?? null,
+    [validProjects, focusedProjectId]
+  );
+  const focusedProjectUpdates = focusedProject ? (recentActivitiesByProjectId[focusedProject.id] ?? []) : [];
+
   async function loadProjects() {
     if (!token) {
       setLoading(false);
@@ -113,6 +127,37 @@ export default function MapPage() {
     try {
       const data = await listProjects(token);
       setProjects(data);
+      const activityBuckets = await Promise.all(
+        data.map(async (project) => {
+          try {
+            const items = await listProjectActivities(token, project.id);
+            if (items.length === 0) return [project.id, null] as const;
+            const latest = items
+              .slice()
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null;
+            return [project.id, latest] as const;
+          } catch {
+            return [project.id, null] as const;
+          }
+        })
+      );
+      setLatestActivityByProjectId(Object.fromEntries(activityBuckets));
+      const recentBuckets = await Promise.all(
+        data.map(async (project) => {
+          try {
+            const items = await listProjectActivities(token, project.id);
+            const recent = items
+              .slice()
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .slice(0, 4);
+            return [project.id, recent] as const;
+          } catch {
+            return [project.id, []] as const;
+          }
+        })
+      );
+      setRecentActivitiesByProjectId(Object.fromEntries(recentBuckets));
+      setFocusedProjectId((prev) => prev ?? data[0]?.id ?? null);
     } catch {
       setError('Failed to load project map data.');
     } finally {
@@ -185,9 +230,18 @@ export default function MapPage() {
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
-                <MapResetViewButton center={mapCenter} zoom={filteredProjects.length > 0 ? 4 : 2} />
+                <MapResetViewButton
+                  center={mapCenter}
+                  zoom={filteredProjects.length > 0 ? 4 : 2}
+                  onReset={() => setFocusedProjectId(null)}
+                />
                 {filteredProjects.map((project) => (
-                  <ProjectMarker key={project.id} project={project} />
+                  <ProjectMarker
+                    key={project.id}
+                    project={project}
+                    latestActivity={latestActivityByProjectId[project.id] ?? null}
+                    onFocusProject={(projectId) => setFocusedProjectId(projectId)}
+                  />
                 ))}
               </MapContainer>
             </div>
@@ -195,6 +249,50 @@ export default function MapPage() {
         </Card>
 
         <div className="space-y-4">
+          {focusedProject && (
+            <Card className="p-5">
+              <h3 className="text-sm font-semibold tracking-tight">Focused project details</h3>
+              <p className="text-xs text-3 mt-0.5">Shown after “Go to location”</p>
+              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <p className="text-sm font-semibold">{focusedProject.name}</p>
+                <p className="text-xs text-3 mt-0.5">{focusedProject.city}, {focusedProject.country}</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <Badge tone={stageTone(focusedProject.stage)} className="!text-[10px]">
+                    {stageLabel(focusedProject.stage)}
+                  </Badge>
+                  <span className="text-xs font-semibold">{formatAED(focusedProject.valueAed, true)}</span>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <p className="text-xs font-semibold tracking-tight">Field team</p>
+                <p className="text-[11px] text-3 mt-1">
+                  Manager: <span className="font-medium text-[var(--text)]">{focusedProject.managerName}</span>
+                </p>
+                <p className="text-[11px] text-3 mt-0.5">
+                  Sales reps: <span className="font-medium text-[var(--text)]">{focusedProject.salesRepNames.join(', ') || 'Not assigned'}</span>
+                </p>
+              </div>
+              <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <p className="text-xs font-semibold tracking-tight">Latest updates</p>
+                {focusedProjectUpdates.length === 0 ? (
+                  <p className="text-[11px] text-3 mt-1">No updates yet.</p>
+                ) : (
+                  <div className="mt-2 space-y-1.5">
+                    {focusedProjectUpdates.map((activity) => (
+                      <div key={activity.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
+                        <p className="text-[11px] font-semibold">
+                          {activity.type} · {activity.createdByName ?? 'System'}
+                        </p>
+                        <p className="text-[11px] text-3 mt-0.5 line-clamp-2">{activity.message.split('\n')[0] || 'Activity logged.'}</p>
+                        <p className="text-[10px] text-3 mt-1">{new Date(activity.createdAt).toLocaleString('en-AE')}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           <Card className="p-5">
             <h3 className="text-sm font-semibold tracking-tight">Stage legend</h3>
             <div className="mt-1 flex items-center justify-between gap-2">
@@ -232,7 +330,7 @@ export default function MapPage() {
                         }}
                       />
                       <StageIcon className="h-3.5 w-3.5 text-3" />
-                      {stage}
+                      {stageLabel(stage)}
                     </span>
                     <span className="text-[11px] font-semibold num-tabular">{count}</span>
                   </button>
@@ -292,7 +390,7 @@ export default function MapPage() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{project.name}</p>
                           <p className="text-[11px] text-3 truncate">{project.city}, {project.country}</p>
-                          <p className="text-[10px] text-3 mt-0.5">{project.stage}</p>
+                          <p className="text-[10px] text-3 mt-0.5">{stageLabel(project.stage)}</p>
                         </div>
                         <span className="text-xs font-bold num-tabular shrink-0">{formatAED(project.valueAed, true)}</span>
                       </div>
@@ -316,7 +414,15 @@ function stageTone(stage: string): 'brand' | 'neutral' | 'success' | 'warning' |
   return STAGE_META[stage]?.tone ?? 'neutral';
 }
 
-function ProjectMarker({ project }: { project: ApiProject }) {
+function ProjectMarker({
+  project,
+  latestActivity,
+  onFocusProject,
+}: {
+  project: ApiProject;
+  latestActivity: ProjectActivity | null;
+  onFocusProject: (projectId: string) => void;
+}) {
   const map = useMap();
   const StageIcon = STAGE_META[project.stage]?.icon ?? CircleDot;
   const color = markerColor(project.stage);
@@ -352,14 +458,33 @@ function ProjectMarker({ project }: { project: ApiProject }) {
             </div>
             <div className="flex items-center justify-between gap-2">
               <Badge tone={stageTone(project.stage)} className="!text-[10px] !inline-flex !items-center !gap-1">
-                <StageIcon className="h-3 w-3" /> {project.stage}
+                <StageIcon className="h-3 w-3" /> {stageLabel(project.stage)}
               </Badge>
               <span className="text-xs font-semibold">{formatAED(project.valueAed, true)}</span>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2">
+              <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Latest update</p>
+              {latestActivity ? (
+                <>
+                  <p className="text-xs mt-1 truncate">
+                    {latestActivity.type} · {(latestActivity.createdByName ?? 'System')}
+                  </p>
+                  <p className="text-[11px] text-3 mt-0.5 line-clamp-2">
+                    {latestActivity.message.split('\n')[0] || 'Activity logged.'}
+                  </p>
+                  <p className="text-[10px] text-3 mt-1">{new Date(latestActivity.createdAt).toLocaleString('en-AE')}</p>
+                </>
+              ) : (
+                <p className="text-[11px] text-3 mt-1">No updates yet.</p>
+              )}
             </div>
             <div className="pt-1 flex items-center justify-between gap-2">
               <button
                 type="button"
-                onClick={() => map.flyTo([project.lat, project.lng], 16, { animate: true, duration: 0.8 })}
+                onClick={() => {
+                  map.flyTo([project.lat, project.lng], 16, { animate: true, duration: 0.8 });
+                  onFocusProject(project.id);
+                }}
                 className="h-7 px-2.5 rounded-lg inline-flex items-center gap-1 text-[11px] font-medium bg-brand-600 text-white hover:bg-brand-700"
               >
                 <LocateFixed className="h-3.5 w-3.5" /> Go to location
@@ -375,7 +500,15 @@ function ProjectMarker({ project }: { project: ApiProject }) {
   );
 }
 
-function MapResetViewButton({ center, zoom }: { center: [number, number]; zoom: number }) {
+function MapResetViewButton({
+  center,
+  zoom,
+  onReset,
+}: {
+  center: [number, number];
+  zoom: number;
+  onReset?: () => void;
+}) {
   const map = useMap();
 
   return (
@@ -383,7 +516,10 @@ function MapResetViewButton({ center, zoom }: { center: [number, number]; zoom: 
       <div className="leaflet-control">
         <button
           type="button"
-          onClick={() => map.flyTo(center, zoom, { animate: true, duration: 0.8 })}
+          onClick={() => {
+            map.flyTo(center, zoom, { animate: true, duration: 0.8 });
+            onReset?.();
+          }}
           className="h-9 px-3 m-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-soft inline-flex items-center gap-1.5 text-xs font-medium"
           aria-label="Reset map view"
         >

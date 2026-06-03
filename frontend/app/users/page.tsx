@@ -62,7 +62,7 @@ export default function UsersPage() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [operationLocation, setOperationLocation] = useState('');
-  const [monthlyTarget, setMonthlyTarget] = useState('');
+  const [yearlyTarget, setYearlyTarget] = useState('');
   const [password, setPassword] = useState('');
 
   const isAdmin = user?.role === 'ADMIN';
@@ -139,13 +139,13 @@ export default function UsersPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const parsedMonthlyTarget = monthlyTarget.trim() ? Number(monthlyTarget) : null;
+      const parsedYearlyTarget = yearlyTarget.trim() ? Number(yearlyTarget) : null;
       const parsedRegions = regionsInput
         .split(',')
         .map((entry) => entry.trim())
         .filter(Boolean);
-      if (role === 'SALES_REP' && (!parsedMonthlyTarget || parsedMonthlyTarget <= 0 || Number.isNaN(parsedMonthlyTarget))) {
-        throw new Error('Sales rep monthly target is required.');
+      if (role !== 'ADMIN' && (!parsedYearlyTarget || parsedYearlyTarget <= 0 || Number.isNaN(parsedYearlyTarget))) {
+        throw new Error('Yearly sales target is required for all non-admin users.');
       }
       if (role === 'MANAGER' && !regionalManagerId) {
         throw new Error('Manager must be assigned under a regional manager.');
@@ -163,7 +163,7 @@ export default function UsersPage() {
           regionalManagerId: role === 'MANAGER' ? regionalManagerId : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
-          monthlyTarget: role === 'SALES_REP' ? parsedMonthlyTarget : null,
+          yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
           password: password.trim() ? password : undefined,
         });
       } else {
@@ -177,14 +177,14 @@ export default function UsersPage() {
           regionalManagerId: role === 'MANAGER' ? regionalManagerId : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
-          monthlyTarget: role === 'SALES_REP' ? parsedMonthlyTarget : null,
+          yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
       });
       }
       setFirstName('');
       setLastName('');
       setEmail('');
       setOperationLocation('');
-      setMonthlyTarget('');
+      setYearlyTarget('');
       setPassword('');
       setManagerId('');
       setRegionalManagerId('');
@@ -210,7 +210,7 @@ export default function UsersPage() {
     setLastName('');
     setEmail('');
     setOperationLocation('');
-    setMonthlyTarget('');
+    setYearlyTarget('');
     setPassword('');
     setUserDialogOpen(true);
     setMessage(null);
@@ -226,7 +226,7 @@ export default function UsersPage() {
     setLastName(entry.lastName);
     setEmail(entry.email);
     setOperationLocation(entry.operationLocation);
-    setMonthlyTarget(entry.monthlyTarget != null ? String(entry.monthlyTarget) : '');
+    setYearlyTarget(entry.yearlyTarget != null ? String(entry.yearlyTarget) : '');
     setPassword('');
     setUserDialogOpen(true);
     setMessage(null);
@@ -648,7 +648,6 @@ export default function UsersPage() {
               />
             )}
             {role === 'SALES_REP' && (
-                <>
               <select
                 value={managerId}
                 onChange={(event) => setManagerId(event.target.value)}
@@ -662,18 +661,19 @@ export default function UsersPage() {
                   </option>
                 ))}
               </select>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    placeholder="Monthly target (AED)"
-                    value={monthlyTarget}
-                    onChange={(event) => setMonthlyTarget(event.target.value)}
-                    className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                    required
-                  />
-                </>
-              )}
+            )}
+            {role !== 'ADMIN' && (
+              <input
+                type="number"
+                min={1}
+                step={1}
+                placeholder="Yearly target (AED)"
+                value={yearlyTarget}
+                onChange={(event) => setYearlyTarget(event.target.value)}
+                className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                required
+              />
+            )}
               <div className="pt-1 flex items-center justify-end gap-2">
                 <Button
                   type="button"
@@ -1141,8 +1141,8 @@ function HierarchyNodeCard({
               RM: {entry.regionalManager.firstName} {entry.regionalManager.lastName}
             </p>
           )}
-          {entry.role === 'SALES_REP' && entry.monthlyTarget != null && (
-            <p className="text-[11px] text-3 truncate">Target: AED {formatAed(entry.monthlyTarget)}</p>
+          {entry.role !== 'ADMIN' && entry.yearlyTarget != null && (
+            <p className="text-[11px] text-3 truncate">Yearly target: AED {formatAed(entry.yearlyTarget)}</p>
           )}
         </div>
         <Badge tone={tone}>{entry.role.replace('_', ' ')}</Badge>

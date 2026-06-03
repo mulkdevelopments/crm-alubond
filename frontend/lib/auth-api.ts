@@ -39,7 +39,7 @@ export type UserListItem = {
   regionalManagerId: string | null;
   regions: string[];
   operationLocation: string;
-  monthlyTarget: number | null;
+  yearlyTarget: number | null;
   isActive: boolean;
   createdAt: string;
   lastLocationPingAt: string | null;
@@ -213,7 +213,7 @@ export async function createUser(
     regionalManagerId?: string | null;
     regions?: string[];
     operationLocation: string;
-    monthlyTarget?: number | null;
+    yearlyTarget?: number | null;
   }
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/users`, {
@@ -243,7 +243,7 @@ export async function updateUser(
     regionalManagerId?: string | null;
     regions?: string[];
     operationLocation: string;
-    monthlyTarget?: number | null;
+    yearlyTarget?: number | null;
     password?: string;
     isActive?: boolean;
   }

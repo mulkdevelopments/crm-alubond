@@ -9,7 +9,7 @@ import {
   Bell,
   UserCog,
   UserCircle2,
-  HardHat,
+  Users,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
@@ -31,7 +31,7 @@ const NAV: NavItem[] = [
   { href: '/pipeline', label: 'Pipeline', icon: KanbanSquare },
   { href: '/map', label: 'Geo Intel', icon: MapPin },
   { href: '/follow-ups', label: 'Follow-ups', icon: Bell },
-  { href: '/team', label: 'Field Team', icon: HardHat },
+  { href: '/team', label: 'Field Team', icon: Users },
 ];
 
 export function Sidebar() {

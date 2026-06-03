@@ -6,6 +6,7 @@ export type ApiProject = {
   city: string;
   country: string;
   developer: string;
+  businessDivision: "alubond architecture" | "alubond transport" | "uniqube" | null;
   stage: string;
   valueAed: number;
   itemName: string;
@@ -66,6 +67,7 @@ export type ProjectUpsertPayload = {
   city: string;
   country: string;
   developer: string;
+  businessDivision: "alubond architecture" | "alubond transport" | "uniqube" | null;
   stage: string;
   valueAed: number;
   itemName: string;
@@ -300,6 +302,23 @@ export async function updateProjectStakeholder(
   }
   const data = (await response.json()) as { stakeholder: ProjectStakeholder };
   return data.stakeholder;
+}
+
+export async function deleteProjectStakeholder(
+  token: string,
+  projectId: string,
+  stakeholderId: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/stakeholders/${stakeholderId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "Failed to delete stakeholder");
+  }
 }
 
 export async function uploadActivityAttachment(

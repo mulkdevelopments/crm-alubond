@@ -7,6 +7,7 @@ export type ProjectRecord = {
   city: string;
   country: string;
   developer: string;
+  businessDivision: string | null;
   stage: string;
   valueAed: number;
   itemName: string;
@@ -30,6 +31,7 @@ export type UpsertProjectInput = {
   city: string;
   country: string;
   developer: string;
+  businessDivision: string | null;
   stage: string;
   valueAed: number;
   itemName: string;
@@ -52,6 +54,7 @@ function mapProject(record: {
   city: string;
   country: string;
   developer: string;
+  businessDivision: string | null;
   stage: string;
   valueAed: number;
   itemName: string;

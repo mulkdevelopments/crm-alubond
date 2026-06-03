@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, ChevronRight, FileAudio2, FileText, MapPin, MessageCircleQuestion, Mic, Pencil, Square, Trash2, Users, Waypoints } from 'lucide-react';
+import { ArrowLeft, BarChart3, BellRing, ChevronDown, ChevronRight, FileAudio2, FileText, MapPin, MessageCircleQuestion, Mic, MoreHorizontal, Pencil, Share2, Square, Trash2, Users, Waypoints } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
 import { PageHeader } from '@/components/shell/PageHeader';
@@ -14,6 +14,7 @@ import {
   createProjectActivity,
   createProjectStakeholder,
   deleteProjectActivity,
+  deleteProjectStakeholder as deleteProjectStakeholderApi,
   getProject,
   listProjectActivities,
   listProjectStakeholders,
@@ -28,6 +29,24 @@ import {
 import { createLocationPing } from '@/lib/auth-api';
 import { STAGES } from '@/lib/data';
 import { cn, formatAED, relativeTime } from '@/lib/utils';
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+type SpeechWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionCtor;
+  webkitSpeechRecognition?: SpeechRecognitionCtor;
+};
 
 function toAbsoluteAssetUrl(url: string): string {
   if (url.startsWith('http')) return url;
@@ -74,8 +93,22 @@ function stripLegacyAttachmentLines(message: string): string {
     .trim();
 }
 
+const ACTIVITY_PHONE_REGEX = /^[+]?[0-9()\-\s]{7,20}$/;
+
+function formatActivityDateTime(value: string): string {
+  return new Date(value).toLocaleString('en-AE', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const shouldOpenComposerFromQuery = searchParams.get('composeActivity');
   const { token, user, reportVisitPing } = useAuth();
   const [project, setProject] = useState<ApiProject | null>(null);
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
@@ -84,13 +117,13 @@ export default function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [activityType, setActivityType] = useState<ProjectActivity['type']>('note');
   const [activityMessage, setActivityMessage] = useState('');
+  const [activityDictating, setActivityDictating] = useState(false);
   const [activityStakeholderMode, setActivityStakeholderMode] = useState<'existing' | 'other'>('existing');
   const [activityStakeholderId, setActivityStakeholderId] = useState('');
   const [activityContactName, setActivityContactName] = useState('');
   const [activityContactPhone, setActivityContactPhone] = useState('');
   const [activityContactEmail, setActivityContactEmail] = useState('');
   const [activityVisitLocation, setActivityVisitLocation] = useState('');
-  const [activityMeetingWith, setActivityMeetingWith] = useState('');
   const [activityMeetingAt, setActivityMeetingAt] = useState('');
   const [activityAttachment, setActivityAttachment] = useState<File | null>(null);
   const [activityVoiceAttachment, setActivityVoiceAttachment] = useState<File | null>(null);
@@ -98,10 +131,11 @@ export default function ProjectDetailPage() {
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordingWaveform, setRecordingWaveform] = useState<number[]>(() => Array.from({ length: 24 }, () => 0.12));
-  const [addToFollowUps, setAddToFollowUps] = useState(true);
+  const [addToFollowUps, setAddToFollowUps] = useState(false);
   const [activityFollowUpDueAt, setActivityFollowUpDueAt] = useState('');
   const [activityError, setActivityError] = useState<string | null>(null);
   const [showActivityComposer, setShowActivityComposer] = useState(false);
+  const [activityPersonFilter, setActivityPersonFilter] = useState('all');
   const [savingActivity, setSavingActivity] = useState(false);
   const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
@@ -111,8 +145,11 @@ export default function ProjectDetailPage() {
   const [savingEditedActivity, setSavingEditedActivity] = useState(false);
   const [visitRecapActivityId, setVisitRecapActivityId] = useState<string | null>(null);
   const [visitRecapMessage, setVisitRecapMessage] = useState('');
+  const [visitRecapDictating, setVisitRecapDictating] = useState(false);
   const [savingVisitRecap, setSavingVisitRecap] = useState(false);
   const [expandedMediaByActivityId, setExpandedMediaByActivityId] = useState<Record<string, boolean>>({});
+  const [sharingAttachmentId, setSharingAttachmentId] = useState<string | null>(null);
+  const [copiedAttachmentId, setCopiedAttachmentId] = useState<string | null>(null);
   const [selectedVisitActivity, setSelectedVisitActivity] = useState<ProjectActivity | null>(null);
   const [uploadingActivityAttachment, setUploadingActivityAttachment] = useState(false);
   const [activityLoadError, setActivityLoadError] = useState<string | null>(null);
@@ -126,12 +163,17 @@ export default function ProjectDetailPage() {
   const [stakeholderEmail, setStakeholderEmail] = useState('');
   const [stakeholderPhone, setStakeholderPhone] = useState('');
   const [editingStakeholderId, setEditingStakeholderId] = useState<string | null>(null);
+  const [stakeholderMenuId, setStakeholderMenuId] = useState<string | null>(null);
+  const [deletingStakeholderId, setDeletingStakeholderId] = useState<string | null>(null);
+  const [sharingSiteLocation, setSharingSiteLocation] = useState(false);
+  const [siteLocationShareMessage, setSiteLocationShareMessage] = useState<string | null>(null);
   const [editingCommercial, setEditingCommercial] = useState(false);
   const [commercialValueAed, setCommercialValueAed] = useState('');
   const [commercialItemName, setCommercialItemName] = useState('');
   const [commercialItemQuantity, setCommercialItemQuantity] = useState('');
   const [commercialError, setCommercialError] = useState<string | null>(null);
   const [savingCommercial, setSavingCommercial] = useState(false);
+  const [showAssignmentPerformance, setShowAssignmentPerformance] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<BlobPart[]>([]);
@@ -139,6 +181,10 @@ export default function ProjectDetailPage() {
   const waveformFrameRef = useRef<number | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const activityRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const activityDictationBaseTextRef = useRef('');
+  const visitRecapRecognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const visitRecapDictationBaseTextRef = useRef('');
 
   useEffect(() => {
     async function loadProject() {
@@ -178,13 +224,33 @@ export default function ProjectDetailPage() {
   }, [token, params?.id]);
 
   useEffect(() => {
+    if (shouldOpenComposerFromQuery === '1') {
+      setShowActivityComposer(true);
+    }
+  }, [shouldOpenComposerFromQuery]);
+
+  useEffect(() => {
+    function handleOpenActivityComposer(event: Event) {
+      const customEvent = event as CustomEvent<{ projectId?: string }>;
+      if (customEvent.detail?.projectId && customEvent.detail.projectId !== params.id) {
+        return;
+      }
+      setShowActivityComposer(true);
+    }
+
+    window.addEventListener('project:open-activity-composer', handleOpenActivityComposer as EventListener);
+    return () => {
+      window.removeEventListener('project:open-activity-composer', handleOpenActivityComposer as EventListener);
+    };
+  }, [params.id]);
+
+  useEffect(() => {
     if (activityStakeholderMode !== 'existing' || !activityStakeholderId) return;
     const selected = stakeholders.find((entry) => entry.id === activityStakeholderId);
     if (!selected) return;
     setActivityContactName(selected.name);
     if (selected.phone) setActivityContactPhone(selected.phone);
     if (selected.email) setActivityContactEmail(selected.email);
-    setActivityMeetingWith(selected.name);
   }, [activityStakeholderMode, activityStakeholderId, stakeholders]);
 
   useEffect(() => {
@@ -205,6 +271,103 @@ export default function ProjectDetailPage() {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [activityVoicePreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      activityRecognitionRef.current?.stop();
+      activityRecognitionRef.current = null;
+      visitRecapRecognitionRef.current?.stop();
+      visitRecapRecognitionRef.current = null;
+    };
+  }, []);
+
+  function resolveSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+    if (typeof window === 'undefined') return null;
+    const speechWindow = window as SpeechWindow;
+    return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+  }
+
+  function toggleActivityDictation() {
+    if (activityDictating) {
+      activityRecognitionRef.current?.stop();
+      return;
+    }
+    const RecognitionCtor = resolveSpeechRecognitionCtor();
+    if (!RecognitionCtor) {
+      setActivityError('Voice typing is not supported in this browser.');
+      return;
+    }
+    const recognition = new RecognitionCtor();
+    activityDictationBaseTextRef.current = activityMessage.trim();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event) => {
+      const resultEvent = event as Event & {
+        results: ArrayLike<ArrayLike<{ transcript: string }>>;
+      };
+      const transcript = Array.from(resultEvent.results)
+        .map((result) => result[0]?.transcript ?? '')
+        .join(' ')
+        .trim();
+      const base = activityDictationBaseTextRef.current;
+      setActivityMessage([base, transcript].filter(Boolean).join(' ').trim());
+    };
+    recognition.onerror = () => {
+      setActivityError('Unable to capture voice typing. Please check microphone permission.');
+      setActivityDictating(false);
+      activityRecognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setActivityDictating(false);
+      activityRecognitionRef.current = null;
+    };
+    activityRecognitionRef.current = recognition;
+    setActivityError(null);
+    setActivityDictating(true);
+    recognition.start();
+  }
+
+  function toggleVisitRecapDictation() {
+    if (visitRecapDictating) {
+      visitRecapRecognitionRef.current?.stop();
+      return;
+    }
+    const RecognitionCtor = resolveSpeechRecognitionCtor();
+    if (!RecognitionCtor) {
+      setActivityError('Voice typing is not supported in this browser.');
+      return;
+    }
+    const recognition = new RecognitionCtor();
+    visitRecapDictationBaseTextRef.current = visitRecapMessage.trim();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (event) => {
+      const resultEvent = event as Event & {
+        results: ArrayLike<ArrayLike<{ transcript: string }>>;
+      };
+      const transcript = Array.from(resultEvent.results)
+        .map((result) => result[0]?.transcript ?? '')
+        .join(' ')
+        .trim();
+      const base = visitRecapDictationBaseTextRef.current;
+      setVisitRecapMessage([base, transcript].filter(Boolean).join(' ').trim());
+    };
+    recognition.onerror = () => {
+      setActivityError('Unable to capture voice typing. Please check microphone permission.');
+      setVisitRecapDictating(false);
+      visitRecapRecognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setVisitRecapDictating(false);
+      visitRecapRecognitionRef.current = null;
+    };
+    visitRecapRecognitionRef.current = recognition;
+    setActivityError(null);
+    setVisitRecapDictating(true);
+    recognition.start();
+  }
 
   function stopRecordingVisuals() {
     if (waveformFrameRef.current != null) {
@@ -338,6 +501,55 @@ export default function ProjectDetailPage() {
   const stageIndex = STAGES.indexOf(project.stage as (typeof STAGES)[number]);
   const orderedStages = [...STAGES, 'Lost', 'Won'] as const;
   const canEditCommercial = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const currentUserId = user?.id ?? null;
+  const canManageActivity = (activity: ProjectActivity) => Boolean(currentUserId) && activity.createdById === currentUserId;
+  const followUpMinDateTime = toDateTimeLocalValue(new Date());
+  const activityPersonOptions = Array.from(
+    new Map(
+      activities.map((activity) => [activity.createdById ?? '__system__', activity.createdByName ?? 'System'])
+    ).entries()
+  ).map(([id, name]) => ({ id, name }));
+  const filteredActivities =
+    activityPersonFilter === 'all'
+      ? activities
+      : activities.filter((activity) => (activity.createdById ?? '__system__') === activityPersonFilter);
+  const contactTargetLabel =
+    activityType === 'email'
+      ? 'Mailing to'
+      : activityType === 'call'
+        ? 'Calling to'
+        : activityType === 'whatsapp'
+          ? 'WhatsApp to'
+          : 'Meeting with';
+  const assignmentMembers = [
+    {
+      id: project.managerId,
+      name: project.managerName,
+      role: 'Manager',
+    },
+    ...project.salesRepIds.map((id, index) => ({
+      id,
+      name: project.salesRepNames[index] || `Sales rep ${index + 1}`,
+      role: 'Sales rep',
+    })),
+  ];
+  const totalAssignmentActivities = activities.filter((activity) =>
+    activity.createdById != null && assignmentMembers.some((member) => member.id === activity.createdById)
+  ).length;
+  const assignmentPerformance = assignmentMembers.map((member) => {
+    const memberActivities = activities.filter((activity) => activity.createdById === member.id);
+    const visits = memberActivities.filter((activity) => activity.type === 'visit').length;
+    const contributionPct =
+      totalAssignmentActivities > 0
+        ? Math.round((memberActivities.length / totalAssignmentActivities) * 100)
+        : 0;
+    return {
+      ...member,
+      activities: memberActivities.length,
+      visits,
+      contributionPct,
+    };
+  });
 
   function requiresCommercialDetails(stage: string) {
     return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
@@ -356,11 +568,11 @@ export default function ProjectDetailPage() {
       return;
     }
     if (requiresCommercialDetails(project.stage) && !nextItemName) {
-      setCommercialError('Item name is required for Tender stage and later.');
+      setCommercialError('Item name is required for quatation stage and later.');
       return;
     }
     if (requiresCommercialDetails(project.stage) && nextItemQuantity <= 0) {
-      setCommercialError('Item quantity is required for Tender stage and later.');
+      setCommercialError('Item quantity is required for quatation stage and later.');
       return;
     }
 
@@ -372,6 +584,7 @@ export default function ProjectDetailPage() {
         city: project.city,
         country: project.country,
         developer: project.developer,
+        businessDivision: project.businessDivision,
         stage: project.stage,
         valueAed: nextValue,
         itemName: nextItemName,
@@ -400,6 +613,7 @@ export default function ProjectDetailPage() {
       return;
     }
     const message = activityMessage.trim();
+    const contactPhone = activityContactPhone.trim();
     if (!message) {
       setActivityError('Activity message is required.');
       return;
@@ -409,8 +623,12 @@ export default function ProjectDetailPage() {
       setActivityError('Contact name is required for this activity.');
       return;
     }
-    if ((activityType === 'call' || activityType === 'whatsapp') && !activityContactPhone.trim()) {
-      setActivityError('Phone number is required for call/WhatsApp.');
+    if ((activityType === 'call' || activityType === 'whatsapp') && !contactPhone) {
+      setActivityError('Phone number is required for call and WhatsApp activities.');
+      return;
+    }
+    if ((activityType === 'call' || activityType === 'whatsapp') && !ACTIVITY_PHONE_REGEX.test(contactPhone)) {
+      setActivityError('Enter a valid phone number.');
       return;
     }
     if (activityType === 'email' && !activityContactEmail.trim()) {
@@ -422,7 +640,7 @@ export default function ProjectDetailPage() {
         setActivityError('Visit location is required.');
         return;
       }
-      if (!activityMeetingWith.trim()) {
+      if (!activityContactName.trim()) {
         setActivityError('Meeting person is required for visit.');
         return;
       }
@@ -435,8 +653,19 @@ export default function ProjectDetailPage() {
       setActivityError('Select follow-up date & time.');
       return;
     }
+    if (addToFollowUps) {
+      const dueAtMs = new Date(activityFollowUpDueAt).getTime();
+      if (!Number.isFinite(dueAtMs) || dueAtMs < Date.now()) {
+        setActivityError('Follow-up date & time must be in the future.');
+        return;
+      }
+    }
     if (isRecordingVoice) {
       setActivityError('Stop the voice recording before saving the activity.');
+      return;
+    }
+    if (activityDictating) {
+      setActivityError('Stop voice typing before saving the activity.');
       return;
     }
     setSavingActivity(true);
@@ -512,15 +741,15 @@ export default function ProjectDetailPage() {
       if (needsContactDetails) {
         details.push(`Contact: ${activityContactName.trim()}`);
       }
-      if (activityType === 'call' || activityType === 'whatsapp') {
-        details.push(`Phone: ${activityContactPhone.trim()}`);
+      if ((activityType === 'call' || activityType === 'whatsapp') && contactPhone) {
+        details.push(`Phone: ${contactPhone}`);
       }
       if (activityType === 'email') {
         details.push(`Email: ${activityContactEmail.trim()}`);
       }
       if (activityType === 'visit') {
         details.push(`Location: ${activityVisitLocation.trim()}`);
-        details.push(`Meeting with: ${activityMeetingWith.trim()}`);
+        details.push(`Meeting with: ${activityContactName.trim()}`);
         details.push(`Meeting time: ${new Date(activityMeetingAt).toLocaleString('en-AE')}`);
       }
 
@@ -540,7 +769,6 @@ export default function ProjectDetailPage() {
       setActivityContactPhone('');
       setActivityContactEmail('');
       setActivityVisitLocation('');
-      setActivityMeetingWith('');
       setActivityMeetingAt('');
       setActivityAttachment(null);
       if (activityVoicePreviewUrl) {
@@ -555,6 +783,65 @@ export default function ProjectDetailPage() {
     } finally {
       setUploadingActivityAttachment(false);
       setSavingActivity(false);
+    }
+  }
+
+  async function onShareAttachment(attachmentId: string, attachmentName: string, attachmentUrl: string) {
+    const href = toActivityAttachmentUrl(attachmentUrl);
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        setSharingAttachmentId(attachmentId);
+        await navigator.share({
+          title: attachmentName,
+          text: 'Shared from project activity',
+          url: href,
+        });
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(href);
+        setCopiedAttachmentId(attachmentId);
+        window.setTimeout(() => {
+          setCopiedAttachmentId((prev) => (prev === attachmentId ? null : prev));
+        }, 1800);
+        return;
+      }
+      window.open(href, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setActivityError('Unable to share attachment right now.');
+    } finally {
+      setSharingAttachmentId((prev) => (prev === attachmentId ? null : prev));
+    }
+  }
+
+  async function onShareSiteLocation() {
+    if (!project) return;
+    const mapsUrl = `https://www.google.com/maps?q=${project.lat},${project.lng}`;
+    try {
+      setSharingSiteLocation(true);
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share({
+          title: `${project.name} site location`,
+          text: `${project.name} · ${project.city}, ${project.country}`,
+          url: mapsUrl,
+        });
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(mapsUrl);
+        setSiteLocationShareMessage('Location link copied.');
+        window.setTimeout(() => {
+          setSiteLocationShareMessage(null);
+        }, 1800);
+        return;
+      }
+      window.open(mapsUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setSiteLocationShareMessage('Unable to share location right now.');
+    } finally {
+      setSharingSiteLocation(false);
     }
   }
 
@@ -615,9 +902,40 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function onDeleteStakeholder(stakeholder: ProjectStakeholder) {
+    if (!token || !project) {
+      setStakeholderError('Session expired. Please login again.');
+      return;
+    }
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(`Delete stakeholder "${stakeholder.name}"? This cannot be undone.`)
+      : true;
+    if (!confirmed) return;
+
+    setDeletingStakeholderId(stakeholder.id);
+    setStakeholderError(null);
+    setStakeholderMenuId(null);
+    try {
+      await deleteProjectStakeholderApi(token, project.id, stakeholder.id);
+      setStakeholders((prev) => prev.filter((entry) => entry.id !== stakeholder.id));
+      if (editingStakeholderId === stakeholder.id) {
+        resetStakeholderForm();
+      }
+    } catch (err) {
+      setStakeholderError(err instanceof Error ? err.message : 'Failed to delete stakeholder.');
+    } finally {
+      setDeletingStakeholderId(null);
+    }
+  }
+
   async function onDeleteActivity(activityId: string) {
     if (!token || !project) {
       setActivityError('Session expired. Please login again.');
+      return;
+    }
+    const activity = activities.find((entry) => entry.id === activityId);
+    if (!activity || !canManageActivity(activity)) {
+      setActivityError('You can only delete activities created by you.');
       return;
     }
     const confirmed = typeof window !== 'undefined'
@@ -638,6 +956,10 @@ export default function ProjectDetailPage() {
   }
 
   function startEditActivity(activity: ProjectActivity) {
+    if (!canManageActivity(activity)) {
+      setActivityError('You can only edit activities created by you.');
+      return;
+    }
     setEditingActivityId(activity.id);
     setEditingActivityType(activity.type);
     setEditingActivityMessage(stripLegacyAttachmentLines(activity.message));
@@ -654,6 +976,11 @@ export default function ProjectDetailPage() {
 
   async function saveEditedActivity(activityId: string) {
     if (!token || !project) return;
+    const existing = activities.find((entry) => entry.id === activityId);
+    if (!existing || !canManageActivity(existing)) {
+      setActivityError('You can only edit activities created by you.');
+      return;
+    }
     const message = editingActivityMessage.trim();
     if (!message) {
       setActivityError('Activity message is required.');
@@ -686,12 +1013,21 @@ export default function ProjectDetailPage() {
   }
 
   function closeVisitRecap() {
+    if (visitRecapDictating) {
+      visitRecapRecognitionRef.current?.stop();
+      visitRecapRecognitionRef.current = null;
+      setVisitRecapDictating(false);
+    }
     setVisitRecapActivityId(null);
     setVisitRecapMessage('');
   }
 
   async function saveVisitRecap() {
     if (!token || !project || !visitRecapActivityId) return;
+    if (visitRecapDictating) {
+      setActivityError('Stop voice typing before saving the visit update.');
+      return;
+    }
     const recap = visitRecapMessage.trim();
     if (!recap) {
       setActivityError('Please describe what happened during the visit.');
@@ -849,7 +1185,7 @@ export default function ProjectDetailPage() {
           <p className="mt-1 text-xl font-bold tracking-tight">{project.probability}%</p>
         </Card>
         <Card className="p-4">
-          <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Days in stage</p>
+          <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Days in this stage</p>
           <p className="mt-1 text-xl font-bold tracking-tight">{project.daysInStage}</p>
         </Card>
       </section>
@@ -880,7 +1216,16 @@ export default function ProjectDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader title="Site location" subtitle={`${project.city}, ${project.country}`} />
+            <CardHeader
+              title="Site location"
+              subtitle={`${project.city}, ${project.country}`}
+              action={
+                <Button type="button" variant="ghost" size="sm" onClick={() => void onShareSiteLocation()} disabled={sharingSiteLocation}>
+                  <Share2 className="h-3.5 w-3.5" />
+                  {sharingSiteLocation ? 'Sharing...' : 'Share'}
+                </Button>
+              }
+            />
             <div className="px-4 pb-4">
               <div className="rounded-2xl overflow-hidden border border-[var(--border)]">
                 <LocationPickerMap
@@ -902,39 +1247,47 @@ export default function ProjectDetailPage() {
                   <span>Lng: {project.lng.toFixed(5)}</span>
                 </div>
               </div>
+              {siteLocationShareMessage && <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{siteLocationShareMessage}</p>}
             </div>
           </Card>
 
           <Card className="mt-4">
-            <CardHeader title="Activity timeline" subtitle={`${activities.length} updates`} />
+            <CardHeader
+              title="Activity timeline"
+              subtitle={
+                activityPersonFilter === 'all'
+                  ? `${activities.length} updates`
+                  : `${filteredActivities.length} of ${activities.length} updates`
+              }
+            />
             <div className="px-5 pb-4">
-              <div className="mb-4 flex items-center justify-end">
-                <Button
-                  type="button"
-                  variant="soft"
-                  size="sm"
-                  onClick={() => setShowActivityComposer((prev) => !prev)}
-                  className={
-                    showActivityComposer
-                      ? 'bg-rose-500/15 text-rose-700 hover:bg-rose-500/25 dark:text-rose-200'
-                      : 'bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-200'
-                  }
+              <div className="mb-3 flex items-center justify-end">
+                <select
+                  value={activityPersonFilter}
+                  onChange={(event) => setActivityPersonFilter(event.target.value)}
+                  className="h-9 rounded-lg border border-transparent bg-[var(--surface-2)] px-3 text-xs focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none"
                 >
-                  {showActivityComposer ? (
-                    <>
-                      <ChevronDown className="h-3.5 w-3.5" />
-                      Hide log form
-                    </>
-                  ) : (
-                    <>
-                      <ChevronRight className="h-3.5 w-3.5" />
-                      Log new update
-                    </>
-                  )}
-                </Button>
+                  <option value="all">All people</option>
+                  {activityPersonOptions.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               {showActivityComposer && (
-              <form onSubmit={onCreateActivity} className="space-y-2 mb-4">
+              <div className="fixed inset-0 z-50 bg-black/45 px-4 py-6 sm:p-8" onClick={() => setShowActivityComposer(false)}>
+                <div
+                  className="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--border)]">
+                    <p className="text-sm font-semibold tracking-tight">Log new update</p>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setShowActivityComposer(false)}>
+                      Close
+                    </Button>
+                  </div>
+                  <form onSubmit={onCreateActivity} className="p-4 space-y-2">
                 <div className="grid grid-cols-1 sm:grid-cols-[140px,1fr] gap-2">
                   <select
                     value={activityType}
@@ -946,59 +1299,73 @@ export default function ProjectDetailPage() {
                     <option value="visit">Visit</option>
                     <option value="email">Email</option>
                     <option value="whatsapp">WhatsApp</option>
-                    <option value="stage">Stage</option>
                   </select>
-                  <input
-                    value={activityMessage}
-                    onChange={(e) => setActivityMessage(e.target.value)}
-                    placeholder="Log a project update..."
-                    className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={activityMessage}
+                      onChange={(e) => setActivityMessage(e.target.value)}
+                      placeholder="message"
+                      className="h-10 flex-1 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                    />
+                    <Button
+                      type="button"
+                      variant={activityDictating ? 'soft' : 'secondary'}
+                      size="sm"
+                      onClick={toggleActivityDictation}
+                      className={activityDictating ? 'bg-rose-500/15 text-rose-700 hover:bg-rose-500/25 dark:text-rose-200' : undefined}
+                      title={activityDictating ? 'Stop voice typing' : 'Start voice typing'}
+                    >
+                      {activityDictating ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
                 </div>
                 {(activityType === 'call' || activityType === 'email' || activityType === 'whatsapp' || activityType === 'visit') && (
-                  <div className="grid grid-cols-1 sm:grid-cols-[160px,1fr] gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-[220px,1fr] gap-2">
                     <select
-                      value={activityStakeholderMode}
+                      value={activityStakeholderMode === 'existing' ? activityStakeholderId : '__other__'}
                       onChange={(e) => {
-                        const nextMode = e.target.value as 'existing' | 'other';
-                        setActivityStakeholderMode(nextMode);
-                        if (nextMode === 'other') {
+                        const nextValue = e.target.value;
+                        if (nextValue === '__other__') {
+                          setActivityStakeholderMode('other');
                           setActivityStakeholderId('');
+                          setActivityContactName('');
+                          return;
                         }
+                        setActivityStakeholderMode('existing');
+                        setActivityStakeholderId(nextValue);
                       }}
                       className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
                     >
-                      <option value="existing">From stakeholders</option>
-                      <option value="other">Add other</option>
+                      <option value="">{contactTargetLabel}</option>
+                      {stakeholders.map((stakeholder) => (
+                        <option key={stakeholder.id} value={stakeholder.id}>
+                          {stakeholder.name} ({stakeholder.role})
+                        </option>
+                      ))}
+                      <option value="__other__">Other (enter name)</option>
                     </select>
-                    {activityStakeholderMode === 'existing' ? (
-                      <select
-                        value={activityStakeholderId}
-                        onChange={(e) => setActivityStakeholderId(e.target.value)}
-                        className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-                      >
-                        <option value="">Select stakeholder</option>
-                        {stakeholders.map((stakeholder) => (
-                          <option key={stakeholder.id} value={stakeholder.id}>
-                            {stakeholder.name} ({stakeholder.role})
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        value={activityContactName}
-                        onChange={(e) => setActivityContactName(e.target.value)}
-                        placeholder="Contact name"
-                        className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-                      />
-                    )}
+                    <input
+                      value={activityContactName}
+                      onChange={(e) => setActivityContactName(e.target.value)}
+                      placeholder={activityStakeholderMode === 'other' ? 'Enter other name' : `${contactTargetLabel} name`}
+                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                    />
                   </div>
                 )}
                 {(activityType === 'call' || activityType === 'whatsapp') && (
                   <input
+                    type="tel"
                     value={activityContactPhone}
-                    onChange={(e) => setActivityContactPhone(e.target.value)}
+                    onChange={(e) => {
+                      setActivityContactPhone(e.target.value);
+                      if (activityError) setActivityError(null);
+                    }}
                     placeholder="Phone number"
+                    inputMode="tel"
+                    pattern="[+]?[0-9()\-\\s]{7,20}"
+                    title="Enter a valid phone number (7-20 characters)"
+                    maxLength={20}
+                    required
                     className="h-10 w-full px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
                   />
                 )}
@@ -1013,24 +1380,24 @@ export default function ProjectDetailPage() {
                 )}
                 {activityType === 'visit' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input
-                      value={activityVisitLocation}
-                      onChange={(e) => setActivityVisitLocation(e.target.value)}
-                      placeholder="Visit location"
-                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-                    />
-                    <input
-                      value={activityMeetingWith}
-                      onChange={(e) => setActivityMeetingWith(e.target.value)}
-                      placeholder="Meeting with"
-                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-                    />
-                    <input
-                      type="datetime-local"
-                      value={activityMeetingAt}
-                      onChange={(e) => setActivityMeetingAt(e.target.value)}
-                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm sm:col-span-2"
-                    />
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-3">Visit location</p>
+                      <input
+                        value={activityVisitLocation}
+                        onChange={(e) => setActivityVisitLocation(e.target.value)}
+                        placeholder="Enter place name"
+                        className="h-10 w-full px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-3">Meeting time</p>
+                      <input
+                        type="datetime-local"
+                        value={activityMeetingAt}
+                        onChange={(e) => setActivityMeetingAt(e.target.value)}
+                        className="h-10 w-full px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                      />
+                    </div>
                   </div>
                 )}
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
@@ -1110,21 +1477,31 @@ export default function ProjectDetailPage() {
                   </label>
                   {activityAttachment && <p className="mt-1 text-[11px] text-3 truncate">Attached: {activityAttachment.name}</p>}
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[auto,1fr] gap-2 items-center">
-                  <label className="inline-flex items-center gap-2 text-xs text-2">
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2">
+                  <label className="inline-flex items-start gap-2 text-xs text-2 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={addToFollowUps}
                       onChange={(e) => setAddToFollowUps(e.target.checked)}
+                      className="mt-0.5"
                     />
-                    Add to follow-ups
+                    <span>
+                      <span className="font-semibold text-[var(--text)] inline-flex items-center gap-1">
+                        <BellRing className="h-3.5 w-3.5" />
+                        Add to follow-ups
+                      </span>
+                      <span className="block text-[11px] text-3 mt-0.5">
+                        This will notify you regarding this activity.
+                      </span>
+                    </span>
                   </label>
                   <input
                     type="datetime-local"
                     value={activityFollowUpDueAt}
+                    min={followUpMinDateTime}
                     onChange={(e) => setActivityFollowUpDueAt(e.target.value)}
                     disabled={!addToFollowUps}
-                    className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm disabled:opacity-60"
+                    className="h-10 w-full px-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] focus:border-[var(--border-strong)] focus:outline-none text-sm disabled:opacity-60"
                   />
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -1133,22 +1510,35 @@ export default function ProjectDetailPage() {
                     type="submit"
                     variant="primary"
                     size="sm"
-                    disabled={savingActivity || uploadingActivityAttachment || isRecordingVoice}
+                    disabled={savingActivity || uploadingActivityAttachment || isRecordingVoice || activityDictating}
                   >
                     {savingActivity || uploadingActivityAttachment ? 'Saving...' : 'Log update'}
                   </Button>
                 </div>
               </form>
+                </div>
+              </div>
               )}
 
-              {activities.length === 0 ? (
+              {filteredActivities.length === 0 ? (
                 <p className="text-sm text-3">{activityLoadError ?? 'No activity yet. Log first update.'}</p>
               ) : (
-                <ol className="space-y-2">
-                  {activities.map((activity) => (
-                    <li key={activity.id} className="rounded-xl border border-[var(--border)] p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="inline-flex items-center gap-2">
+                <ol className="space-y-3">
+                  {filteredActivities.map((activity, index) => (
+                    <li key={activity.id} className="relative pl-7">
+                      {index < filteredActivities.length - 1 && (
+                        <span className="absolute left-2.5 top-6 h-[calc(100%+0.75rem)] w-px bg-[var(--border)]" aria-hidden="true" />
+                      )}
+                      <span
+                        className={cn(
+                          'absolute left-0 top-2.5 h-5 w-5 rounded-full border-2 border-[var(--surface)] ring-2 ring-[var(--surface)]',
+                          activityStepColorClass(activity.type)
+                        )}
+                        aria-hidden="true"
+                      />
+                      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-sm">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="inline-flex flex-wrap items-center gap-2">
                           <Badge tone="info">{activity.type}</Badge>
                           <span className="inline-flex items-center h-6 px-2.5 rounded-full border border-brand-600/20 bg-brand-600/10 text-[11px] font-semibold text-brand-700 dark:text-brand-200">
                             {activity.createdByName ?? 'System'}
@@ -1179,27 +1569,37 @@ export default function ProjectDetailPage() {
                             </Button>
                           )}
                         </div>
-                        <div className="inline-flex items-center gap-2">
-                          <span className="text-xs text-3">{relativeTime(activity.createdAt)}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => startEditActivity(activity)}
-                            disabled={deletingActivityId === activity.id}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => void onDeleteActivity(activity.id)}
-                            disabled={deletingActivityId === activity.id}
-                          >
-                            {deletingActivityId === activity.id ? 'Deleting...' : 'Delete'}
-                          </Button>
+                        <div className="flex items-center justify-between gap-2 sm:justify-end">
+                          <div className="leading-tight sm:text-right">
+                            <p className="text-[11px] font-semibold text-[var(--text)]">{relativeTime(activity.createdAt)}</p>
+                            <p className="text-[10px] text-3">{formatActivityDateTime(activity.createdAt)}</p>
+                          </div>
+                          {canManageActivity(activity) && (
+                            <div className="inline-flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => startEditActivity(activity)}
+                                disabled={deletingActivityId === activity.id}
+                                title="Edit activity"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                <span className="hidden sm:inline">Edit</span>
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void onDeleteActivity(activity.id)}
+                                disabled={deletingActivityId === activity.id}
+                                title="Delete activity"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span className="hidden sm:inline">{deletingActivityId === activity.id ? 'Deleting...' : 'Delete'}</span>
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
                       {editingActivityId === activity.id ? (
@@ -1214,7 +1614,6 @@ export default function ProjectDetailPage() {
                             <option value="visit">Visit</option>
                             <option value="email">Email</option>
                             <option value="whatsapp">WhatsApp</option>
-                            <option value="stage">Stage</option>
                           </select>
                           <textarea
                             value={editingActivityMessage}
@@ -1322,18 +1721,48 @@ export default function ProjectDetailPage() {
                                         <div key={attachment.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
                                           <p className="text-[11px] text-3 truncate">{attachment.name}</p>
                                           {isVoice ? (
-                                            <audio controls src={href} className="w-full h-9 mt-1">
-                                              Your browser does not support audio playback.
-                                            </audio>
+                                            <>
+                                              <audio controls src={href} className="w-full h-9 mt-1">
+                                                Your browser does not support audio playback.
+                                              </audio>
+                                              <div className="mt-1 flex items-center justify-end">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => void onShareAttachment(attachment.id, attachment.name, attachment.url)}
+                                                  className="inline-flex items-center gap-1.5 text-[11px] text-brand-700 hover:underline"
+                                                >
+                                                  <Share2 className="h-3.5 w-3.5" />
+                                                  {sharingAttachmentId === attachment.id
+                                                    ? 'Sharing...'
+                                                    : copiedAttachmentId === attachment.id
+                                                      ? 'Copied link'
+                                                      : 'Share'}
+                                                </button>
+                                              </div>
+                                            </>
                                           ) : (
-                                            <a
-                                              href={href}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              className="text-xs text-brand-700 hover:underline"
-                                            >
-                                              Open file
-                                            </a>
+                                            <div className="mt-1 flex items-center justify-between gap-2">
+                                              <a
+                                                href={href}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-xs text-brand-700 hover:underline"
+                                              >
+                                                Open file
+                                              </a>
+                                              <button
+                                                type="button"
+                                                onClick={() => void onShareAttachment(attachment.id, attachment.name, attachment.url)}
+                                                className="inline-flex items-center gap-1.5 text-[11px] text-brand-700 hover:underline"
+                                              >
+                                                <Share2 className="h-3.5 w-3.5" />
+                                                {sharingAttachmentId === attachment.id
+                                                  ? 'Sharing...'
+                                                  : copiedAttachmentId === attachment.id
+                                                    ? 'Copied link'
+                                                    : 'Share'}
+                                              </button>
+                                            </div>
                                           )}
                                         </div>
                                       );
@@ -1345,6 +1774,7 @@ export default function ProjectDetailPage() {
                           })()}
                         </div>
                       )}
+                      </div>
                     </li>
                   ))}
                 </ol>
@@ -1446,19 +1876,45 @@ export default function ProjectDetailPage() {
               ) : (
                 <ul className="space-y-2">
                   {stakeholders.map((stakeholder) => (
-                    <li key={stakeholder.id} className="rounded-xl border border-[var(--border)] p-3">
+                    <li key={stakeholder.id} className="rounded-xl border border-[var(--border)] p-3 relative">
                       <div className="flex items-center justify-between gap-2">
                         <Badge tone="neutral">{stakeholder.role}</Badge>
                         <div className="inline-flex items-center gap-2">
                           <span className="text-xs text-3">{relativeTime(stakeholder.createdAt)}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => startEditStakeholder(stakeholder)}
-                          >
-                            Edit
-                          </Button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              className="h-7 w-7 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                              onClick={() =>
+                                setStakeholderMenuId((current) => (current === stakeholder.id ? null : stakeholder.id))
+                              }
+                              aria-label={`Open actions for ${stakeholder.name}`}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                            {stakeholderMenuId === stakeholder.id && (
+                              <div className="absolute right-0 mt-1 w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-card z-10 overflow-hidden">
+                                <button
+                                  type="button"
+                                  className="w-full px-3 py-2 text-xs text-left hover:bg-[var(--surface-2)]"
+                                  onClick={() => {
+                                    setStakeholderMenuId(null);
+                                    startEditStakeholder(stakeholder);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="w-full px-3 py-2 text-xs text-left text-rose-600 hover:bg-rose-500/10 disabled:opacity-60"
+                                  disabled={deletingStakeholderId === stakeholder.id}
+                                  onClick={() => void onDeleteStakeholder(stakeholder)}
+                                >
+                                  {deletingStakeholderId === stakeholder.id ? 'Deleting...' : 'Delete'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <p className="mt-1 text-sm font-medium">{stakeholder.name}</p>
@@ -1477,21 +1933,32 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader title="Assignments" />
             <div className="px-5 pb-5 space-y-3 text-sm">
-              <div>
-                <p className="text-[11px] text-3">Manager</p>
-                <p className="font-medium">{project.managerName}</p>
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <p className="text-[11px] text-3 mb-1">Manager</p>
+                <p className="font-semibold">{project.managerName}</p>
               </div>
-              <div>
+
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
                 <p className="text-[11px] text-3 inline-flex items-center gap-1">
                   <Users className="h-3.5 w-3.5" /> Sales reps ({project.salesRepNames.length})
                 </p>
-                <ul className="mt-1 space-y-1">
+                <ul className="mt-2 space-y-1.5">
                   {project.salesRepNames.map((name, index) => (
-                    <li key={`${name}-${project.salesRepIds[index] ?? index}`} className="font-medium">
-                      {name}
+                    <li
+                      key={`${name}-${project.salesRepIds[index] ?? index}`}
+                      className="font-medium rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5"
+                    >
+                      {name || `Sales rep ${index + 1}`}
                     </li>
                   ))}
                 </ul>
+              </div>
+
+              <div className="pt-1">
+                <Button type="button" variant="secondary" size="sm" onClick={() => setShowAssignmentPerformance(true)}>
+                  <BarChart3 className="h-4 w-4" />
+                  View performance
+                </Button>
               </div>
             </div>
           </Card>
@@ -1505,6 +1972,7 @@ export default function ProjectDetailPage() {
               <Row k="Country" v={project.country} />
               <Row k="City" v={project.city} />
               <Row k="Developer" v={project.developer} />
+              <Row k="Business division" v={project.businessDivision?.trim() || 'Not provided'} />
               <Row k="Item name" v={project.itemName.trim() || 'Not provided'} />
               <Row k="Item quantity" v={project.itemQuantity > 0 ? `${project.itemQuantity}` : 'Not provided'} />
             </div>
@@ -1558,21 +2026,83 @@ export default function ProjectDetailPage() {
               <p className="text-xs text-3">Add a short outcome summary for this visit log.</p>
             </div>
             <div className="p-4 space-y-3">
-              <textarea
-                value={visitRecapMessage}
-                onChange={(event) => setVisitRecapMessage(event.target.value)}
-                placeholder="Example: Met consultant, confirmed sample approval, shared updated BOQ."
-                rows={5}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-              />
+              <div className="space-y-2">
+                <textarea
+                  value={visitRecapMessage}
+                  onChange={(event) => setVisitRecapMessage(event.target.value)}
+                  placeholder="Example: Met consultant, confirmed sample approval, shared updated BOQ."
+                  rows={5}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                />
+                <div className="flex items-center justify-end">
+                  <Button
+                    type="button"
+                    variant={visitRecapDictating ? 'soft' : 'secondary'}
+                    size="sm"
+                    onClick={toggleVisitRecapDictation}
+                    className={visitRecapDictating ? 'bg-rose-500/15 text-rose-700 hover:bg-rose-500/25 dark:text-rose-200' : undefined}
+                    title={visitRecapDictating ? 'Stop voice typing' : 'Start voice typing'}
+                  >
+                    {visitRecapDictating ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                    {visitRecapDictating ? 'Stop dictation' : 'Use mic'}
+                  </Button>
+                </div>
+              </div>
               <div className="flex items-center justify-end gap-2">
                 <Button type="button" size="sm" variant="ghost" onClick={closeVisitRecap} disabled={savingVisitRecap}>
                   Cancel
                 </Button>
-                <Button type="button" size="sm" variant="primary" onClick={() => void saveVisitRecap()} disabled={savingVisitRecap}>
+                <Button type="button" size="sm" variant="primary" onClick={() => void saveVisitRecap()} disabled={savingVisitRecap || visitRecapDictating}>
                   {savingVisitRecap ? 'Saving...' : 'Save'}
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {showAssignmentPerformance && (
+        <div className="fixed inset-0 z-50 bg-black/45 px-4 py-6 sm:p-8" onClick={() => setShowAssignmentPerformance(false)}>
+          <div
+            className="mx-auto w-full max-w-2xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--border)]">
+              <div>
+                <p className="text-sm font-semibold tracking-tight">Project contribution</p>
+                <p className="text-xs text-3">Performance for assigned manager and sales reps</p>
+              </div>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setShowAssignmentPerformance(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="p-4 space-y-2.5">
+              {assignmentPerformance.map((member) => (
+                <div key={`${member.role}-${member.id}`} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">{member.name}</p>
+                      <p className="text-xs text-3">{member.role}</p>
+                    </div>
+                    <Badge tone="neutral">{member.contributionPct}% contribution</Badge>
+                  </div>
+                  <div className="mt-2 h-1.5 rounded-full bg-[var(--surface)] overflow-hidden">
+                    <div className="h-full bg-brand-600" style={{ width: `${Math.max(2, member.contributionPct)}%` }} />
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+                      <p className="text-3 text-[10px]">Activities</p>
+                      <p className="font-semibold">{member.activities}</p>
+                    </div>
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+                      <p className="text-3 text-[10px]">Visits</p>
+                      <p className="font-semibold">{member.visits}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {assignmentPerformance.length === 0 && (
+                <p className="text-sm text-3">No assignment data available for this project.</p>
+              )}
             </div>
           </div>
         </div>
@@ -1609,6 +2139,11 @@ function hasSubmittedVisitRecap(activity: Pick<ProjectActivity, 'visitWhatHappen
   return Boolean(resolveVisitRecap(activity));
 }
 
+function toDateTimeLocalValue(date: Date) {
+  const tzOffsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 16);
+}
+
 function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-[var(--border)] last:border-0">
@@ -1623,6 +2158,13 @@ function formatRecordingDuration(totalSeconds: number) {
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function activityStepColorClass(type: ProjectActivity['type']) {
+  if (type === 'visit') return 'bg-violet-500';
+  if (type === 'call' || type === 'whatsapp') return 'bg-sky-500';
+  if (type === 'email') return 'bg-amber-500';
+  return 'bg-emerald-500';
 }
 
 function stageTone(stage: string): 'brand' | 'neutral' | 'success' | 'warning' | 'danger' | 'info' {

@@ -37,7 +37,7 @@ async function upsertUser(params: {
   managerId?: string | null;
   regionalManagerId?: string | null;
   operationLocation?: string;
-  monthlyTarget?: number | null;
+  yearlyTarget?: number | null;
   regions?: string[];
 }) {
   const passwordHash = await bcrypt.hash(params.password, 10);
@@ -51,7 +51,7 @@ async function upsertUser(params: {
       managerId: params.managerId ?? null,
       regionalManagerId: params.regionalManagerId ?? null,
       operationLocation: params.operationLocation ?? "Not set",
-      monthlyTarget: params.monthlyTarget ?? null,
+      yearlyTarget: params.yearlyTarget ?? null,
       regions: params.regions ?? [],
       isActive: true
     },
@@ -64,7 +64,7 @@ async function upsertUser(params: {
       managerId: params.managerId ?? null,
       regionalManagerId: params.regionalManagerId ?? null,
       operationLocation: params.operationLocation ?? "Not set",
-      monthlyTarget: params.monthlyTarget ?? null,
+      yearlyTarget: params.yearlyTarget ?? null,
       regions: params.regions ?? [],
       isActive: true
     }
@@ -80,6 +80,7 @@ async function seedTeam() {
     password: "Regional@12345",
     operationLocation: "South India",
     regions: ["South India", "Sri Lanka"],
+    yearlyTarget: 90_000_000,
   });
 
   const regionalManagerGcc = await upsertUser({
@@ -90,6 +91,7 @@ async function seedTeam() {
     password: "Regional@12345",
     operationLocation: "GCC",
     regions: ["UAE", "KSA", "Qatar"],
+    yearlyTarget: 120_000_000,
   });
 
   const manager1 = await upsertUser({
@@ -100,6 +102,7 @@ async function seedTeam() {
     password: "Manager@12345",
     regionalManagerId: regionalManagerSouth.id,
     operationLocation: "Kerala",
+    yearlyTarget: 42_000_000,
   });
 
   const manager2 = await upsertUser({
@@ -110,6 +113,7 @@ async function seedTeam() {
     password: "Manager@12345",
     regionalManagerId: regionalManagerGcc.id,
     operationLocation: "Dubai",
+    yearlyTarget: 48_000_000,
   });
 
   const rep1 = await upsertUser({
@@ -119,7 +123,7 @@ async function seedTeam() {
     role: UserRole.SALES_REP,
     password: "Sales@12345",
     managerId: manager1.id,
-    monthlyTarget: 1800000,
+    yearlyTarget: 21_600_000,
     operationLocation: "Kerala",
   });
 
@@ -130,7 +134,7 @@ async function seedTeam() {
     role: UserRole.SALES_REP,
     password: "Sales@12345",
     managerId: manager1.id,
-    monthlyTarget: 1500000,
+    yearlyTarget: 18_000_000,
     operationLocation: "Tamil Nadu",
   });
 
@@ -141,7 +145,7 @@ async function seedTeam() {
     role: UserRole.SALES_REP,
     password: "Sales@12345",
     managerId: manager2.id,
-    monthlyTarget: 2100000,
+    yearlyTarget: 25_200_000,
     operationLocation: "Riyadh",
   });
 
@@ -152,7 +156,7 @@ async function seedTeam() {
     role: UserRole.SALES_REP,
     password: "Sales@12345",
     managerId: manager2.id,
-    monthlyTarget: 2000000,
+    yearlyTarget: 24_000_000,
     operationLocation: "Dubai",
   });
 

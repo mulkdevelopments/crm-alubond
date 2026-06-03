@@ -11,6 +11,7 @@
     "prisma:push": "prisma db push",
     "prisma:migrate": "prisma migrate dev",
     "migrate:regional-hierarchy": "tsx prisma/migrate-regional-hierarchy.ts",
+    "migrate:yearly-targets": "tsx prisma/backfill-yearly-targets.ts",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts"
   },

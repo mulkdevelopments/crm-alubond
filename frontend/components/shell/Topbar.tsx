@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Search, Bell, Sun, Moon, Command, Menu, Check, X, MapPin, AlertTriangle, Clock3, CheckCircle2 } from 'lucide-react';
+import { Bell, Sun, Moon, Menu, Check, X, MapPin, AlertTriangle, Clock3, CheckCircle2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '@/components/auth/AuthContext';
+import { listUsers, type UserListItem } from '@/lib/auth-api';
 import { listFollowUps } from '@/lib/followups-api';
-import { listProjectActivities, listProjects } from '@/lib/projects-api';
+import { listProjectActivities, listProjects, type ApiProject } from '@/lib/projects-api';
 
 type TopbarNotification = {
   id: string;
@@ -17,6 +18,15 @@ type TopbarNotification = {
   tone: 'danger' | 'warning' | 'info';
 };
 
+type TargetProgress = {
+  label: string;
+  targetAed: number;
+  achievedAed: number;
+  percent: number;
+};
+
+const THEME_STORAGE_KEY = 'alubond-theme';
+
 export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const [dark, setDark] = useState(false);
   const { locationTelemetry, token, user } = useAuth();
@@ -26,11 +36,15 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const [notificationsSeenAtMs, setNotificationsSeenAtMs] = useState(0);
+  const [targetProgress, setTargetProgress] = useState<TargetProgress | null>(null);
   const notificationPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const isDark = document.documentElement.classList.contains('dark') ||
-      window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    const isDark = savedTheme
+      ? savedTheme === 'dark'
+      : document.documentElement.classList.contains('dark') ||
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
     setDark(isDark);
     document.documentElement.classList.toggle('dark', isDark);
   }, []);
@@ -39,6 +53,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
     const next = !dark;
     setDark(next);
     document.documentElement.classList.toggle('dark', next);
+    window.localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light');
   }
 
   useEffect(() => {
@@ -57,6 +72,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
     if (!token) {
       setNotifications([]);
       setNotificationsError(null);
+      setTargetProgress(null);
       return;
     }
     const activeToken: string = token;
@@ -66,9 +82,10 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       setNotificationsLoading(true);
       setNotificationsError(null);
       try {
-        const [followUps, projects] = await Promise.all([listFollowUps(activeToken), listProjects(activeToken)]);
+        const [followUps, projects, users] = await Promise.all([listFollowUps(activeToken), listProjects(activeToken), listUsers(activeToken)]);
         if (cancelled) return;
         const now = Date.now();
+        setTargetProgress(resolveTargetProgress(user?.id ?? null, user?.role ?? null, users, projects));
         const followUpNotifications: TopbarNotification[] = followUps
           .filter((item) => item.status === 'Overdue' || item.status === 'Due today')
           .slice(0, 8)
@@ -216,16 +233,27 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
         <button onClick={onMenu} className="lg:hidden h-9 w-9 inline-flex items-center justify-center rounded-xl hover:bg-[var(--surface-2)]">
           <Menu className="h-5 w-5" />
         </button>
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
-          <input
-            type="text"
-            placeholder="Search projects, contacts, architects…"
-            className="w-full h-10 pl-10 pr-20 rounded-xl bg-[var(--surface-2)] border border-transparent hover:border-[var(--border)] focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none focus:ring-2 focus:ring-brand-600/20 text-sm placeholder:text-3 transition-all"
-          />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 hidden md:flex items-center gap-1 text-[10px] text-3">
-            <span className="kbd"><Command className="h-2.5 w-2.5 inline" />K</span>
-          </span>
+        <div className="flex-1">
+          <div className="h-10 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5">
+            {targetProgress ? (
+              <>
+                <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-widest text-3">
+                  <span className="truncate">{targetProgress.label}</span>
+                  <span className="text-[11px] font-semibold text-[var(--text)]">
+                    AED {formatCompactAedValue(targetProgress.achievedAed)} / {formatCompactAedValue(targetProgress.targetAed)}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-[var(--surface)] overflow-hidden">
+                  <div
+                    className="h-full bg-brand-600"
+                    style={{ width: `${Math.min(100, Math.max(2, targetProgress.percent))}%` }}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="h-full inline-flex items-center text-xs text-3">Yearly target not configured</div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -369,6 +397,55 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       </div>
     </header>
   );
+}
+
+function resolveTargetProgress(
+  currentUserId: string | null,
+  currentUserRole: UserListItem['role'] | null,
+  users: UserListItem[],
+  projects: ApiProject[]
+): TargetProgress | null {
+  if (!currentUserId || !currentUserRole) return null;
+
+  const owner =
+    currentUserRole === 'ADMIN'
+      ? users.find((entry) => entry.role === 'CEO' && (entry.yearlyTarget ?? 0) > 0) ?? null
+      : users.find((entry) => entry.id === currentUserId) ?? null;
+  if (!owner || !owner.yearlyTarget || owner.yearlyTarget <= 0) return null;
+
+  const wonProjects = projects.filter((project) => project.stage === 'Won');
+  const relevantWonProjects =
+    owner.role === 'CEO'
+      ? wonProjects
+      : owner.role === 'REGIONAL_MANAGER'
+        ? (() => {
+            const managerIds = new Set(
+              users.filter((entry) => entry.role === 'MANAGER' && entry.regionalManagerId === owner.id).map((entry) => entry.id)
+            );
+            return wonProjects.filter((project) => managerIds.has(project.managerId));
+          })()
+        : owner.role === 'MANAGER'
+          ? wonProjects.filter((project) => project.managerId === owner.id)
+          : owner.role === 'SALES_REP'
+            ? wonProjects.filter((project) => project.salesRepIds.includes(owner.id))
+            : [];
+
+  const achievedAed = relevantWonProjects.reduce((sum, project) => sum + project.valueAed, 0);
+  const percent = Math.round((achievedAed / owner.yearlyTarget) * 100);
+
+  return {
+    label: `Goal ${new Date().getFullYear()}`,
+    targetAed: owner.yearlyTarget,
+    achievedAed,
+    percent: Number.isFinite(percent) ? percent : 0,
+  };
+}
+
+function formatCompactAedValue(value: number) {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return `${Math.round(value)}`;
 }
 
 function relativeAgo(iso: string, nowMs: number) {

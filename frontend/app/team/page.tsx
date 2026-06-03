@@ -11,6 +11,8 @@ import { listProjectActivities, listProjects, type ApiProject, type ProjectActiv
 import { formatAED } from '@/lib/utils';
 
 type NodeMetrics = {
+  assignedTargetAed: number | null;
+  assignedAttainmentPct: number;
   targetAed: number;
   achievedAed: number;
   pipelineAed: number;
@@ -28,6 +30,7 @@ type SalesRepCard = {
   online: boolean;
   metrics: NodeMetrics;
   visits: FlatActivity[];
+  pipelineProjects: ApiProject[];
 };
 
 type ManagerCard = {
@@ -37,6 +40,7 @@ type ManagerCard = {
   reps: SalesRepCard[];
   metrics: NodeMetrics;
   visits: FlatActivity[];
+  pipelineProjects: ApiProject[];
 };
 
 type RegionalCard = {
@@ -46,6 +50,7 @@ type RegionalCard = {
   managers: ManagerCard[];
   metrics: NodeMetrics;
   visits: FlatActivity[];
+  pipelineProjects: ApiProject[];
 };
 
 type FlatActivity = {
@@ -60,7 +65,7 @@ type FlatActivity = {
 };
 
 export default function TeamPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserListItem[]>([]);
@@ -68,6 +73,7 @@ export default function TeamPage() {
   const [activities, setActivities] = useState<FlatActivity[]>([]);
   const [selectedRegionalId, setSelectedRegionalId] = useState<string | null>(null);
   const [visitPopup, setVisitPopup] = useState<{ ownerName: string; visits: FlatActivity[] } | null>(null);
+  const [pipelinePopup, setPipelinePopup] = useState<{ ownerName: string; projects: ApiProject[] } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -185,6 +191,8 @@ export default function TeamPage() {
                   location={(card as RegionalCard).location}
                   metrics={card.metrics}
                   topPerformer={card.id === bestPerformerId}
+                  isYou={user?.id === card.id}
+                  onPipelineClick={() => setPipelinePopup({ ownerName: card.name, projects: card.pipelineProjects })}
                   onVisitsClick={() => setVisitPopup({ ownerName: card.name, visits: (card as RegionalCard).visits })}
                   onClick={() => {
                     setSelectedRegionalId(card.id);
@@ -199,6 +207,8 @@ export default function TeamPage() {
               location={selectedRegional.location}
               metrics={selectedRegional.metrics}
               topPerformer={selectedRegional.id === bestPerformerId}
+              isYou={user?.id === selectedRegional.id}
+              onPipelineClick={() => setPipelinePopup({ ownerName: selectedRegional.name, projects: selectedRegional.pipelineProjects })}
               onVisitsClick={() => setVisitPopup({ ownerName: selectedRegional.name, visits: selectedRegional.visits })}
             />
 
@@ -213,6 +223,8 @@ export default function TeamPage() {
                     location={manager.location}
                     metrics={manager.metrics}
                     topPerformer={false}
+                    isYou={user?.id === manager.id}
+                    onPipelineClick={() => setPipelinePopup({ ownerName: manager.name, projects: manager.pipelineProjects })}
                     onVisitsClick={() => setVisitPopup({ ownerName: manager.name, visits: manager.visits })}
                   />
                   <div className="space-y-2 border-l border-dashed border-[var(--border)] pl-4 ml-2">
@@ -229,7 +241,10 @@ export default function TeamPage() {
                             location={rep.location}
                             metrics={rep.metrics}
                             topPerformer={false}
+                            isYou={user?.id === rep.id}
                             online={rep.online}
+                            hideTeamPerformance
+                            onPipelineClick={() => setPipelinePopup({ ownerName: rep.name, projects: rep.pipelineProjects })}
                             onVisitsClick={() => setVisitPopup({ ownerName: rep.name, visits: rep.visits })}
                           />
                         </div>
@@ -286,6 +301,79 @@ export default function TeamPage() {
           </div>
         </div>
       )}
+      {pipelinePopup && (
+        <div className="fixed inset-0 z-[90] bg-black/55 px-4 py-8 overflow-y-auto" onClick={() => setPipelinePopup(null)}>
+          <div
+            className="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 md:p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold">{pipelinePopup.ownerName} · Pipeline details</h3>
+                <p className="text-xs text-3 mt-0.5">
+                  {pipelinePopup.projects.length} active project(s) ·{' '}
+                  {formatAED(pipelinePopup.projects.reduce((sum, project) => sum + project.valueAed, 0), true)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPipelinePopup(null)}
+                className="h-8 px-3 rounded-lg border border-[var(--border)] text-xs"
+              >
+                Close
+              </button>
+            </div>
+
+            {pipelinePopup.projects.length === 0 ? (
+              <p className="text-sm text-3 mt-4">No active pipeline projects.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                  <p className="text-xs font-semibold tracking-tight">Legend by stage</p>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {Array.from(
+                      pipelinePopup.projects.reduce((acc, project) => {
+                        const current = acc.get(project.stage) ?? { count: 0, value: 0 };
+                        current.count += 1;
+                        current.value += project.valueAed;
+                        acc.set(project.stage, current);
+                        return acc;
+                      }, new Map<string, { count: number; value: number }>())
+                    )
+                      .sort((a, b) => b[1].value - a[1].value)
+                      .map(([stage, stats]) => (
+                        <div key={stage} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
+                          <p className="text-xs font-semibold">{stage}</p>
+                          <p className="text-[11px] text-3 mt-0.5">
+                            {stats.count} project(s) · {formatAED(stats.value, true)}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {[...pipelinePopup.projects]
+                    .sort((a, b) => b.valueAed - a.valueAed)
+                    .map((project) => (
+                      <article key={project.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium">{project.name}</p>
+                            <p className="text-xs text-3">
+                              {project.stage} · {project.city}, {project.country}
+                            </p>
+                          </div>
+                          <p className="text-xs font-semibold">{formatAED(project.valueAed, true)}</p>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -295,7 +383,10 @@ function PerformanceCard({
   location,
   metrics,
   topPerformer,
+  isYou = false,
   online,
+  hideTeamPerformance = false,
+  onPipelineClick,
   onClick,
   onVisitsClick,
 }: {
@@ -303,14 +394,23 @@ function PerformanceCard({
   location: string;
   metrics: NodeMetrics;
   topPerformer: boolean;
+  isYou?: boolean;
   online?: boolean;
+  hideTeamPerformance?: boolean;
+  onPipelineClick?: () => void;
   onClick?: () => void;
   onVisitsClick?: () => void;
 }) {
   const accent = metrics.attainmentPct >= 100 ? 'bg-emerald-400' : metrics.attainmentPct >= 75 ? 'bg-amber-400' : 'bg-rose-500';
+  const assignedAccent =
+    metrics.assignedAttainmentPct >= 100 ? 'bg-emerald-400' : metrics.assignedAttainmentPct >= 75 ? 'bg-amber-400' : 'bg-brand-400';
   const handleVisitsClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onVisitsClick?.();
+  };
+  const handlePipelineClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onPipelineClick?.();
   };
   return (
     <article
@@ -332,25 +432,50 @@ function PerformanceCard({
             </p>
           </div>
         </div>
-        {topPerformer && <span className="text-[10px] text-emerald-300 border border-emerald-500/40 bg-emerald-500/10 rounded-full px-2 py-0.5">Top performer</span>}
+        <div className="inline-flex items-center gap-1.5">
+          {isYou && (
+            <span className="text-[10px] text-orange-300 border border-orange-500/40 bg-orange-500/10 rounded-full px-2 py-0.5">You</span>
+          )}
+          {topPerformer && (
+            <span className="text-[10px] text-emerald-300 border border-emerald-500/40 bg-emerald-500/10 rounded-full px-2 py-0.5">
+              Top performer
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-3">
         <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-white/50">
-          <span>Target attainment</span>
-          <span className="text-sm font-semibold text-white">{metrics.attainmentPct}%</span>
+          <span>Yearly target progress</span>
+          <span className="text-sm font-semibold text-white">{formatAED(metrics.achievedAed, true)}</span>
         </div>
         <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
-          <div className={`h-full ${accent}`} style={{ width: `${Math.min(100, Math.max(2, metrics.attainmentPct))}%` }} />
+          <div className={`h-full ${assignedAccent}`} style={{ width: `${Math.min(100, Math.max(2, metrics.assignedAttainmentPct))}%` }} />
         </div>
         <div className="mt-1.5 flex items-center justify-between text-[10px] text-white/45 num-tabular">
-          <span>{formatAED(metrics.achievedAed, true)}</span>
-          <span>{formatAED(metrics.targetAed, true)}</span>
+          <span>{metrics.assignedAttainmentPct}%</span>
+          <span>{formatAED(metrics.assignedTargetAed ?? metrics.targetAed, true)}</span>
         </div>
       </div>
 
+      {!hideTeamPerformance && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-white/50">
+            <span>Team performance</span>
+          <span className="text-sm font-semibold text-white">{formatAED(metrics.achievedAed, true)}</span>
+          </div>
+          <div className="mt-1.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div className={`h-full ${accent}`} style={{ width: `${Math.min(100, Math.max(2, metrics.attainmentPct))}%` }} />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[10px] text-white/45 num-tabular">
+            <span>{metrics.attainmentPct}%</span>
+            <span>{formatAED(metrics.targetAed, true)}</span>
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-        <Stat label="Pipeline" value={formatAED(metrics.pipelineAed, true)} />
+        <Stat label="Pipeline" value={formatAED(metrics.pipelineAed, true)} onClick={handlePipelineClick} title="View pipeline details" />
         <Stat label="Visits/wk" value={metrics.visitsWeek} onClick={handleVisitsClick} />
         <Stat label="Convert" value={`${metrics.conversionPct}%`} />
       </div>
@@ -358,14 +483,24 @@ function PerformanceCard({
   );
 }
 
-function Stat({ label, value, onClick }: { label: string; value: string | number; onClick?: (event: MouseEvent<HTMLButtonElement>) => void }) {
+function Stat({
+  label,
+  value,
+  onClick,
+  title,
+}: {
+  label: string;
+  value: string | number;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
+  title?: string;
+}) {
   if (onClick) {
     return (
       <button
         type="button"
         onClick={onClick}
         className="rounded-lg px-1 py-1.5 hover:bg-white/10 transition-colors"
-        title="View visit details"
+        title={title ?? 'View details'}
       >
         <p className="text-[10px] uppercase tracking-widest text-white/45">{label}</p>
         <p className="mt-1 text-sm font-semibold num-tabular">{value}</p>
@@ -402,7 +537,46 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
     repsByManager.set(rep.managerId, list);
   }
 
-  return regionals.map((regional) => {
+  type RegionalSeed = {
+    id: string;
+    firstName: string;
+    lastName: string;
+    regions: string[];
+    operationLocation: string;
+    yearlyTarget: number | null;
+  };
+
+  const regionalSeeds: RegionalSeed[] = regionals.map((regional) => ({
+    id: regional.id,
+    firstName: regional.firstName,
+    lastName: regional.lastName,
+    regions: regional.regions,
+    operationLocation: regional.operationLocation,
+    yearlyTarget: regional.yearlyTarget,
+  }));
+
+  const existingRegionalIds = new Set(regionalSeeds.map((regional) => regional.id));
+  const missingRegionalIds = Array.from(
+    new Set(
+      managers
+        .map((manager) => manager.regionalManagerId)
+        .filter((regionalId): regionalId is string => Boolean(regionalId) && !existingRegionalIds.has(regionalId))
+    )
+  );
+
+  for (const regionalId of missingRegionalIds) {
+    const linkedManager = managers.find((manager) => manager.regionalManagerId === regionalId);
+    regionalSeeds.push({
+      id: regionalId,
+      firstName: linkedManager?.regionalManager?.firstName ?? 'Regional',
+      lastName: linkedManager?.regionalManager?.lastName ?? 'Manager',
+      regions: [],
+      operationLocation: linkedManager?.operationLocation || 'Regional coverage',
+      yearlyTarget: null,
+    });
+  }
+
+  return regionalSeeds.map((regional) => {
     const managerUsers = managersByRegional.get(regional.id) ?? [];
     const managerCards = managerUsers.map((manager) => {
       const managerProjectIds = projects.filter((project) => project.managerId === manager.id).map((project) => project.id);
@@ -411,6 +585,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       const repCards = (repsByManager.get(manager.id) ?? []).map((rep) => {
         const repProjectIds = projects.filter((project) => project.salesRepIds.includes(rep.id)).map((project) => project.id);
         const repProjects = projects.filter((project) => repProjectIds.includes(project.id));
+      const repPipelineProjects = repProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
         const repVisits = activities.filter(
           (activity) => activity.type === 'visit' && activity.createdById === rep.id && repProjectIds.includes(activity.projectId)
         );
@@ -419,24 +594,28 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
           name: `${rep.firstName} ${rep.lastName}`.trim(),
           location: rep.operationLocation,
           online: isLive(rep.lastLocationPingAt, rep.isActive),
-          metrics: computeMetrics(repProjects, rep.monthlyTarget, repVisits),
+          metrics: computeMetrics(repProjects, rep.yearlyTarget, rep.yearlyTarget, repVisits),
           visits: repVisits,
+          pipelineProjects: repPipelineProjects,
         };
       });
       const targetFromReps = repCards.reduce((sum, rep) => sum + rep.metrics.targetAed, 0);
+      const managerPipelineProjects = managerProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
       return {
         id: manager.id,
         name: `${manager.firstName} ${manager.lastName}`.trim(),
         location: manager.operationLocation,
         reps: repCards,
-        metrics: computeMetrics(managerProjects, targetFromReps || manager.monthlyTarget, managerVisits),
+        metrics: computeMetrics(managerProjects, manager.yearlyTarget, targetFromReps || manager.yearlyTarget, managerVisits),
         visits: managerVisits,
+        pipelineProjects: managerPipelineProjects,
       };
     });
 
     const managerIds = new Set(managerCards.map((manager) => manager.id));
     const regionalProjects = projects.filter((project) => managerIds.has(project.managerId));
     const regionalProjectIds = new Set(regionalProjects.map((project) => project.id));
+    const regionalPipelineProjects = regionalProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
     const regionalVisits = activities.filter((activity) => activity.type === 'visit' && regionalProjectIds.has(activity.projectId));
     const targetFromManagers = managerCards.reduce((sum, manager) => sum + manager.metrics.targetAed, 0);
     return {
@@ -444,21 +623,29 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       name: `${regional.firstName} ${regional.lastName}`.trim(),
       location: regional.regions.join(', ') || regional.operationLocation || 'Regional coverage',
       managers: managerCards,
-      metrics: computeMetrics(regionalProjects, targetFromManagers || regional.monthlyTarget, regionalVisits),
+      metrics: computeMetrics(regionalProjects, regional.yearlyTarget, targetFromManagers || regional.yearlyTarget, regionalVisits),
       visits: regionalVisits,
+      pipelineProjects: regionalPipelineProjects,
     };
   });
 }
 
-function computeMetrics(projects: ApiProject[], targetInput: number | null | undefined, visits: FlatActivity[]): NodeMetrics {
+function computeMetrics(
+  projects: ApiProject[],
+  assignedTargetInput: number | null | undefined,
+  teamTargetInput: number | null | undefined,
+  visits: FlatActivity[]
+): NodeMetrics {
   const wonProjects = projects.filter((project) => project.stage === 'Won');
   const activeProjects = projects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
   const achievedAed = wonProjects.reduce((sum, project) => sum + project.valueAed, 0);
   const pipelineAed = activeProjects.reduce((sum, project) => sum + project.valueAed, 0);
+  const assignedTargetAed = assignedTargetInput && assignedTargetInput > 0 ? assignedTargetInput : null;
   const targetAed =
-    targetInput && targetInput > 0
-      ? targetInput
+    teamTargetInput && teamTargetInput > 0
+      ? teamTargetInput
       : Math.max(1_000_000, Math.round((achievedAed + pipelineAed) * 0.55));
+  const assignedAttainmentPct = assignedTargetAed ? Math.round((achievedAed / assignedTargetAed) * 100) : 0;
   const attainmentPct = Math.round((achievedAed / targetAed) * 100);
   const conversionPct = projects.length ? Math.round((wonProjects.length / projects.length) * 100) : 0;
   const weekStartMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -468,6 +655,8 @@ function computeMetrics(projects: ApiProject[], targetInput: number | null | und
   }).length;
 
   return {
+    assignedTargetAed,
+    assignedAttainmentPct: Number.isFinite(assignedAttainmentPct) ? assignedAttainmentPct : 0,
     targetAed,
     achievedAed,
     pipelineAed,

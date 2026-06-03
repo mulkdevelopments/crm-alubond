@@ -124,7 +124,6 @@ export default function DashboardPage() {
       <PageHeader
         eyebrow="Sales Command Center"
         title={<>Good morning, {user?.firstName ?? 'there'} <span className="text-brand-600">.</span></>}
-        subtitle="Live CRM dashboard without mock data."
       />
 
       {error && (
@@ -264,7 +263,9 @@ function buildMonthlyTrend(projects: ApiProject[], users: UserListItem[]) {
     return { key, month: d.toLocaleString('en', { month: 'short' }) };
   });
   const fallbackTargetM =
-    users.filter((u) => u.role === 'SALES_REP').reduce((sum, u) => sum + (u.monthlyTarget ?? 0), 0) / 1_000_000;
+    users
+      .filter((u) => u.role === 'SALES_REP')
+      .reduce((sum, u) => sum + ((u.yearlyTarget ?? 0) / 12), 0) / 1_000_000;
 
   return labels.map((entry) => {
     const achievedM =

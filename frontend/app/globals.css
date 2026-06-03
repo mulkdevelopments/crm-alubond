@@ -132,3 +132,14 @@ html, body {
             mask-image: linear-gradient(to right, black 70%, transparent);
   }
 }
+
+/* Keep Leaflet maps below sticky app header/top overlays. */
+.leaflet-container {
+  z-index: 0;
+}
+
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 10;
+}

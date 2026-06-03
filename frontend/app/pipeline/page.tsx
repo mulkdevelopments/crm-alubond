@@ -2,10 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { Filter, GripVertical, MoreHorizontal, Plus, Search, Flame, Clock, Pencil, X, MapPin } from 'lucide-react';
+import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, X, MapPin } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
-import { PageHeader } from '@/components/shell/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { STAGES, type Stage } from '@/lib/data';
@@ -30,6 +29,7 @@ type ProjectFormState = {
   city: string;
   country: string;
   developer: string;
+  businessDivision: '' | 'alubond architecture' | 'alubond transport' | 'uniqube';
   value: string;
   itemName: string;
   itemQuantity: string;
@@ -48,6 +48,7 @@ type PipelineProject = {
   city: string;
   country: string;
   developer: string;
+  businessDivision: 'alubond architecture' | 'alubond transport' | 'uniqube' | null;
   stage: Stage;
   value: number;
   itemName: string;
@@ -66,6 +67,8 @@ type PipelineProject = {
 };
 
 const PIPELINE_STAGES: Stage[] = [...STAGES, 'Lost', 'Won'];
+const PIPELINE_VISIBLE_STAGES: Stage[] = PIPELINE_STAGES.filter((stage) => stage !== 'Approved');
+const BUSINESS_DIVISIONS = ['alubond architecture', 'alubond transport', 'uniqube'] as const;
 const COUNTRIES = [
   'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina', 'Armenia',
   'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium',
@@ -98,6 +101,7 @@ const EMPTY_FORM: ProjectFormState = {
   city: '',
   country: '',
   developer: '',
+  businessDivision: '',
   value: '',
   itemName: '',
   itemQuantity: '',
@@ -116,6 +120,8 @@ export default function PipelinePage() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [mobileStage, setMobileStage] = useState<Stage>('Lead Identified');
   const [mobileQuery, setMobileQuery] = useState('');
+  const [desktopQuery, setDesktopQuery] = useState('');
+  const [desktopFocusedStage, setDesktopFocusedStage] = useState<Stage | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectFormState>(EMPTY_FORM);
@@ -154,8 +160,14 @@ export default function PipelinePage() {
     return items.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
   }
 
-  function requiresCommercialDetails(stage: Stage) {
-    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
+  function matchesProjectQuery(project: PipelineProject, query: string) {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      project.name.toLowerCase().includes(q) ||
+      project.city.toLowerCase().includes(q) ||
+      project.developer.toLowerCase().includes(q)
+    );
   }
 
   async function persistProjectStageUpdate(
@@ -179,6 +191,7 @@ export default function PipelinePage() {
       city: project.city,
       country: project.country,
       developer: project.developer,
+      businessDivision: project.businessDivision,
       stage: nextStage,
       valueAed: value,
       itemName,
@@ -242,7 +255,7 @@ export default function PipelinePage() {
             regionalManagerId: null,
             regions: [],
             operationLocation: 'Not set',
-            monthlyTarget: null,
+            yearlyTarget: null,
             isActive: true,
             createdAt: new Date(0).toISOString(),
             lastLocationPingAt: null,
@@ -268,7 +281,7 @@ export default function PipelinePage() {
                   regionalManagerId: user.regionalManagerId ?? null,
                   regions: user.regions ?? [],
                   operationLocation: 'Not set',
-                  monthlyTarget: null,
+                  yearlyTarget: null,
                   isActive: true,
                   createdAt: new Date(0).toISOString(),
                   lastLocationPingAt: null,
@@ -289,7 +302,7 @@ export default function PipelinePage() {
             regionalManagerId: null,
             regions: [],
             operationLocation: 'Not set',
-            monthlyTarget: null,
+            yearlyTarget: null,
             isActive: true,
             createdAt: new Date(0).toISOString(),
             lastLocationPingAt: null,
@@ -327,19 +340,6 @@ export default function PipelinePage() {
   }
 
   function requestStageChange(project: PipelineProject, stage: Stage) {
-    if (requiresCommercialDetails(stage)) {
-      setCommercialPrompt({
-        projectId: project.id,
-        targetStage: stage,
-        value: String(project.value > 0 ? project.value : ''),
-        itemName: project.itemName ?? '',
-        itemQuantity: String(project.itemQuantity > 0 ? project.itemQuantity : ''),
-        error: null,
-        saving: false,
-      });
-      return;
-    }
-
     void persistProjectStageUpdate(project, stage, project.value, project.itemName, project.itemQuantity).catch(() => {
       setProjectsError('Failed to update stage. Please retry.');
     });
@@ -420,6 +420,7 @@ export default function PipelinePage() {
       city: project.city,
       country: project.country,
       developer: project.developer,
+      businessDivision: project.businessDivision ?? '',
       value: String(project.value),
       itemName: project.itemName ?? '',
       itemQuantity: String(project.itemQuantity),
@@ -528,36 +529,16 @@ export default function PipelinePage() {
     const itemQuantity = Number(form.itemQuantity);
     const lat = Number(form.lat);
     const lng = Number(form.lng);
-    const hasProbability = form.probability.trim() !== '';
     const probability = Math.max(0, Math.min(100, Number(form.probability)));
+    const businessDivision = form.businessDivision || null;
     const normalizedItemName = itemName;
     const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
     const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
     const managerId = managerForForm;
     const salesRepNames = selectedReps.map((rep) => `${rep.firstName} ${rep.lastName}`.trim()).filter(Boolean);
 
-    if (!name || !city || !country || !developer) {
-      setFormError('Fill project name, city, country, and developer.');
-      return;
-    }
-    if (!Number.isFinite(value) || value <= 0) {
-      setFormError('Project value must be greater than 0.');
-      return;
-    }
-    if (requiresCommercialDetails(form.stage) && (!Number.isFinite(itemQuantity) || itemQuantity <= 0)) {
-      setFormError('Item quantity is required for Tender stage and later.');
-      return;
-    }
-    if (requiresCommercialDetails(form.stage) && !itemName) {
-      setFormError('Item name is required for Tender stage and later.');
-      return;
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setFormError('Pick a valid map location (latitude/longitude).');
-      return;
-    }
-    if (!hasProbability) {
-      setFormError('Enter win probability.');
+    if (!name || !city) {
+      setFormError('Fill project name and city.');
       return;
     }
     if (!managerId) {
@@ -569,6 +550,11 @@ export default function PipelinePage() {
       return;
     }
 
+    const normalizedValue = Number.isFinite(value) && value >= 0 ? value : 0;
+    const normalizedLat = Number.isFinite(lat) ? lat : 0;
+    const normalizedLng = Number.isFinite(lng) ? lng : 0;
+    const normalizedProbability = Number.isFinite(probability) ? probability : 0;
+
     if (editingProject) {
       const nextDaysInStage = editingProject.stage === form.stage ? editingProject.daysInStage : 1;
       try {
@@ -577,13 +563,14 @@ export default function PipelinePage() {
           city,
           country,
           developer,
+          businessDivision,
           stage: form.stage,
-          valueAed: value,
+          valueAed: normalizedValue,
           itemName: normalizedItemName,
           itemQuantity: normalizedItemQuantity,
-          lat,
-          lng,
-          probability,
+          lat: normalizedLat,
+          lng: normalizedLng,
+          probability: normalizedProbability,
           daysInStage: nextDaysInStage,
           competitor: form.competitor.trim() || null,
           managerId,
@@ -602,13 +589,14 @@ export default function PipelinePage() {
         city,
         country,
         developer,
+        businessDivision,
         stage: form.stage,
-        valueAed: value,
+        valueAed: normalizedValue,
         itemName: normalizedItemName,
         itemQuantity: normalizedItemQuantity,
-        lat,
-        lng,
-        probability,
+        lat: normalizedLat,
+        lng: normalizedLng,
+        probability: normalizedProbability,
         daysInStage: 1,
         competitor: form.competitor.trim() || null,
         managerId,
@@ -623,35 +611,29 @@ export default function PipelinePage() {
 
   const mobileStageItems = items
     .filter((project) => project.stage === mobileStage)
-    .filter((project) => {
-      const q = mobileQuery.trim().toLowerCase();
-      if (!q) return true;
-      return (
-        project.name.toLowerCase().includes(q) ||
-        project.city.toLowerCase().includes(q) ||
-        project.developer.toLowerCase().includes(q)
-      );
-    });
+    .filter((project) => matchesProjectQuery(project, mobileQuery));
+
+  const desktopFilteredItems = items.filter((project) => matchesProjectQuery(project, desktopQuery));
+  const desktopVisibleStages = desktopFocusedStage ? [desktopFocusedStage] : PIPELINE_VISIBLE_STAGES;
 
   return (
     <>
-      <PageHeader
-        eyebrow="Pipeline"
-        title="Project pipeline"
-        subtitle={`${items.length} deals · ${formatAED(items.reduce((a, b) => a + b.value, 0), true)} total · drag a card across stages`}
-        actions={
-          <>
-            <div className="relative hidden md:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
-              <input className="pl-9 pr-3 h-9 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm placeholder:text-3 w-64" placeholder="Filter projects…" />
-            </div>
-            <Button variant="secondary" size="sm" icon={<Filter className="h-4 w-4" />}>Filters</Button>
-            {canCreateProject && (
-              <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreateForm}>Add project</Button>
-            )}
-          </>
-        }
-      />
+      <div className="px-4 lg:px-8 pt-6 lg:pt-8 pb-4 flex justify-end">
+        <div className="flex items-center gap-2">
+          <div className="relative hidden md:block">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
+            <input
+              value={desktopQuery}
+              onChange={(event) => setDesktopQuery(event.target.value)}
+              className="pl-9 pr-3 h-9 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm placeholder:text-3 w-64"
+              placeholder="Filter projects…"
+            />
+          </div>
+          {canCreateProject && (
+            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreateForm}>Add project</Button>
+          )}
+        </div>
+      </div>
 
       {projectsLoading && <p className="px-4 lg:px-8 pb-2 text-sm text-3">Loading projects...</p>}
       {projectsError && <p className="px-4 lg:px-8 pb-2 text-sm text-rose-600">{projectsError}</p>}
@@ -679,7 +661,7 @@ export default function PipelinePage() {
 
         <div className="overflow-x-auto -mx-4 px-4 pb-1">
           <div className="inline-flex gap-2 min-w-max">
-            {PIPELINE_STAGES.map((stage) => {
+            {PIPELINE_VISIBLE_STAGES.map((stage) => {
               const count = items.filter((project) => project.stage === stage).length;
               return (
                 <button
@@ -754,7 +736,7 @@ export default function PipelinePage() {
                   onChange={(event) => requestStageChange(project, event.target.value as Stage)}
                   className="h-9 w-full px-2.5 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-xs"
                 >
-                  {PIPELINE_STAGES.map((stage) => (
+                  {PIPELINE_VISIBLE_STAGES.map((stage) => (
                     <option key={`mobile-move-${project.id}-${stage}`} value={stage}>
                       {stageTitle(stage)}
                     </option>
@@ -774,8 +756,8 @@ export default function PipelinePage() {
       <div className="hidden md:block px-4 lg:px-8">
         <div className="overflow-x-auto -mx-4 lg:-mx-8 px-4 lg:px-8 pb-8">
           <div className="flex gap-3 min-w-max">
-            {PIPELINE_STAGES.map((stage) => {
-              const cards = items.filter((p) => p.stage === stage);
+            {desktopVisibleStages.map((stage) => {
+              const cards = desktopFilteredItems.filter((p) => p.stage === stage);
               return (
                 <div
                   key={stage}
@@ -789,10 +771,21 @@ export default function PipelinePage() {
                       <h3 className="text-sm font-semibold tracking-tight truncate">{stageTitle(stage)}</h3>
                       <Badge tone="neutral" className="!text-[10px]">{cards.length}</Badge>
                     </div>
-                    <button className="text-3 hover:text-[var(--text)]"><MoreHorizontal className="h-4 w-4" /></button>
+                    <button
+                      type="button"
+                      onClick={() => setDesktopFocusedStage((current) => (current === stage ? null : stage))}
+                      className={cn(
+                        'text-3 hover:text-[var(--text)]',
+                        desktopFocusedStage === stage && 'text-[var(--text)]'
+                      )}
+                      title={desktopFocusedStage === stage ? 'Show all stages' : `Focus ${stageTitle(stage)}`}
+                      aria-label={desktopFocusedStage === stage ? 'Show all stages' : `Focus ${stageTitle(stage)}`}
+                    >
+                      <Filter className="h-4 w-4" />
+                    </button>
                   </div>
                   <div className="px-4 pb-2 text-[11px] text-3 num-tabular">
-                    {formatAED(totalFor(stage), true)}
+                    {formatAED(cards.reduce((sum, project) => sum + project.value, 0), true)}
                   </div>
 
                   <div className="flex-1 min-h-[200px] p-2 space-y-2">
@@ -846,7 +839,7 @@ export default function PipelinePage() {
                                 <p className="text-[11px] font-medium truncate">{p.managerName}</p>
                               </div>
                               <div className="flex items-center gap-1">
-                                <span className="chip !text-[9px] !px-1.5 !py-0">{p.salesRepNames.length} reps</span>
+                                <span className="chip !text-[9px] !px-1.5 !py-0">sales rep-{p.salesRepNames.length}</span>
                                 {p.value > 5_000_000 && <Flame className="h-3 w-3 text-amber-500" />}
                                 {p.competitor && <span className="chip !text-[9px] !px-1.5 !py-0">vs {p.competitor}</span>}
                               </div>
@@ -961,15 +954,30 @@ export default function PipelinePage() {
                   value={form.developer}
                   onChange={(e) => setForm((prev) => ({ ...prev, developer: e.target.value }))}
                   placeholder="Developer"
-                  required
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
+                <select
+                  value={form.businessDivision}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      businessDivision: e.target.value as ProjectFormState['businessDivision'],
+                    }))
+                  }
+                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                >
+                  <option value="">Business division (optional)</option>
+                  {BUSINESS_DIVISIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
                 <input
                   list="project-country-options"
                   value={form.country}
                   onChange={(e) => setForm((prev) => ({ ...prev, country: e.target.value }))}
                   placeholder="Select or search country"
-                  required
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <datalist id="project-country-options">
@@ -982,7 +990,7 @@ export default function PipelinePage() {
                   onChange={(e) => setForm((prev) => ({ ...prev, stage: e.target.value as Stage }))}
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 >
-                  {PIPELINE_STAGES.map((stage) => (
+                  {PIPELINE_VISIBLE_STAGES.map((stage) => (
                     <option key={stage} value={stage}>
                       {stageTitle(stage)}
                     </option>
@@ -990,11 +998,10 @@ export default function PipelinePage() {
                 </select>
                 <input
                   type="number"
-                  min={1}
+                  min={0}
                   value={form.value}
                   onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
                   placeholder="Value (AED)"
-                  required
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <input
@@ -1002,7 +1009,6 @@ export default function PipelinePage() {
                   value={form.itemName}
                   onChange={(e) => setForm((prev) => ({ ...prev, itemName: e.target.value }))}
                   placeholder="Item name"
-                  required={requiresCommercialDetails(form.stage)}
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <input
@@ -1012,14 +1018,8 @@ export default function PipelinePage() {
                   value={form.itemQuantity}
                   onChange={(e) => setForm((prev) => ({ ...prev, itemQuantity: e.target.value }))}
                   placeholder="Item quantity"
-                  required={requiresCommercialDetails(form.stage)}
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
-                {requiresCommercialDetails(form.stage) && (
-                  <p className="text-[11px] text-amber-600">
-                    Tender stage and later require value, item name, and item quantity.
-                  </p>
-                )}
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="number"
@@ -1027,7 +1027,6 @@ export default function PipelinePage() {
                     value={form.lat}
                     onChange={(e) => setForm((prev) => ({ ...prev, lat: e.target.value }))}
                     placeholder="Latitude"
-                    required
                     className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                   />
                   <input
@@ -1036,7 +1035,6 @@ export default function PipelinePage() {
                     value={form.lng}
                     onChange={(e) => setForm((prev) => ({ ...prev, lng: e.target.value }))}
                     placeholder="Longitude"
-                    required
                     className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                   />
                 </div>
@@ -1047,7 +1045,6 @@ export default function PipelinePage() {
                   value={form.probability}
                   onChange={(e) => setForm((prev) => ({ ...prev, probability: e.target.value }))}
                   placeholder="Probability (%)"
-                  required
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <input
@@ -1173,19 +1170,23 @@ function stageDot(s: Stage) {
 }
 
 function stageTitle(stage: Stage) {
+  if (stage === 'Tender') return 'quatation';
+  if (stage === 'PO Expected') return 'po awaited';
   if (stage === 'Lost') return 'Loss';
   if (stage === 'Won') return 'Win';
   return stage;
 }
 
 function toPipelineProject(project: ApiProject): PipelineProject {
+  const normalizedStage = project.stage === 'Approved' ? 'PO Expected' : project.stage;
   return {
     id: project.id,
     name: project.name,
     city: project.city,
     country: project.country,
     developer: project.developer,
-    stage: toStage(project.stage),
+    businessDivision: project.businessDivision,
+    stage: toStage(normalizedStage),
     value: project.valueAed,
     itemName: project.itemName,
     itemQuantity: project.itemQuantity,

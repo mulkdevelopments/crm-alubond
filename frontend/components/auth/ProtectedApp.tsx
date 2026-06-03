@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { AuthProvider } from "@/components/auth/AuthContext";
 import { AIAssistantFab } from "@/components/ai/AIAssistantFab";
+import { QuickActivityFab } from "@/components/activity/QuickActivityFab";
 import { MobileNav } from "@/components/shell/MobileNav";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { Topbar } from "@/components/shell/Topbar";
@@ -248,6 +249,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
         <div className="flex-1 flex flex-col min-w-0">
           <Topbar />
           <main className="flex-1 pb-24 lg:pb-12">{children}</main>
+          <QuickActivityFab />
           <AIAssistantFab />
           <MobileNav />
         </div>

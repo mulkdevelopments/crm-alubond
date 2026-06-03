@@ -17,7 +17,7 @@ const createUserSchema = z.object({
   regionalManagerId: z.string().cuid().nullable().optional(),
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
-  monthlyTarget: z.number().positive().optional().nullable()
+  yearlyTarget: z.number().positive().optional().nullable()
 });
 
 const updateUserSchema = z.object({
@@ -29,7 +29,7 @@ const updateUserSchema = z.object({
   regionalManagerId: z.string().cuid().nullable().optional(),
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
-  monthlyTarget: z.number().positive().optional().nullable(),
+  yearlyTarget: z.number().positive().optional().nullable(),
   password: z.string().min(8).optional(),
   isActive: z.boolean().optional()
 });
@@ -173,8 +173,8 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
     res.status(400).json({ message: "Regional manager must have at least one region" });
     return;
   }
-  if (payload.role === UserRole.SALES_REP && !payload.monthlyTarget) {
-    res.status(400).json({ message: "Sales rep monthly target is required" });
+  if (payload.role !== UserRole.ADMIN && !payload.yearlyTarget) {
+    res.status(400).json({ message: "Yearly sales target is required for all non-admin users" });
     return;
   }
 
@@ -217,7 +217,7 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
       regionalManagerId: payload.role === UserRole.MANAGER ? payload.regionalManagerId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
-      monthlyTarget: payload.role === UserRole.SALES_REP ? payload.monthlyTarget ?? null : null
+      yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null
     }
   });
 
@@ -257,8 +257,8 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
     res.status(400).json({ message: "Regional manager must have at least one region" });
     return;
   }
-  if (payload.role === UserRole.SALES_REP && !payload.monthlyTarget) {
-    res.status(400).json({ message: "Sales rep monthly target is required" });
+  if (payload.role !== UserRole.ADMIN && !payload.yearlyTarget) {
+    res.status(400).json({ message: "Yearly sales target is required for all non-admin users" });
     return;
   }
 
@@ -303,7 +303,7 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
       regionalManagerId: payload.role === UserRole.MANAGER ? payload.regionalManagerId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
-      monthlyTarget: payload.role === UserRole.SALES_REP ? payload.monthlyTarget ?? null : null,
+      yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
       passwordHash,
       isActive: payload.isActive ?? undefined
     }
@@ -313,22 +313,65 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
 });
 
 usersRouter.get("/", async (req, res) => {
-  const where: Prisma.UserWhereInput =
-    req.user!.role === UserRole.ADMIN || req.user!.role === UserRole.CEO
-      ? {}
-      : req.user!.role === UserRole.REGIONAL_MANAGER
-        ? {
-            OR: [
-              { id: req.user!.id },
-              { regionalManagerId: req.user!.id },
-              { manager: { regionalManagerId: req.user!.id } },
-            ],
-          }
-        : req.user!.role === UserRole.MANAGER
-          ? {
-              OR: [{ id: req.user!.id }, { managerId: req.user!.id }],
-            }
-          : { id: req.user!.id };
+  let where: Prisma.UserWhereInput = { id: req.user!.id };
+
+  if (req.user!.role === UserRole.ADMIN || req.user!.role === UserRole.CEO) {
+    where = {};
+  } else if (req.user!.role === UserRole.REGIONAL_MANAGER) {
+    where = {
+      OR: [
+        { id: req.user!.id },
+        { regionalManagerId: req.user!.id },
+        { manager: { regionalManagerId: req.user!.id } },
+      ],
+    };
+  } else if (req.user!.role === UserRole.MANAGER) {
+    const manager = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: { regionalManagerId: true },
+    });
+    if (manager?.regionalManagerId) {
+      where = {
+        OR: [
+          { id: req.user!.id },
+          { id: manager.regionalManagerId },
+          { regionalManagerId: manager.regionalManagerId },
+          { manager: { regionalManagerId: manager.regionalManagerId } },
+        ],
+      };
+    } else {
+      where = {
+        OR: [{ id: req.user!.id }, { managerId: req.user!.id }],
+      };
+    }
+  } else if (req.user!.role === UserRole.SALES_REP) {
+    const rep = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        managerId: true,
+        manager: {
+          select: { regionalManagerId: true },
+        },
+      },
+    });
+    const managerId = rep?.managerId ?? null;
+    const regionalManagerId = rep?.manager?.regionalManagerId ?? null;
+    if (regionalManagerId) {
+      where = {
+        OR: [
+          { id: req.user!.id },
+          { id: managerId ?? undefined },
+          { id: regionalManagerId },
+          { regionalManagerId },
+          { manager: { regionalManagerId } },
+        ],
+      };
+    } else if (managerId) {
+      where = {
+        OR: [{ id: req.user!.id }, { id: managerId }, { managerId }],
+      };
+    }
+  }
 
   const users = await prisma.user.findMany({
     where,
@@ -342,7 +385,7 @@ usersRouter.get("/", async (req, res) => {
       regionalManagerId: true,
       regions: true,
       operationLocation: true,
-      monthlyTarget: true,
+      yearlyTarget: true,
       isActive: true,
       createdAt: true,
       locationPings: {
@@ -380,7 +423,7 @@ usersRouter.get("/", async (req, res) => {
     regionalManagerId: user.regionalManagerId,
     regions: user.regions,
     operationLocation: user.operationLocation,
-    monthlyTarget: user.monthlyTarget,
+    yearlyTarget: user.yearlyTarget,
     isActive: user.isActive,
     createdAt: user.createdAt,
     manager: user.manager,

@@ -24,7 +24,7 @@ model User {
   role         UserRole
   operationLocation String   @default("Not set")
   regions      String[] @default([])
-  monthlyTarget Float?
+  yearlyTarget Float? @map("monthlyTarget")
   isActive     Boolean  @default(true)
 
   managerId String?
@@ -51,6 +51,7 @@ model Project {
   city         String
   country      String
   developer    String
+  businessDivision String?
   stage        String
   valueAed     Float
   itemName     String   @default("")
