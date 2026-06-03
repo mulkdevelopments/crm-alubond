@@ -560,7 +560,8 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
     new Set(
       managers
         .map((manager) => manager.regionalManagerId)
-        .filter((regionalId): regionalId is string => Boolean(regionalId) && !existingRegionalIds.has(regionalId))
+        .filter((regionalId): regionalId is string => regionalId !== null)
+        .filter((regionalId) => !existingRegionalIds.has(regionalId))
     )
   );
 
