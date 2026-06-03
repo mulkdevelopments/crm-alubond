@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Bell, KanbanSquare, LayoutDashboard, LogOut, MapPin, UserCircle2, UserCog, Users, X } from "lucide-react";
 
 import { AuthProvider } from "@/components/auth/AuthContext";
 import { AIAssistantFab } from "@/components/ai/AIAssistantFab";
@@ -11,6 +13,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { Topbar } from "@/components/shell/Topbar";
 import { clearSession, getStoredUser, getToken, setSession } from "@/lib/auth";
 import { AuthUser, fetchMe, getMyLatestLocationPing } from "@/lib/auth-api";
+import { cn } from "@/lib/utils";
 
 type ProtectedAppProps = {
   children: React.ReactNode;
@@ -70,7 +73,17 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
   const [checking, setChecking] = useState(true);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [locationTelemetry, setLocationTelemetry] = useState(readStoredTelemetry);
+  const mobileMenuItems = [
+    { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
+    { href: "/map", label: "Geo Intel", icon: MapPin },
+    { href: "/follow-ups", label: "Follow-ups", icon: Bell },
+    { href: "/team", label: "Field Team", icon: Users },
+    ...(user?.role === "ADMIN" ? [{ href: "/users", label: "Users", icon: UserCog }] : []),
+    { href: "/profile", label: "Profile", icon: UserCircle2 },
+  ];
 
   useEffect(() => {
     const isAuthPage = pathname === "/login";
@@ -101,6 +114,10 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
         router.replace("/login");
       });
   }, [pathname, router]);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -247,13 +264,62 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
       <div className="flex min-h-screen">
         <Sidebar />
         <div className="flex-1 flex flex-col min-w-0">
-          <Topbar />
+          <Topbar onMenu={() => setMobileMenuOpen((prev) => !prev)} />
           <main className="flex-1 pb-24 lg:pb-12">{children}</main>
           <QuickActivityFab />
           <AIAssistantFab />
           <MobileNav />
         </div>
       </div>
+      {mobileMenuOpen && (
+        <div className="lg:hidden fixed inset-0 z-[70] bg-black/45" onClick={() => setMobileMenuOpen(false)}>
+          <div
+            className="h-full w-[280px] max-w-[85vw] surface border-r border-[var(--border)] shadow-soft"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between">
+              <p className="font-semibold tracking-tight">Menu</p>
+              <button
+                type="button"
+                className="h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--surface-2)]"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Close menu"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <nav className="p-3 space-y-1.5">
+              {mobileMenuItems.map(({ href, label, icon: Icon }) => {
+                const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
+                      active ? "bg-[var(--surface-2)] text-[var(--text)]" : "text-2 hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                    )}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="p-3 border-t border-[var(--border)] mt-auto">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full inline-flex items-center justify-center gap-2 h-9 rounded-xl text-sm text-rose-600 hover:bg-rose-500/10"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AuthProvider>
   );
 }
