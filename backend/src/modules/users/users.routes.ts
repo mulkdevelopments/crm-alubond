@@ -7,14 +7,16 @@ import { prisma } from "../../lib/prisma";
 import { authenticate, authorize } from "../../middleware/auth";
 import { toAuthUser } from "../auth/auth.service";
 
+const entityIdSchema = z.string().min(3).max(128).regex(/^[a-zA-Z0-9_-]+$/);
+
 const createUserSchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   password: z.string().min(8),
   role: z.nativeEnum(UserRole),
-  managerId: z.string().cuid().nullable().optional(),
-  regionalManagerId: z.string().cuid().nullable().optional(),
+  managerId: entityIdSchema.nullable().optional(),
+  regionalManagerId: entityIdSchema.nullable().optional(),
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
   yearlyTarget: z.number().positive().optional().nullable()
@@ -25,8 +27,8 @@ const updateUserSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   role: z.nativeEnum(UserRole),
-  managerId: z.string().cuid().nullable().optional(),
-  regionalManagerId: z.string().cuid().nullable().optional(),
+  managerId: entityIdSchema.nullable().optional(),
+  regionalManagerId: entityIdSchema.nullable().optional(),
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
   yearlyTarget: z.number().positive().optional().nullable(),

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { env } from "../config/env";
 import { storeUploadedFile } from "../lib/file-storage";
+import { sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
 import { authenticate } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
@@ -18,6 +19,7 @@ import { authRouter } from "../modules/auth/auth.routes";
 import { usersRouter } from "../modules/users/users.routes";
 
 export const apiRouter = Router();
+const entityIdSchema = z.string().min(3).max(128).regex(/^[a-zA-Z0-9_-]+$/);
 const activityAttachmentUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
@@ -38,8 +40,8 @@ const projectPayloadSchema = z.object({
   probability: z.number().min(0).max(100).optional().default(0),
   daysInStage: z.number().int().min(0).optional().default(1),
   competitor: z.string().nullable().optional().default(null),
-  managerId: z.string().cuid().or(z.string().uuid()),
-  salesRepIds: z.array(z.string().cuid().or(z.string().uuid())).min(1)
+  managerId: entityIdSchema,
+  salesRepIds: z.array(entityIdSchema).min(1)
 });
 
 function projectScopeForUser(user: { id: string; role: UserRole }): Prisma.ProjectWhereInput | undefined {
@@ -110,8 +112,8 @@ const stakeholderSchema = z.object({
 const followUpChannelSchema = z.enum(["Call", "Visit", "WhatsApp", "Email", "Meeting"]);
 const followUpStatusSchema = z.enum(["Overdue", "Due today", "Upcoming", "Done"]);
 const followUpCreateSchema = z.object({
-  projectId: z.string().cuid().or(z.string().uuid()),
-  ownerId: z.string().cuid().or(z.string().uuid()).optional().nullable(),
+  projectId: entityIdSchema,
+  ownerId: entityIdSchema.optional().nullable(),
   contact: z.string().min(1).max(120),
   contactRole: z.string().min(1).max(120),
   dueAt: z.string().datetime(),
@@ -757,7 +759,7 @@ apiRouter.post("/projects/:projectId/activities", authenticate, async (req, res)
       return;
     }
 
-    await followUpModel.create({
+    const createdFollowUp = await followUpModel.create({
       data: {
         projectId: req.params.projectId as string,
         sourceActivityId: activity.id as string,
@@ -770,6 +772,13 @@ apiRouter.post("/projects/:projectId/activities", authenticate, async (req, res)
         note: parsed.data.message,
       },
     });
+    if (createdFollowUp && typeof (createdFollowUp as { id?: string }).id === "string") {
+      void sendFollowUpNotificationById({
+        followUpId: (createdFollowUp as { id: string }).id,
+        action: "created",
+        actorName: createdByName,
+      }).catch(() => undefined);
+    }
   }
 
   res.status(201).json({
@@ -1159,6 +1168,14 @@ apiRouter.post("/follow-ups", authenticate, async (req, res) => {
       note: payload.note,
     },
   });
+  if (followUp && typeof (followUp as { id?: string }).id === "string") {
+    const actorName = req.user?.email ?? "CRM";
+    void sendFollowUpNotificationById({
+      followUpId: (followUp as { id: string }).id,
+      action: "created",
+      actorName,
+    }).catch(() => undefined);
+  }
   res.status(201).json({ followUp });
 });
 
@@ -1196,5 +1213,13 @@ apiRouter.patch("/follow-ups/:followUpId", authenticate, async (req, res) => {
       note: payload.note,
     },
   });
+  if (followUp && typeof (followUp as { id?: string }).id === "string") {
+    const actorName = req.user?.email ?? "CRM";
+    void sendFollowUpNotificationById({
+      followUpId: (followUp as { id: string }).id,
+      action: "updated",
+      actorName,
+    }).catch(() => undefined);
+  }
   res.status(200).json({ followUp });
 });

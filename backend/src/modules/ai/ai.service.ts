@@ -2,6 +2,7 @@ import { UserRole } from "@prisma/client";
 import OpenAI from "openai";
 
 import { env } from "../../config/env";
+import { sendFollowUpNotificationById } from "../../lib/followup-notifier";
 import { prisma } from "../../lib/prisma";
 import { AuthUser } from "../../types/auth";
 
@@ -68,9 +69,24 @@ function normalizeText(value: string) {
 function looksLikeActivityCommand(question: string) {
   const q = question.toLowerCase();
   return (
-    /(create|add|log|post|record)\s+.*\b(activity|update|visit|call|email|whatsapp|stage|note)\b/.test(q) ||
+    /(create|crate|add|log|post|record)\s+.*\b(activity|update|visit|call|email|whatsapp|stage|note)\b/.test(q) ||
     /\b(log|record)\b.*\b(for|on)\b.*\b(project)\b/.test(q)
   );
+}
+
+function looksLikeActivityEditCommand(question: string) {
+  const q = question.toLowerCase();
+  return /\b(edit|update|change|modify)\b.*\b(activity|update|note|visit|call|email|whatsapp)\b/.test(q);
+}
+
+function looksLikeFollowUpCreateCommand(question: string) {
+  const q = question.toLowerCase();
+  return /\b(create|crate|add|schedule|set|log)\b.*\b(follow[\s-]?up|followup)\b/.test(q);
+}
+
+function looksLikeFollowUpEditCommand(question: string) {
+  const q = question.toLowerCase();
+  return /\b(edit|update|change|modify|reschedule)\b.*\b(follow[\s-]?up|followup)\b/.test(q);
 }
 
 function detectActivityType(question: string): "note" | "call" | "visit" | "email" | "whatsapp" | "stage" {
@@ -92,7 +108,7 @@ function extractActivityMessage(question: string, matchedProjectName: string) {
   let cleaned = question;
   const patterns = [
     /\b(please|kindly)\b/gi,
-    /\b(create|add|log|post|record)\b/gi,
+    /\b(create|crate|add|log|post|record)\b/gi,
     /\b(activity|update|note|visit|call|email|whatsapp|stage)\b/gi,
     /\b(for|on)\s+project\b/gi,
     /\b(for|on)\b/gi,
@@ -103,6 +119,76 @@ function extractActivityMessage(question: string, matchedProjectName: string) {
   cleaned = cleaned.replace(new RegExp(matchedProjectName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ");
   cleaned = cleaned.replace(/\s+/g, " ").trim();
   return cleaned;
+}
+
+function extractAfterColonOrTo(question: string) {
+  const colonIndex = question.indexOf(":");
+  if (colonIndex >= 0 && colonIndex < question.length - 1) {
+    return question.slice(colonIndex + 1).trim();
+  }
+  const toMatch = question.match(/\bto\b\s+(.+)$/i);
+  if (toMatch?.[1]) return toMatch[1].trim();
+  return "";
+}
+
+function detectFollowUpChannel(question: string): "Call" | "Visit" | "WhatsApp" | "Email" | "Meeting" {
+  const q = question.toLowerCase();
+  if (q.includes("whatsapp")) return "WhatsApp";
+  if (q.includes("email")) return "Email";
+  if (q.includes("visit")) return "Visit";
+  if (q.includes("meeting")) return "Meeting";
+  return "Call";
+}
+
+function parseDueAt(question: string): Date | null {
+  const q = question.toLowerCase();
+  const now = new Date();
+
+  if (q.includes("today")) {
+    return new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  }
+  if (q.includes("tomorrow")) {
+    return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  const inDaysMatch = q.match(/\bin\s+(\d+)\s+day/);
+  if (inDaysMatch?.[1]) {
+    const days = Number(inDaysMatch[1]);
+    if (Number.isFinite(days) && days > 0) {
+      return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    }
+  }
+
+  const isoMatch = question.match(/\b(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}:\d{2}))?\b/);
+  if (isoMatch) {
+    const value = isoMatch[2] ? `${isoMatch[1]}T${isoMatch[2]}:00` : `${isoMatch[1]}T10:00:00`;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const dmyMatch = question.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}:\d{2}))?\b/);
+  if (dmyMatch) {
+    const dd = dmyMatch[1].padStart(2, "0");
+    const mm = dmyMatch[2].padStart(2, "0");
+    const yyyy = dmyMatch[3];
+    const hhmm = dmyMatch[4] ?? "10:00";
+    const parsed = new Date(`${yyyy}-${mm}-${dd}T${hhmm}:00`);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+}
+
+function parseFollowUpContact(question: string) {
+  const explicit = question.match(/\bcontact\s*[:\-]\s*([a-zA-Z][a-zA-Z\s.'-]{1,80})/i);
+  if (explicit?.[1]) return explicit[1].trim();
+  return "Project Contact";
+}
+
+function parseFollowUpContactRole(question: string) {
+  const explicit = question.match(/\brole\s*[:\-]\s*([a-zA-Z][a-zA-Z\s&/'-]{1,80})/i);
+  if (explicit?.[1]) return explicit[1].trim();
+  return "Stakeholder";
 }
 
 function findBestProjectMatch(
@@ -171,6 +257,155 @@ async function tryCreateActivityFromQuestion(input: { user: AuthUser; question: 
   return `Activity logged successfully for ${matchedProject.name} (${type}).`;
 }
 
+async function tryEditActivityFromQuestion(input: { user: AuthUser; question: string }) {
+  if (!looksLikeActivityEditCommand(input.question)) return null;
+
+  const accessibleProjects = await prisma.project.findMany({
+    where: projectsWhereForUser(input.user),
+    orderBy: { updatedAt: "desc" },
+    take: 80,
+    select: { id: true, name: true },
+  });
+  const matchedProject = findBestProjectMatch(input.question, accessibleProjects);
+  if (!matchedProject) {
+    return "I could not find the project for this activity update. Mention the exact project name.";
+  }
+
+  const existing = await prisma.projectActivity.findFirst({
+    where: {
+      projectId: matchedProject.id,
+      createdById: input.user.id,
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, type: true },
+  });
+  if (!existing) {
+    return `I could not find any activity created by you in ${matchedProject.name} to edit.`;
+  }
+
+  const message = extractAfterColonOrTo(input.question);
+  if (!message) {
+    return `Please provide updated activity text after a colon. Example: "Edit activity for ${matchedProject.name}: Met consultant and shared revised BOQ."`;
+  }
+  const type = detectActivityType(input.question);
+  const nextType = input.question.toLowerCase().includes("activity") ? existing.type : type;
+
+  await prisma.projectActivity.update({
+    where: { id: existing.id },
+    data: {
+      type: nextType,
+      message,
+      visitWhatHappened: nextType === "visit" ? message : null,
+    },
+  });
+
+  return `Activity updated successfully for ${matchedProject.name}.`;
+}
+
+async function tryCreateFollowUpFromQuestion(input: { user: AuthUser; question: string }) {
+  if (!looksLikeFollowUpCreateCommand(input.question)) return null;
+
+  const accessibleProjects = await prisma.project.findMany({
+    where: projectsWhereForUser(input.user),
+    orderBy: { updatedAt: "desc" },
+    take: 80,
+    select: { id: true, name: true },
+  });
+  const matchedProject = findBestProjectMatch(input.question, accessibleProjects);
+  if (!matchedProject) {
+    return "I could not find a matching accessible project for this follow-up. Mention the exact project name.";
+  }
+
+  const dueAt = parseDueAt(input.question);
+  if (!dueAt) {
+    return `Please include follow-up due date (e.g. "tomorrow", "in 2 days", or "2026-06-10 14:00").`;
+  }
+
+  const note = extractAfterColonOrTo(input.question) || "Follow-up scheduled from AI assistant.";
+  const channel = detectFollowUpChannel(input.question);
+  const contact = parseFollowUpContact(input.question);
+  const contactRole = parseFollowUpContactRole(input.question);
+  const status = dueAt.getTime() < Date.now() ? "Overdue" : "Upcoming";
+
+  const createdFollowUp = await prisma.followUp.create({
+    data: {
+      projectId: matchedProject.id,
+      ownerId: input.user.id,
+      contact,
+      contactRole,
+      dueAt,
+      channel,
+      status,
+      note,
+    },
+  });
+  void sendFollowUpNotificationById({
+    followUpId: createdFollowUp.id,
+    action: "created",
+    actorName: input.user.email,
+  }).catch(() => undefined);
+
+  return `Follow-up created for ${matchedProject.name} (${channel}) due ${dueAt.toLocaleString("en-AE")}.`;
+}
+
+async function tryEditFollowUpFromQuestion(input: { user: AuthUser; question: string }) {
+  if (!looksLikeFollowUpEditCommand(input.question)) return null;
+
+  const accessibleProjects = await prisma.project.findMany({
+    where: projectsWhereForUser(input.user),
+    orderBy: { updatedAt: "desc" },
+    take: 80,
+    select: { id: true, name: true },
+  });
+  const matchedProject = findBestProjectMatch(input.question, accessibleProjects);
+  if (!matchedProject) {
+    return "I could not find the project for this follow-up update. Mention the exact project name.";
+  }
+
+  const existing = await prisma.followUp.findFirst({
+    where: {
+      projectId: matchedProject.id,
+      ...(input.user.role === UserRole.ADMIN || input.user.role === UserRole.CEO ? {} : { ownerId: input.user.id }),
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, dueAt: true, channel: true, note: true },
+  });
+  if (!existing) {
+    return `I could not find a follow-up you can edit for ${matchedProject.name}.`;
+  }
+
+  const dueAt = parseDueAt(input.question);
+  const note = extractAfterColonOrTo(input.question);
+  const nextChannel = detectFollowUpChannel(input.question);
+  const q = input.question.toLowerCase();
+  const shouldChangeChannel =
+    q.includes("call") || q.includes("visit") || q.includes("whatsapp") || q.includes("email") || q.includes("meeting");
+
+  if (!dueAt && !note && !shouldChangeChannel) {
+    return `Please provide what to change (date/channel/note). Example: "Update follow-up for ${matchedProject.name} to tomorrow 11:00: call consultant".`;
+  }
+
+  const finalDueAt = dueAt ?? existing.dueAt;
+  const status = finalDueAt.getTime() < Date.now() ? "Overdue" : "Upcoming";
+
+  const updatedFollowUp = await prisma.followUp.update({
+    where: { id: existing.id },
+    data: {
+      dueAt: finalDueAt,
+      channel: shouldChangeChannel ? nextChannel : existing.channel,
+      note: note || existing.note,
+      status,
+    },
+  });
+  void sendFollowUpNotificationById({
+    followUpId: updatedFollowUp.id,
+    action: "updated",
+    actorName: input.user.email,
+  }).catch(() => undefined);
+
+  return `Follow-up updated successfully for ${matchedProject.name}.`;
+}
+
 export async function generateAssistantResponse(input: {
   user: AuthUser;
   question: string;
@@ -186,6 +421,30 @@ export async function generateAssistantResponse(input: {
   });
   if (actionResponse) {
     return actionResponse;
+  }
+
+  const activityEditResponse = await tryEditActivityFromQuestion({
+    user: input.user,
+    question: input.question,
+  });
+  if (activityEditResponse) {
+    return activityEditResponse;
+  }
+
+  const followUpCreateResponse = await tryCreateFollowUpFromQuestion({
+    user: input.user,
+    question: input.question,
+  });
+  if (followUpCreateResponse) {
+    return followUpCreateResponse;
+  }
+
+  const followUpEditResponse = await tryEditFollowUpFromQuestion({
+    user: input.user,
+    question: input.question,
+  });
+  if (followUpEditResponse) {
+    return followUpEditResponse;
   }
 
   const [projects, followUps, activities] = await Promise.all([
