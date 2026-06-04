@@ -44,6 +44,12 @@ const projectPayloadSchema = z.object({
   salesRepIds: z.array(entityIdSchema).min(1)
 });
 
+const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Expected", "Won", "Lost"]);
+
+function requiresCommercialDetails(stage: string) {
+  return tenderOrLaterStages.has(stage);
+}
+
 function projectScopeForUser(user: { id: string; role: UserRole }): Prisma.ProjectWhereInput | undefined {
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
     return undefined;
@@ -545,6 +551,18 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
   const payload = parsed.data;
 
   const itemName = payload.itemName.trim();
+  if (requiresCommercialDetails(payload.stage) && payload.valueAed <= 0) {
+    res.status(400).json({ message: "Project value is required for Tender stage and later." });
+    return;
+  }
+  if (requiresCommercialDetails(payload.stage) && !itemName) {
+    res.status(400).json({ message: "Item name is required for Tender stage and later." });
+    return;
+  }
+  if (requiresCommercialDetails(payload.stage) && payload.itemQuantity <= 0) {
+    res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
+    return;
+  }
   if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
     res.status(403).json({ message: "Managers can only assign projects to themselves" });
     return;
@@ -601,6 +619,18 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   }
 
   const itemName = payload.itemName.trim();
+  if (requiresCommercialDetails(payload.stage) && payload.valueAed <= 0) {
+    res.status(400).json({ message: "Project value is required for Tender stage and later." });
+    return;
+  }
+  if (requiresCommercialDetails(payload.stage) && !itemName) {
+    res.status(400).json({ message: "Item name is required for Tender stage and later." });
+    return;
+  }
+  if (requiresCommercialDetails(payload.stage) && payload.itemQuantity <= 0) {
+    res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
+    return;
+  }
   if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
     res.status(403).json({ message: "Managers can only assign projects to themselves" });
     return;

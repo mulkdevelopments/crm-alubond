@@ -170,6 +170,10 @@ export default function PipelinePage() {
     );
   }
 
+  function requiresCommercialDetails(stage: Stage) {
+    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
+  }
+
   async function persistProjectStageUpdate(
     project: PipelineProject,
     nextStage: Stage,
@@ -340,6 +344,18 @@ export default function PipelinePage() {
   }
 
   function requestStageChange(project: PipelineProject, stage: Stage) {
+    if (requiresCommercialDetails(stage)) {
+      setCommercialPrompt({
+        projectId: project.id,
+        targetStage: stage,
+        value: String(project.value > 0 ? project.value : ''),
+        itemName: project.itemName ?? '',
+        itemQuantity: String(project.itemQuantity > 0 ? project.itemQuantity : ''),
+        error: null,
+        saving: false,
+      });
+      return;
+    }
     void persistProjectStageUpdate(project, stage, project.value, project.itemName, project.itemQuantity).catch(() => {
       setProjectsError('Failed to update stage. Please retry.');
     });
@@ -531,6 +547,7 @@ export default function PipelinePage() {
     const lng = Number(form.lng);
     const probability = Math.max(0, Math.min(100, Number(form.probability)));
     const businessDivision = form.businessDivision || null;
+    const normalizedValue = Number.isFinite(value) && value >= 0 ? value : 0;
     const normalizedItemName = itemName;
     const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
     const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
@@ -539,6 +556,18 @@ export default function PipelinePage() {
 
     if (!name || !city) {
       setFormError('Fill project name and city.');
+      return;
+    }
+    if (requiresCommercialDetails(form.stage) && normalizedValue <= 0) {
+      setFormError('Project value is required for quatation stage and later.');
+      return;
+    }
+    if (requiresCommercialDetails(form.stage) && !normalizedItemName) {
+      setFormError('Item name is required for quatation stage and later.');
+      return;
+    }
+    if (requiresCommercialDetails(form.stage) && normalizedItemQuantity <= 0) {
+      setFormError('Item quantity is required for quatation stage and later.');
       return;
     }
     if (!managerId) {
@@ -550,7 +579,6 @@ export default function PipelinePage() {
       return;
     }
 
-    const normalizedValue = Number.isFinite(value) && value >= 0 ? value : 0;
     const normalizedLat = Number.isFinite(lat) ? lat : 0;
     const normalizedLng = Number.isFinite(lng) ? lng : 0;
     const normalizedProbability = Number.isFinite(probability) ? probability : 0;
@@ -1002,6 +1030,7 @@ export default function PipelinePage() {
                   value={form.value}
                   onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
                   placeholder="Value (AED)"
+                  required={requiresCommercialDetails(form.stage)}
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <input
@@ -1009,6 +1038,7 @@ export default function PipelinePage() {
                   value={form.itemName}
                   onChange={(e) => setForm((prev) => ({ ...prev, itemName: e.target.value }))}
                   placeholder="Item name"
+                  required={requiresCommercialDetails(form.stage)}
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <input
@@ -1018,8 +1048,14 @@ export default function PipelinePage() {
                   value={form.itemQuantity}
                   onChange={(e) => setForm((prev) => ({ ...prev, itemQuantity: e.target.value }))}
                   placeholder="Item quantity"
+                  required={requiresCommercialDetails(form.stage)}
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
+                {requiresCommercialDetails(form.stage) && (
+                  <p className="text-[11px] text-amber-600">
+                    quatation stage and later require value, item name, and item quantity.
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="number"
