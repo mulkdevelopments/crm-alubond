@@ -14,6 +14,7 @@ if (env.FILE_STORAGE_PROVIDER === "local") {
 
 const configuredOrigins = env.FRONTEND_ORIGIN.split(",")
   .map((origin) => origin.trim())
+  .map((origin) => origin.replace(/\/+$/, ""))
   .filter(Boolean);
 
 const corsOptions: cors.CorsOptions = {
@@ -24,19 +25,27 @@ const corsOptions: cors.CorsOptions = {
       return;
     }
 
-    if (configuredOrigins.includes(origin)) {
+    const normalizedOrigin = origin.replace(/\/+$/, "");
+
+    if (configuredOrigins.includes(normalizedOrigin)) {
       callback(null, true);
       return;
     }
 
     // Allow Render-hosted frontend domains to avoid strict single-origin mismatch.
-    if (origin.endsWith(".onrender.com")) {
+    if (normalizedOrigin.endsWith(".onrender.com")) {
       callback(null, true);
       return;
     }
 
     // Allow company-hosted frontend domains.
-    if (origin === "https://uniqube.build" || origin.endsWith(".uniqube.build")) {
+    if (normalizedOrigin === "https://uniqube.build" || normalizedOrigin.endsWith(".uniqube.build")) {
+      callback(null, true);
+      return;
+    }
+
+    // Allow Vercel-hosted frontend domains.
+    if (normalizedOrigin.endsWith(".vercel.app")) {
       callback(null, true);
       return;
     }
