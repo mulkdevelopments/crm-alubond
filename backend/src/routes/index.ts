@@ -584,6 +584,21 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     return;
   }
   const payload = parsed.data;
+  const existingProject = await prisma.project.findUnique({
+    where: { id: req.params.projectId as string },
+    select: {
+      id: true,
+      managerId: true,
+      managerName: true,
+      salesRepIds: true,
+      salesRepNames: true,
+      owner: true,
+    },
+  });
+  if (!existingProject) {
+    res.status(404).json({ message: "Project not found" });
+    return;
+  }
 
   const itemName = payload.itemName.trim();
   if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
@@ -592,24 +607,29 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   }
 
   const assignees = await resolveProjectAssignees(payload);
-  if ("error" in assignees) {
+  const assigneesUnchangedFromExisting =
+    payload.managerId === existingProject.managerId &&
+    payload.salesRepIds.length === existingProject.salesRepIds.length &&
+    payload.salesRepIds.every((id) => existingProject.salesRepIds.includes(id));
+
+  if ("error" in assignees && !assigneesUnchangedFromExisting) {
     res.status(400).json({ message: assignees.error });
     return;
   }
+  const resolvedManagerName =
+    "error" in assignees ? existingProject.managerName : assignees.managerName;
+  const resolvedSalesRepNames =
+    "error" in assignees ? existingProject.salesRepNames : assignees.salesRepNames;
+  const resolvedOwner = resolvedSalesRepNames[0] ?? resolvedManagerName ?? existingProject.owner;
 
   const project = await updateProject(req.params.projectId as string, {
     ...payload,
     businessDivision: payload.businessDivision ?? null,
     itemName,
-    owner: assignees.salesRepNames[0] ?? assignees.managerName,
-    managerName: assignees.managerName,
-    salesRepNames: assignees.salesRepNames
+    owner: resolvedOwner,
+    managerName: resolvedManagerName,
+    salesRepNames: resolvedSalesRepNames
   });
-
-  if (!project) {
-    res.status(404).json({ message: "Project not found" });
-    return;
-  }
 
   res.status(200).json({ project });
 });
