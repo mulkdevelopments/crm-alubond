@@ -140,7 +140,9 @@ async function canAccessUser(requesterId: string, requesterRole: UserRole, targe
     });
     if (!target) return false;
     if (target.role === UserRole.MANAGER) return target.regionalManagerId === requesterId;
-    if (target.role === UserRole.SALES_REP) return target.manager?.regionalManagerId === requesterId;
+    if (target.role === UserRole.SALES_REP) {
+      return target.regionalManagerId === requesterId || target.manager?.regionalManagerId === requesterId;
+    }
     return false;
   }
   if (requesterRole === UserRole.MANAGER) {
@@ -163,8 +165,8 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
   const payload = parsed.data;
   const email = payload.email.toLowerCase();
 
-  if (payload.role === UserRole.SALES_REP && !payload.managerId) {
-    res.status(400).json({ message: "Sales rep must be assigned under a manager" });
+  if (payload.role === UserRole.SALES_REP && !payload.managerId && !payload.regionalManagerId) {
+    res.status(400).json({ message: "Sales rep must be assigned under a manager or regional manager" });
     return;
   }
   if (payload.role === UserRole.MANAGER && !payload.regionalManagerId) {
@@ -180,14 +182,25 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
     return;
   }
 
+  let resolvedRegionalManagerIdForSalesRep: string | null = payload.regionalManagerId ?? null;
+
   if (payload.managerId) {
     const manager = await prisma.user.findUnique({
-      where: { id: payload.managerId }
+      where: { id: payload.managerId },
+      select: { id: true, role: true, regionalManagerId: true }
     });
 
     if (!manager || manager.role !== UserRole.MANAGER) {
       res.status(400).json({ message: "managerId must belong to a manager user" });
       return;
+    }
+
+    if (payload.role === UserRole.SALES_REP) {
+      if (resolvedRegionalManagerIdForSalesRep && manager.regionalManagerId !== resolvedRegionalManagerIdForSalesRep) {
+        res.status(400).json({ message: "managerId and regionalManagerId do not belong to the same hierarchy" });
+        return;
+      }
+      resolvedRegionalManagerIdForSalesRep = manager.regionalManagerId ?? resolvedRegionalManagerIdForSalesRep;
     }
   }
   if (payload.regionalManagerId) {
@@ -216,7 +229,12 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
       passwordHash,
       role: payload.role,
       managerId: payload.role === UserRole.SALES_REP ? payload.managerId ?? null : null,
-      regionalManagerId: payload.role === UserRole.MANAGER ? payload.regionalManagerId ?? null : null,
+      regionalManagerId:
+        payload.role === UserRole.MANAGER
+          ? payload.regionalManagerId ?? null
+          : payload.role === UserRole.SALES_REP
+            ? resolvedRegionalManagerIdForSalesRep
+            : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null
@@ -247,8 +265,8 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
     return;
   }
 
-  if (payload.role === UserRole.SALES_REP && !payload.managerId) {
-    res.status(400).json({ message: "Sales rep must be assigned under a manager" });
+  if (payload.role === UserRole.SALES_REP && !payload.managerId && !payload.regionalManagerId) {
+    res.status(400).json({ message: "Sales rep must be assigned under a manager or regional manager" });
     return;
   }
   if (payload.role === UserRole.MANAGER && !payload.regionalManagerId) {
@@ -264,15 +282,25 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
     return;
   }
 
+  let resolvedRegionalManagerIdForSalesRep: string | null = payload.regionalManagerId ?? null;
+
   if (payload.managerId) {
     const manager = await prisma.user.findUnique({
       where: { id: payload.managerId },
-      select: { id: true, role: true }
+      select: { id: true, role: true, regionalManagerId: true }
     });
 
     if (!manager || manager.role !== UserRole.MANAGER) {
       res.status(400).json({ message: "managerId must belong to a manager user" });
       return;
+    }
+
+    if (payload.role === UserRole.SALES_REP) {
+      if (resolvedRegionalManagerIdForSalesRep && manager.regionalManagerId !== resolvedRegionalManagerIdForSalesRep) {
+        res.status(400).json({ message: "managerId and regionalManagerId do not belong to the same hierarchy" });
+        return;
+      }
+      resolvedRegionalManagerIdForSalesRep = manager.regionalManagerId ?? resolvedRegionalManagerIdForSalesRep;
     }
   }
   if (payload.regionalManagerId) {
@@ -302,7 +330,12 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
       lastName: payload.lastName,
       role: payload.role,
       managerId: payload.role === UserRole.SALES_REP ? payload.managerId ?? null : null,
-      regionalManagerId: payload.role === UserRole.MANAGER ? payload.regionalManagerId ?? null : null,
+      regionalManagerId:
+        payload.role === UserRole.MANAGER
+          ? payload.regionalManagerId ?? null
+          : payload.role === UserRole.SALES_REP
+            ? resolvedRegionalManagerIdForSalesRep
+            : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
@@ -351,13 +384,14 @@ usersRouter.get("/", async (req, res) => {
       where: { id: req.user!.id },
       select: {
         managerId: true,
+        regionalManagerId: true,
         manager: {
           select: { regionalManagerId: true },
         },
       },
     });
     const managerId = rep?.managerId ?? null;
-    const regionalManagerId = rep?.manager?.regionalManagerId ?? null;
+    const regionalManagerId = rep?.regionalManagerId ?? rep?.manager?.regionalManagerId ?? null;
     if (regionalManagerId) {
       where = {
         OR: [
@@ -555,7 +589,10 @@ usersRouter.get("/my-team", authorize(UserRole.MANAGER, UserRole.REGIONAL_MANAGE
     req.user!.role === UserRole.ADMIN
       ? { role: UserRole.SALES_REP }
       : req.user!.role === UserRole.REGIONAL_MANAGER
-        ? { role: UserRole.SALES_REP, manager: { regionalManagerId: req.user!.id } }
+        ? {
+            role: UserRole.SALES_REP,
+            OR: [{ regionalManagerId: req.user!.id }, { manager: { regionalManagerId: req.user!.id } }]
+          }
         : { role: UserRole.SALES_REP, managerId: req.user!.id };
 
   const reps = await prisma.user.findMany({

@@ -503,7 +503,8 @@ async function resolveProjectAssignees(payload: z.infer<typeof projectPayloadSch
       id: true,
       firstName: true,
       lastName: true,
-      role: true
+      role: true,
+      regionalManagerId: true
     }
   });
 
@@ -518,7 +519,8 @@ async function resolveProjectAssignees(payload: z.infer<typeof projectPayloadSch
       firstName: true,
       lastName: true,
       role: true,
-      managerId: true
+      managerId: true,
+      regionalManagerId: true
     }
   });
 
@@ -526,7 +528,15 @@ async function resolveProjectAssignees(payload: z.infer<typeof projectPayloadSch
     return { error: "One or more sales reps are invalid" } as const;
   }
 
-  const invalidRep = reps.find((rep) => rep.role !== UserRole.SALES_REP || rep.managerId !== manager.id);
+  const invalidRep = reps.find((rep) => {
+    if (rep.role !== UserRole.SALES_REP) return true;
+    if (rep.managerId === manager.id) return false;
+    return !(
+      manager.regionalManagerId &&
+      rep.managerId === null &&
+      rep.regionalManagerId === manager.regionalManagerId
+    );
+  });
   if (invalidRep) {
     return { error: "Sales reps must belong to the selected manager" } as const;
   }

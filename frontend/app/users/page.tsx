@@ -150,6 +150,9 @@ export default function UsersPage() {
       if (role === 'MANAGER' && !regionalManagerId) {
         throw new Error('Manager must be assigned under a regional manager.');
       }
+      if (role === 'SALES_REP' && !managerId && !regionalManagerId) {
+        throw new Error('Sales rep must be assigned under a manager or regional manager.');
+      }
       if (role === 'REGIONAL_MANAGER' && parsedRegions.length === 0) {
         throw new Error('Regional manager must have at least one region.');
       }
@@ -160,7 +163,7 @@ export default function UsersPage() {
           email,
           role,
           managerId: role === 'SALES_REP' ? managerId : null,
-          regionalManagerId: role === 'MANAGER' ? regionalManagerId : null,
+          regionalManagerId: role === 'MANAGER' || role === 'SALES_REP' ? regionalManagerId : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
@@ -174,7 +177,7 @@ export default function UsersPage() {
         password,
         role,
           managerId: role === 'SALES_REP' ? managerId : null,
-          regionalManagerId: role === 'MANAGER' ? regionalManagerId : null,
+          regionalManagerId: role === 'MANAGER' || role === 'SALES_REP' ? regionalManagerId : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
@@ -220,7 +223,7 @@ export default function UsersPage() {
     setEditingUserId(entry.id);
     setRole(entry.role as Role);
     setManagerId(entry.role === 'SALES_REP' ? entry.managerId ?? '' : '');
-    setRegionalManagerId(entry.role === 'MANAGER' ? entry.regionalManagerId ?? '' : '');
+    setRegionalManagerId(entry.role === 'MANAGER' || entry.role === 'SALES_REP' ? entry.regionalManagerId ?? '' : '');
     setRegionsInput(entry.role === 'REGIONAL_MANAGER' ? entry.regions.join(', ') : '');
     setFirstName(entry.firstName);
     setLastName(entry.lastName);
@@ -360,6 +363,17 @@ export default function UsersPage() {
                         items.filter((entry) => entry.role === 'SALES_REP' && entry.managerId === manager.id),
                       ])
                     );
+                    const directRepsByRegionalManager = new Map(
+                      regionalManagersList.map((regionalManager) => [
+                        regionalManager.id,
+                        items.filter(
+                          (entry) =>
+                            entry.role === 'SALES_REP' &&
+                            entry.regionalManagerId === regionalManager.id &&
+                            !entry.managerId
+                        ),
+                      ])
+                    );
                     const managersByRegionalManager = new Map(
                       regionalManagersList.map((regionalManager) => [
                         regionalManager.id,
@@ -419,6 +433,7 @@ export default function UsersPage() {
                               {regionalManagersList.map((regionalManager) => {
                                 const regionalManagerLive = isUserLive(regionalManager.lastLocationPingAt, regionalManager.isActive);
                                 const regionalManagersTeam = managersByRegionalManager.get(regionalManager.id) ?? [];
+                                const directReps = directRepsByRegionalManager.get(regionalManager.id) ?? [];
                                 return (
                                   <div
                                     key={regionalManager.id}
@@ -442,9 +457,30 @@ export default function UsersPage() {
                                     )}
                                     <div className="h-4 w-px bg-[var(--border)] mx-auto" />
                                     <div className="space-y-3">
-                                      {regionalManagersTeam.length === 0 ? (
-                                        <p className="text-[11px] text-3">No managers assigned.</p>
-                                      ) : (
+                                      {directReps.length > 0 && (
+                                        <div className="rounded-xl border border-emerald-500/30 ring-1 ring-emerald-500/10 p-3 bg-emerald-500/5">
+                                          <p className="text-[11px] font-medium text-2 mb-2">Direct sales reps</p>
+                                          <div className="space-y-2 border-l border-dashed border-[var(--border)] pl-3">
+                                            {directReps.map((rep) => {
+                                              const repLive = isUserLive(rep.lastLocationPingAt, rep.isActive);
+                                              return (
+                                                <div key={rep.id} className="relative">
+                                                  <span className="absolute -left-3 top-4 h-px w-3 bg-[var(--border)]" />
+                                                  <HierarchyNodeCard
+                                                    entry={rep}
+                                                    live={repLive}
+                                                    tone="neutral"
+                                                    compact
+                                                    onAttendance={() => void openAttendance(rep)}
+                                                    onEdit={() => openEditUserDialog(rep)}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+                                      {regionalManagersTeam.length > 0 ? (
                                         regionalManagersTeam.map((manager) => {
                                           const managerLive = isUserLive(manager.lastLocationPingAt, manager.isActive);
                                           const reps = repsByManager.get(manager.id) ?? [];
@@ -486,7 +522,9 @@ export default function UsersPage() {
                                             </div>
                                           );
                                         })
-                                      )}
+                                      ) : directReps.length === 0 ? (
+                                        <p className="text-[11px] text-3">No managers or direct sales reps assigned.</p>
+                                      ) : null}
                                     </div>
                                   </div>
                                 );
@@ -648,19 +686,35 @@ export default function UsersPage() {
               />
             )}
             {role === 'SALES_REP' && (
-              <select
-                value={managerId}
-                onChange={(event) => setManagerId(event.target.value)}
-                className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                required
-              >
-                <option value="">Assign manager</option>
-                {managers.map((manager) => (
-                  <option key={manager.id} value={manager.id}>
-                    {manager.firstName} {manager.lastName}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                <select
+                  value={managerId}
+                  onChange={(event) => setManagerId(event.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                >
+                  <option value="">Assign manager (optional)</option>
+                  {managers.map((manager) => (
+                    <option key={manager.id} value={manager.id}>
+                      {manager.firstName} {manager.lastName}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={regionalManagerId}
+                  onChange={(event) => setRegionalManagerId(event.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                >
+                  <option value="">Assign regional manager (optional)</option>
+                  {regionalManagers.map((regionalManager) => (
+                    <option key={regionalManager.id} value={regionalManager.id}>
+                      {regionalManager.firstName} {regionalManager.lastName}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-3">
+                  For sales reps, assign at least one: manager or regional manager.
+                </p>
+              </div>
             )}
             {role !== 'ADMIN' && (
               <input
@@ -1137,6 +1191,11 @@ function HierarchyNodeCard({
             <p className="text-[11px] text-3 truncate">Regions: {entry.regions.join(', ')}</p>
           )}
           {entry.role === 'MANAGER' && entry.regionalManager && (
+            <p className="text-[11px] text-3 truncate">
+              RM: {entry.regionalManager.firstName} {entry.regionalManager.lastName}
+            </p>
+          )}
+          {entry.role === 'SALES_REP' && entry.regionalManager && (
             <p className="text-[11px] text-3 truncate">
               RM: {entry.regionalManager.firstName} {entry.regionalManager.lastName}
             </p>

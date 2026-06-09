@@ -152,9 +152,18 @@ export default function PipelinePage() {
   const managerForForm =
     (isManager && user?.id ? user.id : form.managerId) || '';
 
+  const selectedManager =
+    isManager && user?.id
+      ? managers.find((manager) => manager.id === user.id) ?? null
+      : managers.find((manager) => manager.id === managerForForm) ?? null;
+
   const repsForSelectedManager = isManager
     ? salesReps
-    : salesReps.filter((rep) => rep.managerId === managerForForm);
+    : salesReps.filter((rep) => {
+        if (rep.managerId === managerForForm) return true;
+        if (!selectedManager?.regionalManagerId) return false;
+        return rep.managerId === null && rep.regionalManagerId === selectedManager.regionalManagerId;
+      });
 
   function totalFor(stage: Stage) {
     return items.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
