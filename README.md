@@ -14,7 +14,7 @@ npm install --prefix frontend
 npm install --prefix backend
 ```
 
-Run both services with a single command (kills ports `3000` and `4000` first):
+Run both services with a single command (kills ports `3000` and `4001` first):
 
 ```bash
 npm run dev
@@ -31,7 +31,7 @@ npm run dev:backend
 
 API defaults:
 
-- Base URL: `http://localhost:4000`
+- Base URL: `http://localhost:4001`
 - Health: `GET /api/v1/health`
 - Projects: `GET /api/v1/projects`
 

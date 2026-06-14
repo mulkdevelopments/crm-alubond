@@ -50,7 +50,7 @@ type SpeechWindow = Window & {
 
 function toAbsoluteAssetUrl(url: string): string {
   if (url.startsWith('http')) return url;
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4001/api/v1';
   const apiOrigin = new URL(apiBase).origin;
   return `${apiOrigin}${url}`;
 }
@@ -60,7 +60,7 @@ function toActivityAttachmentUrl(url: string): string {
   if (!absolute.includes('blob.vercel-storage.com')) {
     return absolute;
   }
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4001/api/v1';
   return `${apiBase}/files/proxy?url=${encodeURIComponent(absolute)}`;
 }
 
@@ -522,11 +522,24 @@ export default function ProjectDetailPage() {
           ? 'WhatsApp to'
           : 'Meeting with';
   const assignmentMembers = [
-    {
-      id: project.managerId,
-      name: project.managerName,
-      role: 'Manager',
-    },
+    ...(project.regionalManagerId
+      ? [
+          {
+            id: project.regionalManagerId,
+            name: project.regionalManagerName || 'Regional manager',
+            role: 'Regional manager',
+          },
+        ]
+      : []),
+    ...(project.managerId
+      ? [
+          {
+            id: project.managerId,
+            name: project.managerName || 'Manager',
+            role: 'Manager',
+          },
+        ]
+      : []),
     ...project.salesRepIds.map((id, index) => ({
       id,
       name: project.salesRepNames[index] || `Sales rep ${index + 1}`,
@@ -594,6 +607,7 @@ export default function ProjectDetailPage() {
         probability: project.probability,
         daysInStage: project.daysInStage,
         competitor: project.competitor,
+        regionalManagerId: project.regionalManagerId,
         managerId: project.managerId,
         salesRepIds: project.salesRepIds,
       });
@@ -1933,9 +1947,15 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader title="Assignments" />
             <div className="px-5 pb-5 space-y-3 text-sm">
+              {project.regionalManagerName && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                  <p className="text-[11px] text-3 mb-1">Regional manager</p>
+                  <p className="font-semibold">{project.regionalManagerName}</p>
+                </div>
+              )}
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
                 <p className="text-[11px] text-3 mb-1">Manager</p>
-                <p className="font-semibold">{project.managerName}</p>
+                <p className="font-semibold">{project.managerName || '—'}</p>
               </div>
 
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">

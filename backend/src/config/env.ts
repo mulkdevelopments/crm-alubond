@@ -5,7 +5,7 @@ config();
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(4000),
+  PORT: z.coerce.number().int().positive().default(4001),
   API_PREFIX: z.string().default("/api/v1"),
   FRONTEND_ORIGIN: z.string().default("http://localhost:3000"),
   FILE_STORAGE_PROVIDER: z.enum(["local", "vercel_blob"]).default("vercel_blob"),

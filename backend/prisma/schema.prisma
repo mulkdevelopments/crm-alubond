@@ -33,7 +33,11 @@ model User {
   regionalManagerId String?
   regionalManager   User?    @relation("RegionalManagerTeams", fields: [regionalManagerId], references: [id], onDelete: SetNull)
   regionalTeam      User[]   @relation("RegionalManagerTeams")
+  reportsToId String?
+  reportsTo   User?    @relation("ReportsToLeader", fields: [reportsToId], references: [id], onDelete: SetNull)
+  directReports User[] @relation("ReportsToLeader")
   projects  Project[] @relation("ManagerProjects")
+  regionalManagerProjects Project[] @relation("RegionalManagerProjects")
   ownedFollowUps FollowUp[] @relation("FollowUpOwner")
   locationPings UserLocationPing[]
 
@@ -43,6 +47,7 @@ model User {
   @@index([role])
   @@index([managerId])
   @@index([regionalManagerId])
+  @@index([reportsToId])
 }
 
 model Project {
@@ -63,9 +68,13 @@ model Project {
   competitor   String?
   owner        String
 
-  managerId    String
-  manager      User     @relation("ManagerProjects", fields: [managerId], references: [id], onDelete: Restrict)
-  managerName  String
+  regionalManagerId String?
+  regionalManager   User?    @relation("RegionalManagerProjects", fields: [regionalManagerId], references: [id], onDelete: SetNull)
+  regionalManagerName String @default("")
+
+  managerId    String?
+  manager      User?    @relation("ManagerProjects", fields: [managerId], references: [id], onDelete: SetNull)
+  managerName  String   @default("")
 
   salesRepIds   String[]
   salesRepNames String[]
@@ -78,6 +87,7 @@ model Project {
 
   @@index([stage])
   @@index([managerId])
+  @@index([regionalManagerId])
 }
 
 model FollowUp {

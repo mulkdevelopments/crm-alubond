@@ -8,7 +8,7 @@ import { LocationPickerMap } from '@/components/map/LocationPickerMap';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { STAGES, type Stage } from '@/lib/data';
-import { listManagers, listMyTeam, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
+import { listManagers, listMyTeam, listRegionalManagers, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
 import {
   createProject as createProjectApi,
   listProjects as listProjectsApi,
@@ -18,7 +18,9 @@ import {
 import { cn, formatAED } from '@/lib/utils';
 
 type ProjectAssignment = {
-  managerId: string;
+  regionalManagerId: string | null;
+  regionalManagerName: string;
+  managerId: string | null;
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
@@ -38,6 +40,7 @@ type ProjectFormState = {
   stage: Stage;
   probability: string;
   competitor: string;
+  regionalManagerId: string;
   managerId: string;
   salesRepIds: string[];
 };
@@ -59,7 +62,9 @@ type PipelineProject = {
   daysInStage: number;
   competitor: string | null;
   owner: string;
-  managerId: string;
+  regionalManagerId: string | null;
+  regionalManagerName: string;
+  managerId: string | null;
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
@@ -110,6 +115,7 @@ const EMPTY_FORM: ProjectFormState = {
   stage: 'Lead Identified',
   probability: '',
   competitor: '',
+  regionalManagerId: '',
   managerId: '',
   salesRepIds: [],
 };
@@ -127,6 +133,7 @@ export default function PipelinePage() {
   const [form, setForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [assignments, setAssignments] = useState<Record<string, ProjectAssignment>>({});
   const [managers, setManagers] = useState<UserListItem[]>([]);
+  const [regionalManagers, setRegionalManagers] = useState<UserListItem[]>([]);
   const [salesReps, setSalesReps] = useState<UserListItem[]>([]);
   const [peopleError, setPeopleError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -147,23 +154,39 @@ export default function PipelinePage() {
 
   const isAdmin = user?.role === 'ADMIN';
   const isManager = user?.role === 'MANAGER';
-  const canCreateProject = isAdmin || isManager;
+  const isRegionalManager = user?.role === 'REGIONAL_MANAGER';
+  const canCreateProject = isAdmin || isManager || isRegionalManager || user?.role === 'CEO';
   const editingProject = editingId ? items.find((p) => p.id === editingId) ?? null : null;
+  const regionalManagerForForm =
+    (isRegionalManager && user?.id ? user.id : form.regionalManagerId) || '';
   const managerForForm =
     (isManager && user?.id ? user.id : form.managerId) || '';
+
+  const selectedRegionalManager =
+    isRegionalManager && user?.id
+      ? regionalManagers.find((entry) => entry.id === user.id) ?? null
+      : regionalManagers.find((entry) => entry.id === regionalManagerForForm) ?? null;
 
   const selectedManager =
     isManager && user?.id
       ? managers.find((manager) => manager.id === user.id) ?? null
       : managers.find((manager) => manager.id === managerForForm) ?? null;
 
-  const repsForSelectedManager = isManager
-    ? salesReps
-    : salesReps.filter((rep) => {
-        if (rep.managerId === managerForForm) return true;
-        if (!selectedManager?.regionalManagerId) return false;
-        return rep.managerId === null && rep.regionalManagerId === selectedManager.regionalManagerId;
-      });
+  const managersForForm = regionalManagerForForm
+    ? managers.filter((entry) => entry.regionalManagerId === regionalManagerForForm)
+    : managers;
+
+  const repsForSelectedManager = salesReps.filter((rep) => {
+    if (managerForForm) {
+      if (rep.managerId === managerForForm) return true;
+      if (!selectedManager?.regionalManagerId) return false;
+      return rep.managerId === null && rep.regionalManagerId === selectedManager.regionalManagerId;
+    }
+    if (regionalManagerForForm) {
+      return rep.managerId === null && rep.regionalManagerId === regionalManagerForForm;
+    }
+    return true;
+  });
 
   function totalFor(stage: Stage) {
     return items.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
@@ -214,6 +237,7 @@ export default function PipelinePage() {
       probability: project.probability,
       daysInStage: nextDaysInStage,
       competitor: project.competitor,
+      regionalManagerId: project.regionalManagerId,
       managerId: project.managerId,
       salesRepIds: project.salesRepIds,
     });
@@ -231,6 +255,8 @@ export default function PipelinePage() {
           mapped.map((project) => [
             project.id,
             {
+              regionalManagerId: project.regionalManagerId,
+              regionalManagerName: project.regionalManagerName,
               managerId: project.managerId,
               managerName: project.managerName,
               salesRepIds: project.salesRepIds,
@@ -250,37 +276,105 @@ export default function PipelinePage() {
     async function loadPeople() {
       if (!token || !canCreateProject) {
         setManagers([]);
+        setRegionalManagers([]);
         setSalesReps([]);
         return;
       }
 
       setPeopleError(null);
       try {
-        if (isAdmin) {
-          const [managerData, userData] = await Promise.all([listManagers(token), listUsers(token)]);
-          const managerUsers: UserListItem[] = managerData.map((manager) => ({
-            id: manager.id,
-            email: manager.email,
-            firstName: manager.firstName,
-            lastName: manager.lastName,
-            role: 'MANAGER',
-            managerId: null,
-            regionalManagerId: null,
-            regions: [],
-            operationLocation: 'Not set',
-            yearlyTarget: null,
-            isActive: true,
-            createdAt: new Date(0).toISOString(),
-            lastLocationPingAt: null,
-            manager: null,
-            regionalManager: null,
-          }));
-          setManagers(managerUsers);
+        if (isAdmin || user?.role === 'CEO') {
+          const [managerData, regionalManagerData, userData] = await Promise.all([
+            listManagers(token),
+            listRegionalManagers(token),
+            listUsers(token),
+          ]);
+          const managerUsers = userData.filter((entry) => entry.role === 'MANAGER');
+          setManagers(
+            managerUsers.length > 0
+              ? managerUsers
+              : managerData.map((entry) => ({
+                  id: entry.id,
+                  email: entry.email,
+                  firstName: entry.firstName,
+                  lastName: entry.lastName,
+                  role: 'MANAGER' as const,
+                  managerId: null,
+                  regionalManagerId: null,
+                  reportsToId: null,
+                  regions: [],
+                  operationLocation: 'Not set',
+                  yearlyTarget: null,
+                  isActive: true,
+                  createdAt: new Date(0).toISOString(),
+                  lastLocationPingAt: null,
+                  manager: null,
+                  regionalManager: null,
+                  reportsTo: null,
+                }))
+          );
+          const regionalManagerUsers = userData.filter((entry) => entry.role === 'REGIONAL_MANAGER');
+          setRegionalManagers(
+            regionalManagerUsers.length > 0
+              ? regionalManagerUsers
+              : regionalManagerData.map((entry) => ({
+                  id: entry.id,
+                  email: entry.email,
+                  firstName: entry.firstName,
+                  lastName: entry.lastName,
+                  role: 'REGIONAL_MANAGER' as const,
+                  managerId: null,
+                  regionalManagerId: null,
+                  reportsToId: null,
+                  regions: [],
+                  operationLocation: 'Not set',
+                  yearlyTarget: null,
+                  isActive: true,
+                  createdAt: new Date(0).toISOString(),
+                  lastLocationPingAt: null,
+                  manager: null,
+                  regionalManager: null,
+                  reportsTo: null,
+                }))
+          );
+          setSalesReps(userData.filter((entry) => entry.role === 'SALES_REP'));
+          return;
+        }
+
+        if (isRegionalManager && user) {
+          const userData = await listUsers(token);
+          setRegionalManagers(userData.filter((entry) => entry.role === 'REGIONAL_MANAGER' && entry.id === user.id));
+          setManagers(userData.filter((entry) => entry.role === 'MANAGER'));
           setSalesReps(userData.filter((entry) => entry.role === 'SALES_REP'));
           return;
         }
 
         const teamData: TeamMember[] = await listMyTeam(token);
+        setRegionalManagers(
+          user?.regionalManagerId
+            ? [
+                {
+                  id: user.regionalManagerId,
+                  email: '',
+                  firstName: 'Regional',
+                  lastName: 'Manager',
+                  role: 'REGIONAL_MANAGER',
+                  managerId: null,
+                  regionalManagerId: null,
+                  reportsToId: null,
+                  regions: [],
+                  operationLocation: 'Not set',
+                  yearlyTarget: null,
+                  isActive: true,
+                  createdAt: new Date(0).toISOString(),
+                  lastLocationPingAt: null,
+                  manager: null,
+                  regionalManager: null,
+                  reportsTo: null,
+                },
+              ]
+            : [],
+        );
         setManagers(
           user
             ? [
@@ -292,6 +386,7 @@ export default function PipelinePage() {
                   role: 'MANAGER',
                   managerId: null,
                   regionalManagerId: user.regionalManagerId ?? null,
+                  reportsToId: null,
                   regions: user.regions ?? [],
                   operationLocation: 'Not set',
                   yearlyTarget: null,
@@ -300,6 +395,7 @@ export default function PipelinePage() {
                   lastLocationPingAt: null,
                   manager: null,
                   regionalManager: null,
+                  reportsTo: null,
                 },
               ]
             : [],
@@ -312,7 +408,8 @@ export default function PipelinePage() {
             lastName: entry.lastName,
             role: entry.role,
             managerId: entry.managerId,
-            regionalManagerId: null,
+            regionalManagerId: user?.regionalManagerId ?? null,
+            reportsToId: null,
             regions: [],
             operationLocation: 'Not set',
             yearlyTarget: null,
@@ -321,6 +418,7 @@ export default function PipelinePage() {
             lastLocationPingAt: null,
             manager: null,
             regionalManager: null,
+            reportsTo: null,
           })),
         );
       } catch {
@@ -329,7 +427,7 @@ export default function PipelinePage() {
     }
 
     loadPeople();
-  }, [token, canCreateProject, isAdmin, isManager, user]);
+  }, [token, canCreateProject, isAdmin, isManager, isRegionalManager, user]);
 
   useEffect(() => {
     if (!token) {
@@ -420,6 +518,21 @@ export default function PipelinePage() {
     }
   }
 
+function normalizeOptionalId(value: string): string | null {
+  return value.trim() ? value : null;
+}
+
+function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolean, isRegionalManager: boolean, userId?: string) {
+  return {
+    regionalManagerId:
+      isRegionalManager && userId
+        ? userId
+        : normalizeOptionalId(form.regionalManagerId),
+    managerId: isManager && userId ? userId : normalizeOptionalId(form.managerId),
+    salesRepIds: form.salesRepIds,
+  };
+}
+
   function openCreateForm() {
     if (!canCreateProject) return;
     setEditingId(null);
@@ -428,6 +541,7 @@ export default function PipelinePage() {
     setLocationSearchError(null);
     setForm({
       ...EMPTY_FORM,
+      regionalManagerId: isRegionalManager && user?.id ? user.id : '',
       managerId: isManager && user?.id ? user.id : '',
     });
     setIsFormOpen(true);
@@ -454,6 +568,7 @@ export default function PipelinePage() {
       stage: project.stage,
       probability: String(project.probability),
       competitor: project.competitor ?? '',
+      regionalManagerId: existing?.regionalManagerId ?? (isRegionalManager && user?.id ? user.id : ''),
       managerId: existing?.managerId ?? (isManager && user?.id ? user.id : ''),
       salesRepIds: existing?.salesRepIds ?? [],
     });
@@ -468,6 +583,7 @@ export default function PipelinePage() {
     setLocationSearchError(null);
     setForm({
       ...EMPTY_FORM,
+      regionalManagerId: isRegionalManager && user?.id ? user.id : '',
       managerId: isManager && user?.id ? user.id : '',
     });
   }
@@ -560,8 +676,7 @@ export default function PipelinePage() {
     const normalizedItemName = itemName;
     const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
     const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
-    const managerId = managerForForm;
-    const salesRepNames = selectedReps.map((rep) => `${rep.firstName} ${rep.lastName}`.trim()).filter(Boolean);
+    const assignmentPayload = buildProjectAssignmentPayload(form, isManager, isRegionalManager, user?.id);
 
     if (!name || !city) {
       setFormError('Fill project name and city.');
@@ -577,14 +692,6 @@ export default function PipelinePage() {
     }
     if (requiresCommercialDetails(form.stage) && normalizedItemQuantity <= 0) {
       setFormError('Item quantity is required for quatation stage and later.');
-      return;
-    }
-    if (!managerId) {
-      setFormError('Assign a manager to this project.');
-      return;
-    }
-    if (salesRepNames.length === 0) {
-      setFormError('Select at least one sales rep.');
       return;
     }
 
@@ -610,7 +717,7 @@ export default function PipelinePage() {
           probability: normalizedProbability,
           daysInStage: nextDaysInStage,
           competitor: form.competitor.trim() || null,
-          managerId,
+          ...assignmentPayload,
           salesRepIds: selectedReps.map((rep) => rep.id),
         });
         await refreshProjects(token);
@@ -636,7 +743,7 @@ export default function PipelinePage() {
         probability: normalizedProbability,
         daysInStage: 1,
         competitor: form.competitor.trim() || null,
-        managerId,
+        ...assignmentPayload,
         salesRepIds: selectedReps.map((rep) => rep.id),
       });
       await refreshProjects(token);
@@ -1099,26 +1206,48 @@ export default function PipelinePage() {
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 <select
+                  value={regionalManagerForForm}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      regionalManagerId: e.target.value,
+                      managerId: isManager ? prev.managerId : '',
+                      salesRepIds: [],
+                    }))
+                  }
+                  disabled={isRegionalManager}
+                  className={cn(
+                    'h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full',
+                    isRegionalManager && 'opacity-70 cursor-not-allowed',
+                  )}
+                >
+                  <option value="">{isRegionalManager ? 'Your regional profile' : 'Assign regional manager (optional)'}</option>
+                  {regionalManagers.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.firstName} {entry.lastName}
+                    </option>
+                  ))}
+                </select>
+                <select
                   value={managerForForm}
                   onChange={(e) => setForm((prev) => ({ ...prev, managerId: e.target.value, salesRepIds: [] }))}
                   disabled={isManager}
-                  required
                   className={cn(
                     'h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full',
                     isManager && 'opacity-70 cursor-not-allowed',
                   )}
                 >
-                  <option value="">{isManager ? 'Your manager profile' : 'Assign manager'}</option>
-                  {managers.map((entry) => (
+                  <option value="">{isManager ? 'Your manager profile' : 'Assign manager (optional)'}</option>
+                  {managersForForm.map((entry) => (
                     <option key={entry.id} value={entry.id}>
                       {entry.firstName} {entry.lastName}
                     </option>
                   ))}
                 </select>
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                  <p className="text-xs font-semibold mb-2">Assign sales reps</p>
+                  <p className="text-xs font-semibold mb-2">Assign sales reps (optional)</p>
                   {repsForSelectedManager.length === 0 ? (
-                    <p className="text-xs text-3">No sales reps found under this manager.</p>
+                    <p className="text-xs text-3">No sales reps match the selected regional manager or manager.</p>
                   ) : (
                     <div className="grid grid-cols-1 gap-1.5">
                       {repsForSelectedManager.map((rep) => {
@@ -1241,6 +1370,8 @@ function toPipelineProject(project: ApiProject): PipelineProject {
     daysInStage: project.daysInStage,
     competitor: project.competitor,
     owner: project.owner,
+    regionalManagerId: project.regionalManagerId,
+    regionalManagerName: project.regionalManagerName,
     managerId: project.managerId,
     managerName: project.managerName,
     salesRepIds: project.salesRepIds,

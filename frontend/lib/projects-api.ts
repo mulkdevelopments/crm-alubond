@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4001/api/v1";
 
 export type ApiProject = {
   id: string;
@@ -17,7 +17,9 @@ export type ApiProject = {
   daysInStage: number;
   competitor: string | null;
   owner: string;
-  managerId: string;
+  regionalManagerId: string | null;
+  regionalManagerName: string;
+  managerId: string | null;
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
@@ -77,8 +79,9 @@ export type ProjectUpsertPayload = {
   probability: number;
   daysInStage: number;
   competitor: string | null;
-  managerId: string;
-  salesRepIds: string[];
+  regionalManagerId?: string | null;
+  managerId?: string | null;
+  salesRepIds?: string[];
 };
 
 export async function listProjects(token: string): Promise<ApiProject[]> {

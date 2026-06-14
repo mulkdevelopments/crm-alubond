@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORTS=(3000 4000)
+PORTS=(3000 4001)
 
 kill_port_if_busy() {
   local port="$1"
@@ -32,7 +32,7 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-echo "Starting backend on :4000"
+echo "Starting backend on :4001"
 npm run dev --prefix "${ROOT_DIR}/backend" &
 BACK_PID=$!
 

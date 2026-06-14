@@ -18,7 +18,9 @@ export type ProjectRecord = {
   daysInStage: number;
   competitor: string | null;
   owner: string;
-  managerId: string;
+  regionalManagerId: string | null;
+  regionalManagerName: string;
+  managerId: string | null;
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
@@ -42,7 +44,9 @@ export type UpsertProjectInput = {
   daysInStage: number;
   competitor: string | null;
   owner: string;
-  managerId: string;
+  regionalManagerId: string | null;
+  regionalManagerName: string;
+  managerId: string | null;
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
@@ -65,7 +69,9 @@ function mapProject(record: {
   daysInStage: number;
   competitor: string | null;
   owner: string;
-  managerId: string;
+  regionalManagerId: string | null;
+  regionalManagerName: string;
+  managerId: string | null;
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];

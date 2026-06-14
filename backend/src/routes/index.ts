@@ -20,6 +20,10 @@ import { usersRouter } from "../modules/users/users.routes";
 
 export const apiRouter = Router();
 const entityIdSchema = z.string().min(3).max(128).regex(/^[a-zA-Z0-9_-]+$/);
+const optionalEntityIdSchema = z.preprocess(
+  (value) => (value === "" ? null : value),
+  entityIdSchema.nullable().optional()
+);
 const activityAttachmentUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
@@ -40,8 +44,9 @@ const projectPayloadSchema = z.object({
   probability: z.number().min(0).max(100).optional().default(0),
   daysInStage: z.number().int().min(0).optional().default(1),
   competitor: z.string().nullable().optional().default(null),
-  managerId: entityIdSchema,
-  salesRepIds: z.array(entityIdSchema).min(1)
+  regionalManagerId: optionalEntityIdSchema,
+  managerId: optionalEntityIdSchema,
+  salesRepIds: z.array(entityIdSchema).optional().default([])
 });
 
 const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Expected", "Won", "Lost"]);
@@ -50,12 +55,23 @@ function requiresCommercialDetails(stage: string) {
   return tenderOrLaterStages.has(stage);
 }
 
+function canManageProjects(role: UserRole) {
+  return (
+    role === UserRole.ADMIN ||
+    role === UserRole.CEO ||
+    role === UserRole.MANAGER ||
+    role === UserRole.REGIONAL_MANAGER
+  );
+}
+
 function projectScopeForUser(user: { id: string; role: UserRole }): Prisma.ProjectWhereInput | undefined {
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
     return undefined;
   }
   if (user.role === UserRole.REGIONAL_MANAGER) {
-    return { manager: { regionalManagerId: user.id } };
+    return {
+      OR: [{ regionalManagerId: user.id }, { manager: { regionalManagerId: user.id } }]
+    };
   }
   if (user.role === UserRole.MANAGER) {
     return { managerId: user.id };
@@ -497,59 +513,170 @@ apiRouter.get("/projects/:projectId", authenticate, async (req, res) => {
 });
 
 async function resolveProjectAssignees(payload: z.infer<typeof projectPayloadSchema>) {
-  const manager = await prisma.user.findUnique({
-    where: { id: payload.managerId },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      role: true,
-      regionalManagerId: true
-    }
-  });
+  let regionalManagerId = payload.regionalManagerId ?? null;
+  let managerId = payload.managerId ?? null;
+  const salesRepIds = payload.salesRepIds ?? [];
 
-  if (!manager || manager.role !== UserRole.MANAGER) {
-    return { error: "managerId must belong to a manager user" } as const;
+  let regionalManagerName = "";
+  if (regionalManagerId) {
+    const regionalManager = await prisma.user.findUnique({
+      where: { id: regionalManagerId },
+      select: { id: true, firstName: true, lastName: true, role: true }
+    });
+
+    if (!regionalManager || regionalManager.role !== UserRole.REGIONAL_MANAGER) {
+      return { error: "regionalManagerId must belong to a regional manager user" } as const;
+    }
+
+    regionalManagerName = `${regionalManager.firstName} ${regionalManager.lastName}`.trim();
   }
 
-  const reps = await prisma.user.findMany({
-    where: { id: { in: payload.salesRepIds } },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      role: true,
-      managerId: true,
-      regionalManagerId: true
-    }
-  });
+  let managerName = "";
+  let managerRegionalManagerId: string | null = null;
+  if (managerId) {
+    const manager = await prisma.user.findUnique({
+      where: { id: managerId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        regionalManagerId: true
+      }
+    });
 
-  if (reps.length !== payload.salesRepIds.length) {
+    if (!manager || manager.role !== UserRole.MANAGER) {
+      return { error: "managerId must belong to a manager user" } as const;
+    }
+
+    if (regionalManagerId && manager.regionalManagerId !== regionalManagerId) {
+      return { error: "Manager must belong to the selected regional manager" } as const;
+    }
+
+    managerName = `${manager.firstName} ${manager.lastName}`.trim();
+    managerRegionalManagerId = manager.regionalManagerId ?? null;
+    if (!regionalManagerId && managerRegionalManagerId) {
+      regionalManagerId = managerRegionalManagerId;
+      const linkedRegionalManager = await prisma.user.findUnique({
+        where: { id: managerRegionalManagerId },
+        select: { firstName: true, lastName: true }
+      });
+      regionalManagerName = linkedRegionalManager
+        ? `${linkedRegionalManager.firstName} ${linkedRegionalManager.lastName}`.trim()
+        : "";
+    }
+  }
+
+  const reps = salesRepIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: salesRepIds } },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          managerId: true,
+          regionalManagerId: true
+        }
+      })
+    : [];
+
+  if (reps.length !== salesRepIds.length) {
     return { error: "One or more sales reps are invalid" } as const;
   }
 
   const invalidRep = reps.find((rep) => {
     if (rep.role !== UserRole.SALES_REP) return true;
-    if (rep.managerId === manager.id) return false;
-    return !(
-      manager.regionalManagerId &&
-      rep.managerId === null &&
-      rep.regionalManagerId === manager.regionalManagerId
-    );
+    if (managerId) {
+      if (rep.managerId === managerId) return false;
+      return !(
+        managerRegionalManagerId &&
+        rep.managerId === null &&
+        rep.regionalManagerId === managerRegionalManagerId
+      );
+    }
+    if (regionalManagerId) {
+      return !(rep.managerId === null && rep.regionalManagerId === regionalManagerId);
+    }
+    return false;
   });
   if (invalidRep) {
-    return { error: "Sales reps must belong to the selected manager" } as const;
+    return { error: "Sales reps must belong to the selected manager or regional manager" } as const;
   }
 
+  const salesRepNames = reps.map((rep) => `${rep.firstName} ${rep.lastName}`.trim());
+  const owner = salesRepNames[0] ?? managerName ?? regionalManagerName ?? "Unassigned";
+
   return {
-    managerName: `${manager.firstName} ${manager.lastName}`.trim(),
-    salesRepNames: reps.map((rep) => `${rep.firstName} ${rep.lastName}`.trim())
+    regionalManagerId,
+    regionalManagerName,
+    managerId,
+    managerName,
+    salesRepIds,
+    salesRepNames,
+    owner
   } as const;
 }
 
+async function assertProjectAssignmentAllowed(
+  user: { id: string; role: UserRole; regionalManagerId?: string | null },
+  payload: z.infer<typeof projectPayloadSchema>
+) {
+  if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
+    return null;
+  }
+
+  if (user.role === UserRole.REGIONAL_MANAGER) {
+    if (payload.regionalManagerId && payload.regionalManagerId !== user.id) {
+      return "Regional managers can only assign themselves as regional manager";
+    }
+    if (payload.managerId) {
+      const manager = await prisma.user.findUnique({
+        where: { id: payload.managerId },
+        select: { regionalManagerId: true }
+      });
+      if (!manager || manager.regionalManagerId !== user.id) {
+        return "Managers must belong to your regional team";
+      }
+    }
+    return null;
+  }
+
+  if (user.role === UserRole.MANAGER) {
+    if (payload.managerId && payload.managerId !== user.id) {
+      return "Managers can only assign projects to themselves";
+    }
+    if (payload.regionalManagerId) {
+      const manager = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { regionalManagerId: true }
+      });
+      if (payload.regionalManagerId !== (manager?.regionalManagerId ?? null)) {
+        return "Regional manager assignment is outside your hierarchy";
+      }
+    }
+    return null;
+  }
+
+  return "Forbidden for your role";
+}
+
+function applyCreatorProjectDefaults(
+  user: { id: string; role: UserRole; regionalManagerId?: string | null },
+  payload: z.infer<typeof projectPayloadSchema>
+): z.infer<typeof projectPayloadSchema> {
+  if (user.role === UserRole.MANAGER && !payload.managerId) {
+    return { ...payload, managerId: user.id };
+  }
+  if (user.role === UserRole.REGIONAL_MANAGER && !payload.regionalManagerId && !payload.managerId) {
+    return { ...payload, regionalManagerId: user.id };
+  }
+  return payload;
+}
+
 apiRouter.post("/projects", authenticate, async (req, res) => {
-  if (!req.user || (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.MANAGER)) {
-    res.status(403).json({ message: "Only managers/admins can create projects" });
+  if (!req.user || !canManageProjects(req.user.role)) {
+    res.status(403).json({ message: "Only admins, CEOs, managers, and regional managers can create projects" });
     return;
   }
 
@@ -558,7 +685,13 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     res.status(400).json({ message: "Invalid payload", issues: parsed.error.flatten() });
     return;
   }
-  const payload = parsed.data;
+  const payload = applyCreatorProjectDefaults(req.user, parsed.data);
+
+  const assignmentError = await assertProjectAssignmentAllowed(req.user, payload);
+  if (assignmentError) {
+    res.status(403).json({ message: assignmentError });
+    return;
+  }
 
   const itemName = payload.itemName.trim();
   if (requiresCommercialDetails(payload.stage) && payload.valueAed <= 0) {
@@ -573,10 +706,6 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
     return;
   }
-  if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
-    res.status(403).json({ message: "Managers can only assign projects to themselves" });
-    return;
-  }
 
   const assignees = await resolveProjectAssignees(payload);
   if ("error" in assignees) {
@@ -588,8 +717,12 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     ...payload,
     businessDivision: payload.businessDivision ?? null,
     itemName,
-    owner: assignees.salesRepNames[0] ?? assignees.managerName,
+    regionalManagerId: assignees.regionalManagerId,
+    regionalManagerName: assignees.regionalManagerName,
+    managerId: assignees.managerId,
     managerName: assignees.managerName,
+    owner: assignees.owner,
+    salesRepIds: assignees.salesRepIds,
     salesRepNames: assignees.salesRepNames
   });
 
@@ -597,8 +730,8 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
 });
 
 apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
-  if (!req.user || (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.MANAGER)) {
-    res.status(403).json({ message: "Only managers/admins can update projects" });
+  if (!req.user || !canManageProjects(req.user.role)) {
+    res.status(403).json({ message: "Only admins, CEOs, managers, and regional managers can update projects" });
     return;
   }
   if (!(await canAccessProjectById(req.user, req.params.projectId as string))) {
@@ -616,6 +749,8 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     where: { id: req.params.projectId as string },
     select: {
       id: true,
+      regionalManagerId: true,
+      regionalManagerName: true,
       managerId: true,
       managerName: true,
       salesRepIds: true,
@@ -641,14 +776,17 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
     return;
   }
-  if (req.user.role === UserRole.MANAGER && payload.managerId !== req.user.id) {
-    res.status(403).json({ message: "Managers can only assign projects to themselves" });
+
+  const assignmentError = await assertProjectAssignmentAllowed(req.user, payload);
+  if (assignmentError) {
+    res.status(403).json({ message: assignmentError });
     return;
   }
 
   const assignees = await resolveProjectAssignees(payload);
   const assigneesUnchangedFromExisting =
-    payload.managerId === existingProject.managerId &&
+    (payload.regionalManagerId ?? null) === existingProject.regionalManagerId &&
+    (payload.managerId ?? null) === existingProject.managerId &&
     payload.salesRepIds.length === existingProject.salesRepIds.length &&
     payload.salesRepIds.every((id) => existingProject.salesRepIds.includes(id));
 
@@ -656,18 +794,28 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     res.status(400).json({ message: assignees.error });
     return;
   }
-  const resolvedManagerName =
-    "error" in assignees ? existingProject.managerName : assignees.managerName;
+  const resolvedRegionalManagerId =
+    "error" in assignees ? existingProject.regionalManagerId : assignees.regionalManagerId;
+  const resolvedRegionalManagerName =
+    "error" in assignees ? existingProject.regionalManagerName : assignees.regionalManagerName;
+  const resolvedManagerId = "error" in assignees ? existingProject.managerId : assignees.managerId;
+  const resolvedManagerName = "error" in assignees ? existingProject.managerName : assignees.managerName;
+  const resolvedSalesRepIds = "error" in assignees ? existingProject.salesRepIds : assignees.salesRepIds;
   const resolvedSalesRepNames =
     "error" in assignees ? existingProject.salesRepNames : assignees.salesRepNames;
-  const resolvedOwner = resolvedSalesRepNames[0] ?? resolvedManagerName ?? existingProject.owner;
+  const resolvedOwner =
+    resolvedSalesRepNames[0] ?? resolvedManagerName ?? resolvedRegionalManagerName ?? existingProject.owner;
 
   const project = await updateProject(req.params.projectId as string, {
     ...payload,
     businessDivision: payload.businessDivision ?? null,
     itemName,
+    regionalManagerId: resolvedRegionalManagerId,
+    regionalManagerName: resolvedRegionalManagerName,
+    managerId: resolvedManagerId,
     owner: resolvedOwner,
     managerName: resolvedManagerName,
+    salesRepIds: resolvedSalesRepIds,
     salesRepNames: resolvedSalesRepNames
   });
 

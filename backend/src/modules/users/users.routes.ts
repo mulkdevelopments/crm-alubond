@@ -8,6 +8,10 @@ import { authenticate, authorize } from "../../middleware/auth";
 import { toAuthUser } from "../auth/auth.service";
 
 const entityIdSchema = z.string().min(3).max(128).regex(/^[a-zA-Z0-9_-]+$/);
+const optionalEntityIdSchema = z.preprocess(
+  (value) => (value === "" ? null : value),
+  entityIdSchema.nullable().optional()
+);
 
 const createUserSchema = z.object({
   email: z.string().email(),
@@ -15,8 +19,9 @@ const createUserSchema = z.object({
   lastName: z.string().min(1),
   password: z.string().min(8),
   role: z.nativeEnum(UserRole),
-  managerId: entityIdSchema.nullable().optional(),
-  regionalManagerId: entityIdSchema.nullable().optional(),
+  managerId: optionalEntityIdSchema,
+  regionalManagerId: optionalEntityIdSchema,
+  reportsToId: optionalEntityIdSchema,
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
   yearlyTarget: z.number().positive().optional().nullable()
@@ -27,8 +32,9 @@ const updateUserSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   role: z.nativeEnum(UserRole),
-  managerId: entityIdSchema.nullable().optional(),
-  regionalManagerId: entityIdSchema.nullable().optional(),
+  managerId: optionalEntityIdSchema,
+  regionalManagerId: optionalEntityIdSchema,
+  reportsToId: optionalEntityIdSchema,
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
   yearlyTarget: z.number().positive().optional().nullable(),
@@ -177,6 +183,10 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
     res.status(400).json({ message: "Regional manager must have at least one region" });
     return;
   }
+  if (payload.role === UserRole.REGIONAL_MANAGER && !payload.reportsToId) {
+    res.status(400).json({ message: "Regional manager must be assigned under CEO" });
+    return;
+  }
   if (payload.role !== UserRole.ADMIN && !payload.yearlyTarget) {
     res.status(400).json({ message: "Yearly sales target is required for all non-admin users" });
     return;
@@ -213,6 +223,17 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
       return;
     }
   }
+  if (payload.reportsToId) {
+    const ceo = await prisma.user.findUnique({
+      where: { id: payload.reportsToId },
+      select: { id: true, role: true }
+    });
+
+    if (!ceo || ceo.role !== UserRole.CEO) {
+      res.status(400).json({ message: "reportsToId must belong to a CEO user" });
+      return;
+    }
+  }
 
   const duplicate = await prisma.user.findUnique({ where: { email } });
   if (duplicate) {
@@ -235,6 +256,7 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
           : payload.role === UserRole.SALES_REP
             ? resolvedRegionalManagerIdForSalesRep
             : null,
+      reportsToId: payload.role === UserRole.REGIONAL_MANAGER ? payload.reportsToId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null
@@ -277,6 +299,10 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
     res.status(400).json({ message: "Regional manager must have at least one region" });
     return;
   }
+  if (payload.role === UserRole.REGIONAL_MANAGER && !payload.reportsToId) {
+    res.status(400).json({ message: "Regional manager must be assigned under CEO" });
+    return;
+  }
   if (payload.role !== UserRole.ADMIN && !payload.yearlyTarget) {
     res.status(400).json({ message: "Yearly sales target is required for all non-admin users" });
     return;
@@ -314,6 +340,17 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
       return;
     }
   }
+  if (payload.reportsToId) {
+    const ceo = await prisma.user.findUnique({
+      where: { id: payload.reportsToId },
+      select: { id: true, role: true }
+    });
+
+    if (!ceo || ceo.role !== UserRole.CEO) {
+      res.status(400).json({ message: "reportsToId must belong to a CEO user" });
+      return;
+    }
+  }
 
   const duplicate = await prisma.user.findUnique({ where: { email } });
   if (duplicate && duplicate.id !== existing.id) {
@@ -336,6 +373,7 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
           : payload.role === UserRole.SALES_REP
             ? resolvedRegionalManagerIdForSalesRep
             : null,
+      reportsToId: payload.role === UserRole.REGIONAL_MANAGER ? payload.reportsToId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
@@ -419,6 +457,7 @@ usersRouter.get("/", async (req, res) => {
       role: true,
       managerId: true,
       regionalManagerId: true,
+      reportsToId: true,
       regions: true,
       operationLocation: true,
       yearlyTarget: true,
@@ -444,6 +483,14 @@ usersRouter.get("/", async (req, res) => {
           lastName: true,
           email: true
         }
+      },
+      reportsTo: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
       }
     },
     orderBy: { createdAt: "desc" }
@@ -457,6 +504,7 @@ usersRouter.get("/", async (req, res) => {
     role: user.role,
     managerId: user.managerId,
     regionalManagerId: user.regionalManagerId,
+    reportsToId: user.reportsToId,
     regions: user.regions,
     operationLocation: user.operationLocation,
     yearlyTarget: user.yearlyTarget,
@@ -464,6 +512,7 @@ usersRouter.get("/", async (req, res) => {
     createdAt: user.createdAt,
     manager: user.manager,
     regionalManager: user.regionalManager,
+    reportsTo: user.reportsTo,
     lastLocationPingAt: user.locationPings[0]?.recordedAt ?? null
   }));
 
@@ -627,6 +676,21 @@ usersRouter.get("/managers", authorize(UserRole.ADMIN, UserRole.CEO), async (_re
   });
 
   res.status(200).json({ items: managers });
+});
+
+usersRouter.get("/ceos", authorize(UserRole.ADMIN, UserRole.CEO), async (_req, res) => {
+  const ceos = await prisma.user.findMany({
+    where: { role: UserRole.CEO },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true
+    },
+    orderBy: { firstName: "asc" }
+  });
+
+  res.status(200).json({ items: ceos });
 });
 
 usersRouter.get("/regional-managers", authorize(UserRole.ADMIN, UserRole.CEO), async (_req, res) => {

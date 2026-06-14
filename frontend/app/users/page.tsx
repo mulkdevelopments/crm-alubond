@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronRight, Pencil, ShieldAlert, User, UserPlus, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, Pencil, Search, ShieldAlert, User, UserPlus, X } from 'lucide-react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
 
 import { useAuth } from '@/components/auth/AuthContext';
@@ -13,8 +13,8 @@ import {
   createUser,
   getUserLocationAttendance,
   getUserLocationRoute,
-  listManagers,
   listRegionalManagers,
+  listCeos,
   listUsers,
   updateUser,
   ManagerOption,
@@ -27,12 +27,22 @@ import { cn } from '@/lib/utils';
 type Role = 'SALES_REP' | 'MANAGER' | 'REGIONAL_MANAGER' | 'CEO' | 'ADMIN';
 
 const ROLES: Role[] = ['SALES_REP', 'MANAGER', 'REGIONAL_MANAGER', 'CEO', 'ADMIN'];
+const DIRECT_REGIONAL_MANAGER = '__direct__';
+const PAGE_SIZE = 25;
+const ROLE_SORT_ORDER: Record<Role, number> = {
+  ADMIN: 0,
+  CEO: 1,
+  REGIONAL_MANAGER: 2,
+  MANAGER: 3,
+  SALES_REP: 4,
+};
 
 export default function UsersPage() {
   const { user, token } = useAuth();
   const [items, setItems] = useState<UserListItem[]>([]);
-  const [managers, setManagers] = useState<ManagerOption[]>([]);
+  const [managers, setManagers] = useState<UserListItem[]>([]);
   const [regionalManagers, setRegionalManagers] = useState<ManagerOption[]>([]);
+  const [ceos, setCeos] = useState<ManagerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -57,6 +67,7 @@ export default function UsersPage() {
   const [role, setRole] = useState<Role>('SALES_REP');
   const [managerId, setManagerId] = useState('');
   const [regionalManagerId, setRegionalManagerId] = useState('');
+  const [reportsToId, setReportsToId] = useState('');
   const [regionsInput, setRegionsInput] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -64,6 +75,12 @@ export default function UsersPage() {
   const [operationLocation, setOperationLocation] = useState('');
   const [yearlyTarget, setYearlyTarget] = useState('');
   const [password, setPassword] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | Role>('ALL');
+  const [regionalManagerFilter, setRegionalManagerFilter] = useState('ALL');
+  const [managerFilter, setManagerFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'live' | 'offline'>('ALL');
+  const [page, setPage] = useState(1);
 
   const isAdmin = user?.role === 'ADMIN';
 
@@ -74,14 +91,15 @@ export default function UsersPage() {
     }
     setLoading(true);
     try {
-      const [usersData, managersData, regionalManagersData] = await Promise.all([
+      const [usersData, regionalManagersData, ceosData] = await Promise.all([
         listUsers(token),
-        listManagers(token),
         listRegionalManagers(token),
+        listCeos(token),
       ]);
       setItems(usersData);
-      setManagers(managersData);
+      setManagers(usersData.filter((entry) => entry.role === 'MANAGER'));
       setRegionalManagers(regionalManagersData);
+      setCeos(ceosData);
     } catch {
       setMessage('Failed to load users.');
     } finally {
@@ -103,6 +121,50 @@ export default function UsersPage() {
       reps: items.filter((u) => u.role === 'SALES_REP').length
     };
   }, [items]);
+
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return items
+      .filter((entry) => {
+        if (query) {
+          const haystack = `${entry.firstName} ${entry.lastName} ${entry.email}`.toLowerCase();
+          if (!haystack.includes(query)) return false;
+        }
+        if (roleFilter !== 'ALL' && entry.role !== roleFilter) return false;
+        if (regionalManagerFilter !== 'ALL') {
+          const regionalId = effectiveRegionalManagerId(entry, items);
+          if (regionalId !== regionalManagerFilter) return false;
+        }
+        if (managerFilter !== 'ALL') {
+          if (entry.role === 'SALES_REP' && entry.managerId !== managerFilter) return false;
+          if (entry.role === 'MANAGER' && entry.id !== managerFilter) return false;
+          if (entry.role !== 'SALES_REP' && entry.role !== 'MANAGER') return false;
+        }
+        if (statusFilter !== 'ALL') {
+          const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
+          if (statusFilter === 'live' && !live) return false;
+          if (statusFilter === 'offline' && live) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => compareUsersByHierarchy(a, b));
+  }, [items, searchQuery, roleFilter, regionalManagerFilter, managerFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+  const paginatedUsers = useMemo(() => {
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredUsers.slice(start, start + PAGE_SIZE);
+  }, [filteredUsers, page, totalPages]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, roleFilter, regionalManagerFilter, managerFilter, statusFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   const todayDateKey = useMemo(() => formatLocalDateKey(new Date()), []);
   const filteredRoutePoints = useMemo(
     () => filterMovementPoints(route?.points ?? [], 120),
@@ -131,6 +193,11 @@ export default function UsersPage() {
     return Date.now() - latestMs <= 60 * 60 * 1000;
   }, [latestRoutePing]);
 
+  const managersUnderSelectedRegional = useMemo(() => {
+    if (!regionalManagerId) return [];
+    return managers.filter((manager) => manager.regionalManagerId === regionalManagerId);
+  }, [managers, regionalManagerId]);
+
   async function onSubmitUser(event: FormEvent) {
     event.preventDefault();
     if (!token || !isAdmin) {
@@ -150,11 +217,17 @@ export default function UsersPage() {
       if (role === 'MANAGER' && !regionalManagerId) {
         throw new Error('Manager must be assigned under a regional manager.');
       }
-      if (role === 'SALES_REP' && !managerId && !regionalManagerId) {
+      if (role === 'SALES_REP' && managerId !== DIRECT_REGIONAL_MANAGER && !managerId && !regionalManagerId) {
         throw new Error('Sales rep must be assigned under a manager or regional manager.');
+      }
+      if (role === 'SALES_REP' && managerId === DIRECT_REGIONAL_MANAGER && !regionalManagerId) {
+        throw new Error('Select a regional manager for direct reporting.');
       }
       if (role === 'REGIONAL_MANAGER' && parsedRegions.length === 0) {
         throw new Error('Regional manager must have at least one region.');
+      }
+      if (role === 'REGIONAL_MANAGER' && !reportsToId) {
+        throw new Error('Regional manager must be assigned under CEO.');
       }
       if (editingUserId) {
         await updateUser(token, editingUserId, {
@@ -162,8 +235,15 @@ export default function UsersPage() {
           lastName,
           email,
           role,
-          managerId: role === 'SALES_REP' ? managerId : null,
-          regionalManagerId: role === 'MANAGER' || role === 'SALES_REP' ? regionalManagerId : null,
+          managerId:
+            role === 'SALES_REP'
+              ? managerId === DIRECT_REGIONAL_MANAGER
+                ? null
+                : normalizeOptionalId(managerId)
+              : null,
+          regionalManagerId:
+            role === 'MANAGER' || role === 'SALES_REP' ? normalizeOptionalId(regionalManagerId) : null,
+          reportsToId: role === 'REGIONAL_MANAGER' ? normalizeOptionalId(reportsToId) : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
@@ -176,8 +256,15 @@ export default function UsersPage() {
         email,
         password,
         role,
-          managerId: role === 'SALES_REP' ? managerId : null,
-          regionalManagerId: role === 'MANAGER' || role === 'SALES_REP' ? regionalManagerId : null,
+          managerId:
+            role === 'SALES_REP'
+              ? managerId === DIRECT_REGIONAL_MANAGER
+                ? null
+                : normalizeOptionalId(managerId)
+              : null,
+          regionalManagerId:
+            role === 'MANAGER' || role === 'SALES_REP' ? normalizeOptionalId(regionalManagerId) : null,
+          reportsToId: role === 'REGIONAL_MANAGER' ? normalizeOptionalId(reportsToId) : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
@@ -191,6 +278,7 @@ export default function UsersPage() {
       setPassword('');
       setManagerId('');
       setRegionalManagerId('');
+      setReportsToId('');
       setRegionsInput('');
       setEditingUserId(null);
       setUserDialogOpen(false);
@@ -208,6 +296,7 @@ export default function UsersPage() {
     setRole('SALES_REP');
     setManagerId('');
     setRegionalManagerId('');
+    setReportsToId('');
     setRegionsInput('');
     setFirstName('');
     setLastName('');
@@ -222,8 +311,23 @@ export default function UsersPage() {
   function openEditUserDialog(entry: UserListItem) {
     setEditingUserId(entry.id);
     setRole(entry.role as Role);
-    setManagerId(entry.role === 'SALES_REP' ? entry.managerId ?? '' : '');
-    setRegionalManagerId(entry.role === 'MANAGER' || entry.role === 'SALES_REP' ? entry.regionalManagerId ?? '' : '');
+    if (entry.role === 'SALES_REP') {
+      if (entry.managerId) {
+        setManagerId(entry.managerId);
+        const manager = items.find((user) => user.id === entry.managerId);
+        setRegionalManagerId(entry.regionalManagerId ?? manager?.regionalManagerId ?? '');
+      } else if (entry.regionalManagerId) {
+        setManagerId(DIRECT_REGIONAL_MANAGER);
+        setRegionalManagerId(entry.regionalManagerId);
+      } else {
+        setManagerId('');
+        setRegionalManagerId('');
+      }
+    } else {
+      setManagerId('');
+      setRegionalManagerId(entry.role === 'MANAGER' ? entry.regionalManagerId ?? '' : '');
+    }
+    setReportsToId(entry.role === 'REGIONAL_MANAGER' ? entry.reportsToId ?? '' : '');
     setRegionsInput(entry.role === 'REGIONAL_MANAGER' ? entry.regions.join(', ') : '');
     setFirstName(entry.firstName);
     setLastName(entry.lastName);
@@ -346,242 +450,228 @@ export default function UsersPage() {
               </div>
             }
           />
-          <div className="px-5 pb-5">
+          <div className="px-5 pb-5 space-y-4">
             {loading ? (
               <p className="text-sm text-3">Loading users...</p>
             ) : (
-              <div className="overflow-auto pb-2">
-                <div className="min-w-[980px]">
-                  {(() => {
-                    const admins = items.filter((entry) => entry.role === 'ADMIN');
-                    const ceos = items.filter((entry) => entry.role === 'CEO');
-                    const regionalManagersList = items.filter((entry) => entry.role === 'REGIONAL_MANAGER');
-                    const managersList = items.filter((entry) => entry.role === 'MANAGER');
-                    const repsByManager = new Map(
-                      managersList.map((manager) => [
-                        manager.id,
-                        items.filter((entry) => entry.role === 'SALES_REP' && entry.managerId === manager.id),
-                      ])
-                    );
-                    const directRepsByRegionalManager = new Map(
-                      regionalManagersList.map((regionalManager) => [
-                        regionalManager.id,
-                        items.filter(
-                          (entry) =>
-                            entry.role === 'SALES_REP' &&
-                            entry.regionalManagerId === regionalManager.id &&
-                            !entry.managerId
-                        ),
-                      ])
-                    );
-                    const managersByRegionalManager = new Map(
-                      regionalManagersList.map((regionalManager) => [
-                        regionalManager.id,
-                        managersList.filter((manager) => manager.regionalManagerId === regionalManager.id),
-                      ])
-                    );
-                    const unassignedManagers = managersList.filter((manager) => !manager.regionalManagerId);
+              <>
+                <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3 pointer-events-none" />
+                    <input
+                      type="search"
+                      placeholder="Search name or email"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      className="w-full h-10 pl-9 pr-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <select
+                      value={roleFilter}
+                      onChange={(event) => setRoleFilter(event.target.value as 'ALL' | Role)}
+                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                    >
+                      <option value="ALL">All roles</option>
+                      {ROLES.map((entry) => (
+                        <option key={entry} value={entry}>
+                          {entry.replace('_', ' ')}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={regionalManagerFilter}
+                      onChange={(event) => setRegionalManagerFilter(event.target.value)}
+                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                    >
+                      <option value="ALL">All regional managers</option>
+                      {regionalManagers.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.firstName} {entry.lastName}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={managerFilter}
+                      onChange={(event) => setManagerFilter(event.target.value)}
+                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                    >
+                      <option value="ALL">All managers</option>
+                      {managers.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.firstName} {entry.lastName}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value as 'ALL' | 'live' | 'offline')}
+                      className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                    >
+                      <option value="ALL">All statuses</option>
+                      <option value="live">Live</option>
+                      <option value="offline">Offline</option>
+                    </select>
+                  </div>
+                </div>
 
-                    return (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-center gap-4 flex-wrap">
-                          {admins.map((entry) => {
+                <p className="text-xs text-3">
+                  Showing {paginatedUsers.length} of {filteredUsers.length} users
+                  {filteredUsers.length !== items.length ? ` (filtered from ${items.length})` : ''}
+                </p>
+
+                {filteredUsers.length === 0 ? (
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/40 px-4 py-8 text-center">
+                    <p className="text-sm text-2">No users match your filters.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="hidden md:block overflow-x-auto rounded-xl border border-[var(--border)]">
+                      <table className="w-full min-w-[920px] text-sm">
+                        <thead className="bg-[var(--surface-2)]/70 text-left text-[11px] uppercase tracking-wide text-3">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">User</th>
+                            <th className="px-4 py-3 font-medium">Role</th>
+                            <th className="px-4 py-3 font-medium">Reports to</th>
+                            <th className="px-4 py-3 font-medium">Ops / Regions</th>
+                            <th className="px-4 py-3 font-medium">Target</th>
+                            <th className="px-4 py-3 font-medium">Status</th>
+                            <th className="px-4 py-3 font-medium text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--border)]">
+                          {paginatedUsers.map((entry) => {
                             const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
                             return (
-                              <HierarchyNodeCard
-                                key={entry.id}
-                                entry={entry}
-                                live={live}
-                                tone="brand"
-                                onAttendance={() => void openAttendance(entry)}
-                                onEdit={() => openEditUserDialog(entry)}
-                              />
-                            );
-                          })}
-                        </div>
-
-                        {(ceos.length > 0 || regionalManagersList.length > 0 || managersList.length > 0) && (
-                          <div className="mx-auto h-5 w-px bg-[var(--border)]" />
-                        )}
-
-                        {ceos.length > 0 && (
-                          <>
-                            <div className="flex items-center justify-center gap-4 flex-wrap">
-                              {ceos.map((entry) => {
-                                const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
-                                return (
-                                  <HierarchyNodeCard
-                                    key={entry.id}
-                                    entry={entry}
-                                    live={live}
-                                    tone="warning"
-                                    onAttendance={() => void openAttendance(entry)}
-                                    onEdit={() => openEditUserDialog(entry)}
-                                  />
-                                );
-                              })}
-                            </div>
-                            {(regionalManagersList.length > 0 || managersList.length > 0) && (
-                              <div className="mx-auto h-5 w-px bg-[var(--border)]" />
-                            )}
-                          </>
-                        )}
-
-                        {regionalManagersList.length > 0 && (
-                          <>
-                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                              {regionalManagersList.map((regionalManager) => {
-                                const regionalManagerLive = isUserLive(regionalManager.lastLocationPingAt, regionalManager.isActive);
-                                const regionalManagersTeam = managersByRegionalManager.get(regionalManager.id) ?? [];
-                                const directReps = directRepsByRegionalManager.get(regionalManager.id) ?? [];
-                                return (
-                                  <div
-                                    key={regionalManager.id}
-                                    className="rounded-xl border border-emerald-500/40 ring-1 ring-emerald-500/20 p-3 bg-emerald-500/5"
-                                  >
-                                    <HierarchyNodeCard
-                                      entry={regionalManager}
-                                      live={regionalManagerLive}
-                                      tone="success"
-                                      onAttendance={() => void openAttendance(regionalManager)}
-                                      onEdit={() => openEditUserDialog(regionalManager)}
-                                    />
-                                    {regionalManager.regions.length > 0 && (
-                                      <div className="mt-2 flex flex-wrap gap-1">
-                                        {regionalManager.regions.map((region) => (
-                                          <Badge key={`${regionalManager.id}-${region}`} tone="neutral" className="!text-[10px]">
-                                            {region}
-                                          </Badge>
-                                        ))}
-                                      </div>
-                                    )}
-                                    <div className="h-4 w-px bg-[var(--border)] mx-auto" />
-                                    <div className="space-y-3">
-                                      {directReps.length > 0 && (
-                                        <div className="rounded-xl border border-emerald-500/30 ring-1 ring-emerald-500/10 p-3 bg-emerald-500/5">
-                                          <p className="text-[11px] font-medium text-2 mb-2">Direct sales reps</p>
-                                          <div className="space-y-2 border-l border-dashed border-[var(--border)] pl-3">
-                                            {directReps.map((rep) => {
-                                              const repLive = isUserLive(rep.lastLocationPingAt, rep.isActive);
-                                              return (
-                                                <div key={rep.id} className="relative">
-                                                  <span className="absolute -left-3 top-4 h-px w-3 bg-[var(--border)]" />
-                                                  <HierarchyNodeCard
-                                                    entry={rep}
-                                                    live={repLive}
-                                                    tone="neutral"
-                                                    compact
-                                                    onAttendance={() => void openAttendance(rep)}
-                                                    onEdit={() => openEditUserDialog(rep)}
-                                                  />
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-                                      {regionalManagersTeam.length > 0 ? (
-                                        regionalManagersTeam.map((manager) => {
-                                          const managerLive = isUserLive(manager.lastLocationPingAt, manager.isActive);
-                                          const reps = repsByManager.get(manager.id) ?? [];
-                                          return (
-                                            <div
-                                              key={manager.id}
-                                              className="rounded-xl border border-amber-500/40 ring-1 ring-amber-500/20 p-3 bg-amber-500/5"
-                                            >
-                                              <HierarchyNodeCard
-                                                entry={manager}
-                                                live={managerLive}
-                                                tone="info"
-                                                onAttendance={() => void openAttendance(manager)}
-                                                onEdit={() => openEditUserDialog(manager)}
-                                              />
-                                              <div className="h-4 w-px bg-[var(--border)] mx-auto" />
-                                              <div className="space-y-2 border-l border-dashed border-[var(--border)] pl-3">
-                                                {reps.length === 0 ? (
-                                                  <p className="text-[11px] text-3">No sales reps assigned.</p>
-                                                ) : (
-                                                  reps.map((rep) => {
-                                                    const repLive = isUserLive(rep.lastLocationPingAt, rep.isActive);
-                                                    return (
-                                                      <div key={rep.id} className="relative">
-                                                        <span className="absolute -left-3 top-4 h-px w-3 bg-[var(--border)]" />
-                                                        <HierarchyNodeCard
-                                                          entry={rep}
-                                                          live={repLive}
-                                                          tone="neutral"
-                                                          compact
-                                                          onAttendance={() => void openAttendance(rep)}
-                                                          onEdit={() => openEditUserDialog(rep)}
-                                                        />
-                                                      </div>
-                                                    );
-                                                  })
-                                                )}
-                                              </div>
-                                            </div>
-                                          );
-                                        })
-                                      ) : directReps.length === 0 ? (
-                                        <p className="text-[11px] text-3">No managers or direct sales reps assigned.</p>
-                                      ) : null}
-                                    </div>
+                              <tr key={entry.id} className="hover:bg-[var(--surface-2)]/40 transition-colors">
+                                <td className="px-4 py-3">
+                                  <p className="font-medium text-[var(--text)]">
+                                    {entry.firstName} {entry.lastName}
+                                  </p>
+                                  <p className="text-xs text-3 truncate max-w-[220px]">{entry.email}</p>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <Badge tone={roleBadgeTone(entry.role as Role)}>{entry.role.replace('_', ' ')}</Badge>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-2 max-w-[180px]">{getReportsToLabel(entry)}</td>
+                                <td className="px-4 py-3 text-xs text-2 max-w-[180px]">
+                                  {entry.role === 'REGIONAL_MANAGER' && entry.regions.length > 0
+                                    ? entry.regions.join(', ')
+                                    : entry.operationLocation || 'Not set'}
+                                </td>
+                                <td className="px-4 py-3 text-xs num-tabular">
+                                  {entry.yearlyTarget != null ? `AED ${formatAed(entry.yearlyTarget)}` : '—'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span className={cn('text-xs font-medium', live ? 'text-emerald-600' : 'text-rose-600')}>
+                                    {live
+                                      ? 'Live'
+                                      : entry.lastLocationPingAt
+                                        ? formatLastSeen(entry.lastLocationPingAt)
+                                        : 'No location'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <Button
+                                      type="button"
+                                      variant="soft"
+                                      size="sm"
+                                      icon={<CalendarDays className="h-3.5 w-3.5" />}
+                                      onClick={() => void openAttendance(entry)}
+                                    >
+                                      {live ? 'Live' : 'History'}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      size="sm"
+                                      icon={<Pencil className="h-3.5 w-3.5" />}
+                                      onClick={() => openEditUserDialog(entry)}
+                                    >
+                                      Edit
+                                    </Button>
                                   </div>
-                                );
-                              })}
-                            </div>
-                            {(unassignedManagers.length > 0) && <div className="mx-auto h-5 w-px bg-[var(--border)]" />}
-                          </>
-                        )}
-
-                        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
-                          {unassignedManagers.map((manager) => {
-                            const managerLive = isUserLive(manager.lastLocationPingAt, manager.isActive);
-                            const reps = repsByManager.get(manager.id) ?? [];
-                            return (
-                              <div
-                                key={manager.id}
-                                className="rounded-xl border border-amber-500/40 ring-1 ring-amber-500/20 p-3 bg-amber-500/5"
-                              >
-                                <HierarchyNodeCard
-                                  entry={manager}
-                                  live={managerLive}
-                                  tone="info"
-                                  onAttendance={() => void openAttendance(manager)}
-                                  onEdit={() => openEditUserDialog(manager)}
-                                />
-                                <div className="h-4 w-px bg-[var(--border)] mx-auto" />
-                                <div className="space-y-2 border-l border-dashed border-[var(--border)] pl-3">
-                                  {reps.length === 0 ? (
-                                    <p className="text-[11px] text-3">No sales reps assigned.</p>
-                                  ) : (
-                                    reps.map((rep) => {
-                                      const repLive = isUserLive(rep.lastLocationPingAt, rep.isActive);
-                                      return (
-                                        <div key={rep.id} className="relative">
-                                          <span className="absolute -left-3 top-4 h-px w-3 bg-[var(--border)]" />
-                                          <HierarchyNodeCard
-                                            entry={rep}
-                                            live={repLive}
-                                            tone="neutral"
-                                            compact
-                                            onAttendance={() => void openAttendance(rep)}
-                                            onEdit={() => openEditUserDialog(rep)}
-                                          />
-                                        </div>
-                                      );
-                                    })
-                                  )}
-                                </div>
-                              </div>
+                                </td>
+                              </tr>
                             );
                           })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="md:hidden space-y-2">
+                      {paginatedUsers.map((entry) => {
+                        const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
+                        return (
+                          <div key={entry.id} className="rounded-xl border border-[var(--border)] p-3 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium truncate">
+                                  {entry.firstName} {entry.lastName}
+                                </p>
+                                <p className="text-xs text-3 truncate">{entry.email}</p>
+                              </div>
+                              <Badge tone={roleBadgeTone(entry.role as Role)}>{entry.role.replace('_', ' ')}</Badge>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs text-2">
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-3">Reports to</p>
+                                <p>{getReportsToLabel(entry)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-3">Target</p>
+                                <p>{entry.yearlyTarget != null ? `AED ${formatAed(entry.yearlyTarget)}` : '—'}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={cn('text-xs font-medium', live ? 'text-emerald-600' : 'text-rose-600')}>
+                                {live ? 'Live' : entry.lastLocationPingAt ? formatLastSeen(entry.lastLocationPingAt) : 'No location'}
+                              </span>
+                              <div className="inline-flex items-center gap-1.5">
+                                <Button type="button" variant="soft" size="sm" onClick={() => void openAttendance(entry)}>
+                                  {live ? 'Live' : 'History'}
+                                </Button>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => openEditUserDialog(entry)}>
+                                  Edit
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between gap-3 pt-1">
+                        <p className="text-xs text-3">
+                          Page {page} of {totalPages}
+                        </p>
+                        <div className="inline-flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={page <= 1}
+                            onClick={() => setPage((current) => Math.max(1, current - 1))}
+                          >
+                            Previous
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={page >= totalPages}
+                            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                          >
+                            Next
+                          </Button>
                         </div>
                       </div>
-                    );
-                  })()}
-                </div>
-              </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </div>
         </Card>
@@ -676,43 +766,83 @@ export default function UsersPage() {
               </select>
             )}
             {role === 'REGIONAL_MANAGER' && (
-              <input
-                type="text"
-                placeholder="Regions (comma separated)"
-                value={regionsInput}
-                onChange={(event) => setRegionsInput(event.target.value)}
-                className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                required
-              />
+              <>
+                <select
+                  value={reportsToId}
+                  onChange={(event) => setReportsToId(event.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                  required
+                >
+                  <option value="">Assign CEO</option>
+                  {ceos.map((ceo) => (
+                    <option key={ceo.id} value={ceo.id}>
+                      {ceo.firstName} {ceo.lastName}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Regions (comma separated)"
+                  value={regionsInput}
+                  onChange={(event) => setRegionsInput(event.target.value)}
+                  className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                  required
+                />
+              </>
             )}
             {role === 'SALES_REP' && (
               <div className="space-y-2">
                 <select
-                  value={managerId}
-                  onChange={(event) => setManagerId(event.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                >
-                  <option value="">Assign manager (optional)</option>
-                  {managers.map((manager) => (
-                    <option key={manager.id} value={manager.id}>
-                      {manager.firstName} {manager.lastName}
-                    </option>
-                  ))}
-                </select>
-                <select
                   value={regionalManagerId}
-                  onChange={(event) => setRegionalManagerId(event.target.value)}
+                  onChange={(event) => {
+                    const nextRegionalManagerId = event.target.value;
+                    setRegionalManagerId(nextRegionalManagerId);
+                    if (
+                      managerId &&
+                      managerId !== DIRECT_REGIONAL_MANAGER &&
+                      !managers.some(
+                        (manager) =>
+                          manager.id === managerId && manager.regionalManagerId === nextRegionalManagerId
+                      )
+                    ) {
+                      setManagerId('');
+                    }
+                    if (!nextRegionalManagerId && managerId === DIRECT_REGIONAL_MANAGER) {
+                      setManagerId('');
+                    }
+                  }}
                   className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
+                  required
                 >
-                  <option value="">Assign regional manager (optional)</option>
+                  <option value="">Assign regional manager</option>
                   {regionalManagers.map((regionalManager) => (
                     <option key={regionalManager.id} value={regionalManager.id}>
                       {regionalManager.firstName} {regionalManager.lastName}
                     </option>
                   ))}
                 </select>
+                <select
+                  value={managerId}
+                  onChange={(event) => setManagerId(event.target.value)}
+                  disabled={!regionalManagerId}
+                  className={cn(
+                    'w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm',
+                    !regionalManagerId && 'opacity-70 cursor-not-allowed'
+                  )}
+                  required
+                >
+                  <option value="">
+                    {regionalManagerId ? 'Assign manager' : 'Select regional manager first'}
+                  </option>
+                  <option value={DIRECT_REGIONAL_MANAGER}>Direct regional manager</option>
+                  {managersUnderSelectedRegional.map((manager) => (
+                    <option key={manager.id} value={manager.id}>
+                      {manager.firstName} {manager.lastName}
+                    </option>
+                  ))}
+                </select>
                 <p className="text-[11px] text-3">
-                  For sales reps, assign at least one: manager or regional manager.
+                  Pick a regional manager first, then choose a manager under them or direct regional reporting.
                 </p>
               </div>
             )}
@@ -1163,78 +1293,74 @@ export default function UsersPage() {
   );
 }
 
-function HierarchyNodeCard({
-  entry,
-  live,
-  onAttendance,
-  onEdit,
-  tone,
-  compact = false,
-}: {
-  entry: UserListItem;
-  live: boolean;
-  onAttendance: () => void;
-  onEdit: () => void;
-  tone: 'neutral' | 'brand' | 'success' | 'warning' | 'danger' | 'info';
-  compact?: boolean;
-}) {
-  return (
-    <div className={cn('rounded-xl border border-[var(--border)] bg-[var(--surface)]', compact ? 'p-2.5' : 'p-3')}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className={cn('font-semibold truncate', compact ? 'text-xs' : 'text-sm')}>
-            {entry.firstName} {entry.lastName}
-          </p>
-          <p className="text-[11px] text-3 truncate">{entry.email}</p>
-          <p className="text-[11px] text-3 truncate">Ops: {entry.operationLocation}</p>
-          {entry.role === 'REGIONAL_MANAGER' && entry.regions.length > 0 && (
-            <p className="text-[11px] text-3 truncate">Regions: {entry.regions.join(', ')}</p>
-          )}
-          {entry.role === 'MANAGER' && entry.regionalManager && (
-            <p className="text-[11px] text-3 truncate">
-              RM: {entry.regionalManager.firstName} {entry.regionalManager.lastName}
-            </p>
-          )}
-          {entry.role === 'SALES_REP' && entry.regionalManager && (
-            <p className="text-[11px] text-3 truncate">
-              RM: {entry.regionalManager.firstName} {entry.regionalManager.lastName}
-            </p>
-          )}
-          {entry.role !== 'ADMIN' && entry.yearlyTarget != null && (
-            <p className="text-[11px] text-3 truncate">Yearly target: AED {formatAed(entry.yearlyTarget)}</p>
-          )}
-        </div>
-        <Badge tone={tone}>{entry.role.replace('_', ' ')}</Badge>
-      </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className={cn('text-[11px] font-medium', live ? 'text-emerald-600' : 'text-rose-600')}>
-          {live ? 'Live' : entry.lastLocationPingAt ? `Last seen ${formatLastSeen(entry.lastLocationPingAt)}` : 'No location'}
-        </span>
-        <div className="inline-flex items-center gap-1.5">
-          <Button
-            type="button"
-            variant="soft"
-            size="sm"
-            className={compact ? '!h-7 !px-2' : undefined}
-            icon={<CalendarDays className="h-3.5 w-3.5" />}
-            onClick={onAttendance}
-          >
-            {compact ? '' : live ? 'Live' : 'History'}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className={compact ? '!h-7 !px-2' : undefined}
-            icon={<Pencil className="h-3.5 w-3.5" />}
-            onClick={onEdit}
-          >
-            {compact ? '' : 'Edit'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
+function normalizeOptionalId(value: string): string | null {
+  return value.trim() ? value : null;
+}
+
+function compareUsersByHierarchy(a: UserListItem, b: UserListItem) {
+  const roleDiff = ROLE_SORT_ORDER[a.role as Role] - ROLE_SORT_ORDER[b.role as Role];
+  if (roleDiff !== 0) return roleDiff;
+
+  if (a.role === 'MANAGER' && b.role === 'MANAGER') {
+    const rmA = a.regionalManager ? `${a.regionalManager.lastName} ${a.regionalManager.firstName}` : '';
+    const rmB = b.regionalManager ? `${b.regionalManager.lastName} ${b.regionalManager.firstName}` : '';
+    const rmDiff = rmA.localeCompare(rmB);
+    if (rmDiff !== 0) return rmDiff;
+  }
+
+  if (a.role === 'SALES_REP' && b.role === 'SALES_REP') {
+    const reportsDiff = getReportsToLabel(a).localeCompare(getReportsToLabel(b));
+    if (reportsDiff !== 0) return reportsDiff;
+  }
+
+  const nameA = `${a.lastName} ${a.firstName}`.toLowerCase();
+  const nameB = `${b.lastName} ${b.firstName}`.toLowerCase();
+  return nameA.localeCompare(nameB);
+}
+
+function effectiveRegionalManagerId(entry: UserListItem, allUsers: UserListItem[]): string | null {
+  if (entry.regionalManagerId) return entry.regionalManagerId;
+  if (entry.managerId) {
+    const manager = allUsers.find((user) => user.id === entry.managerId);
+    return manager?.regionalManagerId ?? null;
+  }
+  return null;
+}
+
+function getReportsToLabel(entry: UserListItem): string {
+  if (entry.role === 'SALES_REP') {
+    if (entry.manager) {
+      return `${entry.manager.firstName} ${entry.manager.lastName}`.trim();
+    }
+    if (entry.regionalManager) {
+      return `Direct → ${entry.regionalManager.firstName} ${entry.regionalManager.lastName}`.trim();
+    }
+    return 'Not assigned';
+  }
+  if (entry.role === 'MANAGER' && entry.regionalManager) {
+    return `${entry.regionalManager.firstName} ${entry.regionalManager.lastName}`.trim();
+  }
+  if (entry.role === 'REGIONAL_MANAGER' && entry.reportsTo) {
+    return `${entry.reportsTo.firstName} ${entry.reportsTo.lastName}`.trim();
+  }
+  return '—';
+}
+
+function roleBadgeTone(role: Role): 'neutral' | 'brand' | 'success' | 'warning' | 'danger' | 'info' {
+  switch (role) {
+    case 'ADMIN':
+      return 'brand';
+    case 'CEO':
+      return 'warning';
+    case 'REGIONAL_MANAGER':
+      return 'success';
+    case 'MANAGER':
+      return 'info';
+    case 'SALES_REP':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
 }
 
 function formatAed(value: number) {

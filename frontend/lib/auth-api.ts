@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000/api/v1";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4001/api/v1";
 
 export type AuthUser = {
   id: string;
@@ -37,6 +37,7 @@ export type UserListItem = {
   role: Role;
   managerId: string | null;
   regionalManagerId: string | null;
+  reportsToId: string | null;
   regions: string[];
   operationLocation: string;
   yearlyTarget: number | null;
@@ -45,6 +46,7 @@ export type UserListItem = {
   lastLocationPingAt: string | null;
   manager: ManagerOption | null;
   regionalManager: ManagerOption | null;
+  reportsTo: ManagerOption | null;
 };
 
 export type UserLocationAttendanceDay = {
@@ -188,6 +190,19 @@ export async function listRegionalManagers(token: string): Promise<ManagerOption
   return data.items;
 }
 
+export async function listCeos(token: string): Promise<ManagerOption[]> {
+  const response = await fetch(`${API_BASE}/users/ceos`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load CEOs");
+  }
+
+  const data = (await response.json()) as { items: ManagerOption[] };
+  return data.items;
+}
+
 export async function listMyTeam(token: string): Promise<TeamMember[]> {
   const response = await fetch(`${API_BASE}/users/my-team`, {
     headers: { Authorization: `Bearer ${token}` }
@@ -209,9 +224,10 @@ export async function createUser(
     lastName: string;
     password: string;
     role: Role;
-    managerId?: string | null;
-    regionalManagerId?: string | null;
-    regions?: string[];
+  managerId?: string | null;
+  regionalManagerId?: string | null;
+  reportsToId?: string | null;
+  regions?: string[];
     operationLocation: string;
     yearlyTarget?: number | null;
   }
@@ -239,9 +255,10 @@ export async function updateUser(
     firstName: string;
     lastName: string;
     role: Role;
-    managerId?: string | null;
-    regionalManagerId?: string | null;
-    regions?: string[];
+  managerId?: string | null;
+  regionalManagerId?: string | null;
+  reportsToId?: string | null;
+  regions?: string[];
     operationLocation: string;
     yearlyTarget?: number | null;
     password?: string;
@@ -258,8 +275,17 @@ export async function updateUser(
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? "Failed to update user");
+    const body = (await response.json().catch(() => ({}))) as {
+      message?: string;
+      issues?: { fieldErrors?: Record<string, string[]> };
+    };
+    const fieldErrors = body.issues?.fieldErrors;
+    const details = fieldErrors
+      ? Object.entries(fieldErrors)
+          .flatMap(([field, messages]) => messages.map((message) => `${field}: ${message}`))
+          .join('; ')
+      : '';
+    throw new Error(details ? `${body.message ?? 'Failed to update user'} (${details})` : body.message ?? 'Failed to update user');
   }
 }
 
