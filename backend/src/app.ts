@@ -44,6 +44,12 @@ const corsOptions: cors.CorsOptions = {
       return;
     }
 
+    // Allow alubond hosted frontend domains.
+    if (normalizedOrigin === "https://alubond.com" || normalizedOrigin.endsWith(".alubond.com")) {
+      callback(null, true);
+      return;
+    }
+
     // Allow Vercel-hosted frontend domains.
     if (normalizedOrigin.endsWith(".vercel.app")) {
       callback(null, true);
