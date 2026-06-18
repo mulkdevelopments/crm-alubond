@@ -99,14 +99,16 @@ Default seeded admin (dev):
 
 ## Email notifications (Resend)
 
-Follow-up create/update emails are sent via **Resend SMTP** from `no-reply@crm.alubond.com`.
+Follow-up create/update emails are sent via the **Resend HTTP API** from `no-reply@crm.alubond.com`.
 
 Verified domain in Resend: `crm.alubond.com`
+
+> **Render free tier:** outbound SMTP ports (587/465) are blocked. Use `RESEND_API_KEY` (or `SMTP_PASS` as a legacy alias), not SMTP.
 
 ### Local setup
 
 1. Copy `backend/.env.example` → `backend/.env` if needed.
-2. Set `SMTP_PASS` to a Resend API key with **sending access** for `crm.alubond.com`.
+2. Set `RESEND_API_KEY` (or `SMTP_PASS`) to a Resend API key with **sending access** for `crm.alubond.com`.
 3. Restart the backend, then test:
 
 ```bash
@@ -119,15 +121,13 @@ In the **alubond-crm-api** service on Render, set:
 
 | Variable | Value |
 |----------|-------|
-| `SMTP_HOST` | `smtp.resend.com` |
-| `SMTP_PORT` | `587` |
-| `SMTP_SECURE` | `false` |
-| `SMTP_USER` | `resend` |
-| `SMTP_PASS` | your Resend API key (Secret) |
+| `RESEND_API_KEY` | your Resend API key (Secret) |
 | `EMAIL_FROM` | `Alubond CRM <no-reply@crm.alubond.com>` |
-| `APP_BASE_URL` | `https://alubond-crm-web.onrender.com` |
+| `APP_BASE_URL` | your frontend URL (e.g. Vercel) |
 
-`render.yaml` includes the non-secret values; add `SMTP_PASS` manually in the Render dashboard.
+`SMTP_PASS` also works as a fallback name for the same Resend API key.
+
+`render.yaml` declares `RESEND_API_KEY` with `sync: false` — add the key manually in the Render dashboard.
 
 Emails are triggered when follow-ups are created or updated (including from project activity and the AI assistant).
 

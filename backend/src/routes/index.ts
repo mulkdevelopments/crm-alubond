@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { env } from "../config/env";
 import { storeUploadedFile } from "../lib/file-storage";
-import { sendFollowUpNotificationById } from "../lib/followup-notifier";
+import { isEmailConfigured, sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
 import { authenticate } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
@@ -378,6 +378,7 @@ apiRouter.get("/health", (_req, res) => {
   res.status(200).json({
     status: "ok",
     service: "alubond-crm-api",
+    emailConfigured: isEmailConfigured(),
     timestamp: new Date().toISOString()
   });
 });

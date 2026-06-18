@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import nodemailer from "nodemailer";
 
 function loadEnv(filePath) {
   const env = {};
@@ -18,31 +17,33 @@ function loadEnv(filePath) {
 const env = loadEnv(resolve("backend/.env"));
 
 async function main() {
-  const host = env.SMTP_HOST;
-  const port = Number(env.SMTP_PORT ?? 587);
-  const user = env.SMTP_USER ?? "resend";
-  const pass = env.SMTP_PASS;
+  const apiKey = env.RESEND_API_KEY || env.SMTP_PASS;
   const from = env.EMAIL_FROM ?? "Alubond CRM <no-reply@crm.alubond.com>";
   const to = process.argv[2] ?? env.ADMIN_EMAIL ?? "admin@alubondcrm.local";
 
-  if (!host || !pass) {
-    throw new Error("SMTP_HOST and SMTP_PASS must be set in backend/.env");
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY or SMTP_PASS must be set in backend/.env");
   }
 
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: env.SMTP_SECURE === "true",
-    auth: { user, pass },
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: "[Alubond CRM] Email integration test",
+      text: "Resend HTTP API is configured correctly for Alubond CRM follow-up notifications.",
+      html: "<p>Resend HTTP API is configured correctly for <strong>Alubond CRM</strong> follow-up notifications.</p>",
+    }),
   });
 
-  await transporter.sendMail({
-    from,
-    to,
-    subject: "[Alubond CRM] Email integration test",
-    text: "Resend SMTP is configured correctly for Alubond CRM follow-up notifications.",
-    html: "<p>Resend SMTP is configured correctly for <strong>Alubond CRM</strong> follow-up notifications.</p>",
-  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.message ?? `Resend API error (${response.status})`);
+  }
 
   console.log(`Test email sent to ${to}`);
 }

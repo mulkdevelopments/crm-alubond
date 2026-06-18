@@ -1,4 +1,4 @@
-import nodemailer, { Transporter } from "nodemailer";
+import { Resend } from "resend";
 
 import { env } from "../config/env";
 import { prisma } from "./prisma";
@@ -7,8 +7,11 @@ type FollowUpNotificationAction = "created" | "updated";
 
 const CALENDAR_DURATION_MS = 30 * 60 * 1000;
 
-let transporter: Transporter | null | undefined;
-let smtpConfigured: boolean | undefined;
+let resendClient: Resend | null | undefined;
+
+function getResendApiKey() {
+  return env.RESEND_API_KEY || env.SMTP_PASS;
+}
 
 function escapeHtml(value: string) {
   return value
@@ -93,29 +96,20 @@ function buildFollowUpCalendarEvent(input: {
 }
 
 export function isEmailConfigured() {
-  if (smtpConfigured !== undefined) return smtpConfigured;
-  smtpConfigured = Boolean(env.SMTP_HOST && env.SMTP_PORT && env.SMTP_PASS);
-  return smtpConfigured;
+  return Boolean(getResendApiKey());
 }
 
-function getTransporter(): Transporter | null {
-  if (transporter !== undefined) return transporter;
+function getResendClient(): Resend | null {
+  if (resendClient !== undefined) return resendClient;
 
-  if (!isEmailConfigured()) {
-    transporter = null;
-    return transporter;
+  const apiKey = getResendApiKey();
+  if (!apiKey) {
+    resendClient = null;
+    return resendClient;
   }
 
-  transporter = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_SECURE === "true",
-    auth: {
-      user: env.SMTP_USER || "resend",
-      pass: env.SMTP_PASS,
-    },
-  });
-  return transporter;
+  resendClient = new Resend(apiKey);
+  return resendClient;
 }
 
 function buildFollowUpEmail(input: {
@@ -192,10 +186,10 @@ export async function sendFollowUpNotificationById(input: {
   action: FollowUpNotificationAction;
   actorName?: string | null;
 }): Promise<void> {
-  const mailer = getTransporter();
-  if (!mailer) {
+  const resend = getResendClient();
+  if (!resend) {
     if (env.NODE_ENV !== "test") {
-      console.warn("[email] SMTP not configured; skipping follow-up notification.");
+      console.warn("[email] Resend API key not configured; skipping follow-up notification.");
     }
     return;
   }
@@ -266,20 +260,24 @@ export async function sendFollowUpNotificationById(input: {
   });
 
   try {
-    await mailer.sendMail({
+    const { error } = await resend.emails.send({
       from: env.EMAIL_FROM || "Alubond CRM <no-reply@crm.alubond.com>",
-      to: followUp.owner.email,
+      to: [followUp.owner.email],
       subject,
       text,
       html,
       attachments: [
         {
           filename: "follow-up.ics",
-          content: calendar.ics,
+          content: Buffer.from(calendar.ics, "utf8").toString("base64"),
           contentType: "text/calendar; charset=utf-8; method=PUBLISH",
         },
       ],
     });
+
+    if (error) {
+      throw new Error(error.message);
+    }
   } catch (error) {
     console.error("[email] Failed to send follow-up notification:", error);
     throw error;
