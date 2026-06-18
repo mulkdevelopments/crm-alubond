@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BarChart3, BellRing, ChevronDown, ChevronRight, FileAudio2, FileText, MapPin, MessageCircleQuestion, Mic, MoreHorizontal, Pencil, Share2, Square, Trash2, Users, Waypoints } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
@@ -14,6 +14,7 @@ import {
   createProjectActivity,
   createProjectStakeholder,
   deleteProjectActivity,
+  deleteProject as deleteProjectApi,
   deleteProjectStakeholder as deleteProjectStakeholderApi,
   getProject,
   listProjectActivities,
@@ -107,6 +108,7 @@ function formatActivityDateTime(value: string): string {
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const shouldOpenComposerFromQuery = searchParams.get('composeActivity');
   const { token, user, reportVisitPing } = useAuth();
@@ -969,6 +971,24 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function onDeleteProject() {
+    if (!project || !token || user?.role !== 'ADMIN') return;
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(
+          `Delete project "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
+        )
+      : false;
+    if (!confirmed) return;
+
+    setError(null);
+    try {
+      await deleteProjectApi(token, project.id);
+      router.push('/pipeline');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete project.');
+    }
+  }
+
   function startEditActivity(activity: ProjectActivity) {
     if (!canManageActivity(activity)) {
       setActivityError('You can only edit activities created by you.');
@@ -1071,10 +1091,21 @@ export default function ProjectDetailPage() {
 
   return (
     <>
-      <div className="px-4 lg:px-8 pt-6">
+      <div className="px-4 lg:px-8 pt-6 flex items-center justify-between gap-3">
         <Link href="/pipeline" className="inline-flex items-center gap-1.5 text-xs text-3 hover:text-[var(--text)] transition-colors">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to pipeline
         </Link>
+        {user?.role === 'ADMIN' && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="text-rose-600 hover:text-rose-700"
+            onClick={() => void onDeleteProject()}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete project
+          </Button>
+        )}
       </div>
       <PageHeader
         eyebrow={

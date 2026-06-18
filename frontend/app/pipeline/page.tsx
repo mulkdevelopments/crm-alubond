@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, X, MapPin } from 'lucide-react';
+import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, MapPin } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
 import { Button } from '@/components/ui/Button';
@@ -588,6 +588,25 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     });
   }
 
+  async function deleteProjectById(project: PipelineProject) {
+    if (!isAdmin || !token) return;
+    const confirmed = window.confirm(
+      `Delete project "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setProjectsError(null);
+    try {
+      await deleteProjectApi(token, project.id);
+      if (editingId === project.id) {
+        closeForm();
+      }
+      await refreshProjects(token);
+    } catch (error) {
+      setProjectsError(error instanceof Error ? error.message : 'Failed to delete project.');
+    }
+  }
+
   function toggleSalesRep(repId: string) {
     setForm((prev) => ({
       ...prev,
@@ -841,14 +860,27 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                   <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2">{project.name}</h4>
                   <p className="mt-1 text-[11px] text-3 truncate">{project.city} · {project.developer}</p>
                 </Link>
-                <button
-                  onClick={() => openEditForm(project)}
-                  className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
-                  aria-label={`Edit ${project.name}`}
-                  disabled={!canCreateProject}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => openEditForm(project)}
+                    className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                    aria-label={`Edit ${project.name}`}
+                    disabled={!canCreateProject}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => void deleteProjectById(project)}
+                      className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
+                      aria-label={`Delete ${project.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="mt-2 flex items-center justify-between gap-2">
@@ -953,14 +985,27 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                                   {p.name}
                                 </h4>
                               </Link>
-                              <button
-                                onClick={() => openEditForm(p)}
-                                className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
-                                aria-label={`Edit ${p.name}`}
-                                disabled={!canCreateProject}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditForm(p)}
+                                  className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                                  aria-label={`Edit ${p.name}`}
+                                  disabled={!canCreateProject}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void deleteProjectById(p)}
+                                    className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
+                                    aria-label={`Delete ${p.name}`}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <p className="mt-1 text-[11px] text-3 truncate">{p.city} · {p.developer}</p>
                             <div className="mt-2 flex items-center justify-between">

@@ -1,0 +1,13 @@
+{
+  "login": "screenshots/01-login.png",
+  "dashboard": "screenshots/02-dashboard.png",
+  "pipeline": "screenshots/03-pipeline.png",
+  "projectDetail": "screenshots/04-project-detail.png",
+  "logActivity": "screenshots/05-log-activity.png",
+  "followUps": "screenshots/06-follow-ups.png",
+  "map": "screenshots/07-map.png",
+  "team": "screenshots/08-team.png",
+  "profile": "screenshots/09-profile.png",
+  "mobileHome": "screenshots/10-mobile-home.png",
+  "mobilePipeline": "screenshots/11-mobile-pipeline.png"
+}

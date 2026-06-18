@@ -146,6 +146,17 @@ export async function updateProject(
   return data.project;
 }
 
+export async function deleteProject(token: string, projectId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "Failed to delete project");
+  }
+}
+
 export async function listProjectActivities(token: string, projectId: string): Promise<ProjectActivity[]> {
   const response = await fetch(`${API_BASE}/projects/${projectId}/activities`, {
     headers: { Authorization: `Bearer ${token}` },

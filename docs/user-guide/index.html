@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alubond CRM — User Guide</title>
+  <style>
+    :root {
+      --brand: #2563eb;
+      --brand-dark: #1d4ed8;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --success: #059669;
+      --warning: #d97706;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+
+    header.hero {
+      background: linear-gradient(135deg, #1e3a8a 0%, var(--brand) 55%, #3b82f6 100%);
+      color: #fff;
+      padding: 48px 24px 56px;
+    }
+
+    header.hero .inner {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header.hero h1 {
+      margin: 0 0 8px;
+      font-size: 2.25rem;
+      letter-spacing: -0.02em;
+    }
+
+    header.hero p {
+      margin: 0;
+      max-width: 640px;
+      opacity: 0.92;
+      font-size: 1.05rem;
+    }
+
+    .badge {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.15);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    nav.toc {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    nav.toc ul {
+      list-style: none;
+      margin: 0;
+      padding: 0 16px;
+      display: flex;
+      gap: 8px;
+      max-width: 1100px;
+      margin-inline: auto;
+    }
+
+    nav.toc a {
+      display: block;
+      padding: 14px 12px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+    }
+
+    nav.toc a:hover { color: var(--brand); }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+
+    section {
+      margin-bottom: 56px;
+      scroll-margin-top: 72px;
+    }
+
+    h2 {
+      font-size: 1.65rem;
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      font-size: 1.15rem;
+      margin: 28px 0 10px;
+    }
+
+    .lead {
+      color: var(--muted);
+      margin: 0 0 24px;
+      font-size: 1.02rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 22px;
+      margin-bottom: 16px;
+    }
+
+    .card.tip {
+      border-left: 4px solid var(--brand);
+      background: #eff6ff;
+    }
+
+    .card.warn {
+      border-left: 4px solid var(--warning);
+      background: #fffbeb;
+    }
+
+    ol, ul { padding-left: 1.25rem; }
+    li { margin-bottom: 8px; }
+
+    figure {
+      margin: 24px 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    figcaption {
+      padding: 12px 16px;
+      font-size: 0.88rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: #fafafa;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      background: var(--surface);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: #f1f5f9;
+      font-weight: 600;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .yes { color: var(--success); font-weight: 700; }
+    .no { color: #94a3b8; }
+
+    code {
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 0.88em;
+    }
+
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      padding: 0;
+    }
+
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding-left: 44px;
+      margin-bottom: 16px;
+    }
+
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.85rem;
+      display: grid;
+      place-items: center;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 720px) {
+      .two-col { grid-template-columns: 1fr; }
+      header.hero h1 { font-size: 1.75rem; }
+    }
+
+    footer {
+      text-align: center;
+      padding: 32px 24px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="inner">
+      <h1>Alubond CRM User Guide</h1>
+      <p>
+        A practical guide for sales reps, managers, regional managers, and leadership —
+        covering daily workflows on web and mobile. Admin-only features are not included here.
+      </p>
+      <span class="badge">Version 1.0 · Web + Android app</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <ul>
+      <li><a href="#getting-started">Getting started</a></li>
+      <li><a href="#login">Sign in</a></li>
+      <li><a href="#navigation">Navigation</a></li>
+      <li><a href="#dashboard">Dashboard</a></li>
+      <li><a href="#pipeline">Pipeline</a></li>
+      <li><a href="#project-detail">Project detail</a></li>
+      <li><a href="#follow-ups">Follow-ups</a></li>
+      <li><a href="#map">Geo Intel</a></li>
+      <li><a href="#team">Field Team</a></li>
+      <li><a href="#profile">Profile</a></li>
+      <li><a href="#mobile">Mobile app</a></li>
+      <li><a href="#roles">Access by role</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="getting-started">
+      <h2>Getting started</h2>
+      <p class="lead">
+        Alubond CRM helps your team track construction projects, log field activity,
+        manage follow-ups, and monitor pipeline performance — from the office or on site.
+      </p>
+
+      <div class="card tip">
+        <strong>What you need</strong>
+        <ul>
+          <li>An account created by your administrator (email + password).</li>
+          <li>Web browser: Chrome, Safari, or Edge (desktop or phone).</li>
+          <li>Optional: the Alubond CRM Android app (APK) for field use.</li>
+          <li>Location permission when logging site visits (GPS is recorded automatically).</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <strong>Web app URLs</strong>
+        <ul>
+          <li><strong>Production:</strong> use the URL shared by your admin (Render-hosted).</li>
+          <li><strong>Local dev:</strong> <code>http://localhost:3000</code></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="login">
+      <h2>Sign in</h2>
+      <p class="lead">Open the login page and enter the email and password provided for your account.</p>
+
+      <ol class="steps">
+        <li>Go to the CRM login page.</li>
+        <li>Enter your <strong>email</strong> and <strong>password</strong>.</li>
+        <li>Click <strong>Sign in</strong>. You are taken to the Dashboard.</li>
+      </ol>
+
+      <figure>
+        <img src="screenshots/01-login.png" alt="Alubond CRM login screen" />
+        <figcaption>Login screen — use your assigned credentials. Contact your admin if you cannot sign in.</figcaption>
+      </figure>
+
+      <div class="card warn">
+        <strong>Session tips</strong>
+        <ul>
+          <li>Your session stays active for several days; sign out from Profile when using a shared device.</li>
+          <li>If you see “Login failed”, double-check email/password or ask admin to reset your account.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="navigation">
+      <h2>Navigation</h2>
+      <p class="lead">
+        After sign-in, use the sidebar on desktop or the bottom bar on mobile to move between sections.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Menu item</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Dashboard</strong></td><td>KPIs, pipeline funnel, recent activity, open follow-ups</td></tr>
+          <tr><td><strong>Pipeline</strong></td><td>All projects in your scope — browse, open, update stage</td></tr>
+          <tr><td><strong>Geo Intel</strong></td><td>Map view of project locations with stage filters</td></tr>
+          <tr><td><strong>Follow-ups</strong></td><td>Tasks linked to projects — overdue, today, upcoming, done</td></tr>
+          <tr><td><strong>Field Team</strong></td><td>Team hierarchy and performance (managers and above)</td></tr>
+          <tr><td><strong>Profile</strong></td><td>Update your name, change password, sign out</td></tr>
+        </tbody>
+      </table>
+
+      <div class="card tip">
+        The red badge on <strong>Follow-ups</strong> in the sidebar shows how many open tasks you still have.
+      </div>
+    </section>
+
+    <section id="dashboard">
+      <h2>Dashboard</h2>
+      <p class="lead">
+        Your home screen summarises pipeline health, targets, and the latest field activity for projects you can see.
+      </p>
+
+      <h3>What you’ll see</h3>
+      <ul>
+        <li><strong>KPI cards</strong> — open deals, pipeline value, won/lost counts (scoped to your role).</li>
+        <li><strong>Pipeline funnel</strong> — projects grouped by stage.</li>
+        <li><strong>Recent activity</strong> — latest notes, calls, and visits logged on projects.</li>
+        <li><strong>Follow-up summary</strong> — quick link to overdue and due-today tasks.</li>
+      </ul>
+
+      <figure>
+        <img src="screenshots/02-dashboard.png" alt="Alubond CRM dashboard" />
+        <figcaption>Dashboard — overview of pipeline metrics and recent team activity.</figcaption>
+      </figure>
+    </section>
+
+    <section id="pipeline">
+      <h2>Pipeline</h2>
+      <p class="lead">
+        The pipeline is where you browse and work on projects. Each card shows project name, location,
+        stage, value, and assigned owner.
+      </p>
+
+      <h3>Browse projects</h3>
+      <ul>
+        <li>Use the <strong>search box</strong> to filter by project name, city, or developer.</li>
+        <li>On desktop, projects appear in <strong>kanban columns</strong> by stage; drag a card to move stage (managers+).</li>
+        <li>On mobile, swipe between stage tabs or use the stage picker.</li>
+        <li>Click any project card to open its <strong>detail page</strong>.</li>
+      </ul>
+
+      <figure>
+        <img src="screenshots/03-pipeline.png" alt="Pipeline kanban view" />
+        <figcaption>Pipeline — projects organised by sales stage from Lead Identified through Won/Lost.</figcaption>
+      </figure>
+
+      <h3>Create or edit a project (managers, regional managers, CEO)</h3>
+      <ol class="steps">
+        <li>Click <strong>+ New project</strong> (or the edit icon on an existing card).</li>
+        <li>Fill in project name, city, country, developer, value, and location on the map.</li>
+        <li>Assign regional manager, manager, and sales reps as needed.</li>
+        <li>Save — the project appears in the pipeline for the assigned team.</li>
+      </ol>
+
+      <div class="card tip">
+        Sales reps typically <strong>view</strong> assigned projects and log activity; they do not create new projects unless your process assigns that to managers.
+      </div>
+    </section>
+
+    <section id="project-detail">
+      <h2>Project detail &amp; field activity</h2>
+      <p class="lead">
+        The project page is the main workspace for day-to-day selling — timeline, stakeholders, and logging visits.
+      </p>
+
+      <figure>
+        <img src="screenshots/04-project-detail.png" alt="Project detail page" />
+        <figcaption>Project detail — commercial info, stakeholders, and activity timeline.</figcaption>
+      </figure>
+
+      <h3>Log an activity</h3>
+      <p>Click <strong>Log activity</strong> (or the + button) to open the activity composer. Supported types:</p>
+      <table>
+        <thead>
+          <tr><th>Type</th><th>When to use</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Note</strong></td><td>General update or internal comment</td></tr>
+          <tr><td><strong>Call</strong></td><td>Phone conversation with a contact</td></tr>
+          <tr><td><strong>Visit</strong></td><td>On-site meeting — GPS location is captured automatically</td></tr>
+          <tr><td><strong>Email</strong></td><td>Email sent or received</td></tr>
+          <tr><td><strong>WhatsApp</strong></td><td>WhatsApp message exchange</td></tr>
+        </tbody>
+      </table>
+
+      <figure>
+        <img src="screenshots/05-log-activity.png" alt="Log activity composer" />
+        <figcaption>Activity composer — choose type, add notes, attach files or voice notes, save to the timeline.</figcaption>
+      </figure>
+
+      <h3>Logging a site visit</h3>
+      <ol class="steps">
+        <li>Select activity type <strong>Visit</strong>.</li>
+        <li>Enter who you met and the meeting date/time.</li>
+        <li>Allow <strong>location access</strong> when prompted — your GPS coordinates are saved with the visit.</li>
+        <li>Add a recap of what was discussed and any next steps.</li>
+        <li>Optionally attach photos or a voice note, then click <strong>Save activity</strong>.</li>
+      </ol>
+
+      <div class="card tip">
+        Visits also send a <strong>location ping</strong> to the system, which helps managers see field coverage on the team view.
+      </div>
+
+      <h3>Stakeholders</h3>
+      <p>
+        Scroll to the stakeholders section to see architects, consultants, contractors, and other contacts linked to the project.
+        Use <strong>Add stakeholder</strong> to record name, role, organisation, email, and phone.
+      </p>
+
+      <h3>Attachments</h3>
+      <p>
+        When logging activity you can attach <strong>files</strong> (PDFs, images) or record a <strong>voice note</strong>.
+        Attachments appear on the activity timeline and can be played or downloaded from there.
+      </p>
+    </section>
+
+    <section id="follow-ups">
+      <h2>Follow-ups</h2>
+      <p class="lead">
+        Follow-ups are action items tied to projects — calls to make, emails to send, or meetings to schedule.
+      </p>
+
+      <figure>
+        <img src="screenshots/06-follow-ups.png" alt="Follow-ups page" />
+        <figcaption>Follow-ups — grouped into Overdue, Due today, Upcoming, and Done.</figcaption>
+      </figure>
+
+      <h3>Working your task list</h3>
+      <ol class="steps">
+        <li>Open <strong>Follow-ups</strong> from the sidebar or dashboard link.</li>
+        <li>Review <strong>Overdue</strong> and <strong>Due today</strong> sections first.</li>
+        <li>Click a task to see project context and contact details.</li>
+        <li>After completing the action, mark the task <strong>Done</strong>.</li>
+        <li>Done tasks move to the completed section for reference.</li>
+      </ol>
+
+      <div class="card">
+        Follow-ups can be created when logging project activity (set a due date on the activity form) or by your manager as part of pipeline reviews.
+      </div>
+    </section>
+
+    <section id="map">
+      <h2>Geo Intel (Map)</h2>
+      <p class="lead">
+        The map shows project pins for everything in your scope. Use it to plan routes and see geographic coverage.
+      </p>
+
+      <figure>
+        <img src="screenshots/07-map.png" alt="Geo Intel map view" />
+        <figcaption>Geo Intel — project markers coloured by pipeline stage; filter with stage chips at the top.</figcaption>
+      </figure>
+
+      <ul>
+        <li>Pan and zoom the map to explore regions.</li>
+        <li>Click a pin to see project name, stage, and city.</li>
+        <li>Use <strong>stage filter chips</strong> to show only Lead, Tender, Won, etc.</li>
+        <li>Click through to the project detail page from a marker popup.</li>
+      </ul>
+    </section>
+
+    <section id="team">
+      <h2>Field Team</h2>
+      <p class="lead">
+        Available to managers, regional managers, and leadership — a hierarchy view of your team’s targets,
+        pipeline, visits, and recent activity.
+      </p>
+
+      <figure>
+        <img src="screenshots/08-team.png" alt="Field Team page" />
+        <figcaption>Field Team — drill into regional managers → managers → sales reps and their metrics.</figcaption>
+      </figure>
+
+      <h3>How to use it</h3>
+      <ul>
+        <li>Start at your level in the org chart and expand cards to see people below you.</li>
+        <li>Each person shows <strong>target vs achieved</strong>, pipeline value, visit counts, and recent visits.</li>
+        <li>Click a rep’s recent visit to jump to the project activity.</li>
+        <li>Use this view in weekly reviews to spot reps who need support or celebrate wins.</li>
+      </ul>
+
+      <div class="card warn">
+        Sales reps do not see the Field Team menu — they use Dashboard and Pipeline for their own assigned work.
+      </div>
+    </section>
+
+    <section id="profile">
+      <h2>Profile &amp; account</h2>
+      <p class="lead">Manage your display name, password, and session from the Profile page.</p>
+
+      <figure>
+        <img src="screenshots/09-profile.png" alt="Profile settings page" />
+        <figcaption>Profile — update first/last name, change password, sign out.</figcaption>
+      </figure>
+
+      <h3>Update your name</h3>
+      <ol class="steps">
+        <li>Open <strong>Profile</strong> from the sidebar (desktop) or bottom nav (mobile).</li>
+        <li>Edit <strong>First name</strong> and <strong>Last name</strong>.</li>
+        <li>Click <strong>Save profile</strong>.</li>
+      </ol>
+
+      <h3>Change password</h3>
+      <ol class="steps">
+        <li>Enter your <strong>current password</strong>.</li>
+        <li>Enter and confirm your <strong>new password</strong>.</li>
+        <li>Click <strong>Update password</strong>.</li>
+      </ol>
+
+      <h3>Sign out</h3>
+      <p>Click <strong>Sign out</strong> at the bottom of the Profile page, especially on shared or public devices.</p>
+    </section>
+
+    <section id="mobile">
+      <h2>Mobile app (Android)</h2>
+      <p class="lead">
+        The Alubond CRM Android app mirrors the same workflows for use in the field — pipeline, visits with GPS,
+        follow-ups, map, and profile.
+      </p>
+
+      <div class="two-col">
+        <figure>
+          <img src="screenshots/10-mobile-home.png" alt="Mobile home screen" />
+          <figcaption>Mobile — Home tab with KPI summary.</figcaption>
+        </figure>
+        <figure>
+          <img src="screenshots/11-mobile-pipeline.png" alt="Mobile pipeline screen" />
+          <figcaption>Mobile — Pipeline list; tap a project to log activity on site.</figcaption>
+        </figure>
+      </div>
+
+      <h3>Install the app</h3>
+      <ol class="steps">
+        <li>Install the APK file shared by your admin on your Android phone.</li>
+        <li>Allow installation from unknown sources if Android prompts you.</li>
+        <li>Open the app and sign in with the same email and password as the web CRM.</li>
+        <li>Grant <strong>location</strong> and <strong>photos</strong> permissions when logging visits or attachments.</li>
+      </ol>
+
+      <div class="card tip">
+        Mobile tabs: <strong>Home · Pipeline · Tasks · Map · Profile</strong>. Managers also see <strong>Team</strong>.
+      </div>
+    </section>
+
+    <section id="roles">
+      <h2>Access by role</h2>
+      <p class="lead">What you can see and do depends on your role. Your admin assigns this when creating your account.</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Sales rep</th>
+            <th>Manager</th>
+            <th>Regional mgr</th>
+            <th>CEO</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Dashboard</td>
+            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Pipeline (view)</td>
+            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Pipeline (create/edit)</td>
+            <td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Log activity &amp; visits</td>
+            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Follow-ups</td>
+            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Geo Intel map</td>
+            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Field Team</td>
+            <td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+          <tr>
+            <td>Profile</td>
+            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="card">
+        <strong>Need help?</strong> Contact your CRM administrator for account access, password resets,
+        or project assignment changes. For technical issues, share a screenshot and the page you were on.
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Alubond CRM User Guide · Generated for internal team use · Screenshots captured from the live application
+  </footer>
+</body>
+</html>

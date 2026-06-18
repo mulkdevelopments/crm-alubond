@@ -4,6 +4,7 @@ This repository is now split into deployable services:
 
 - `frontend/` - Next.js CRM web application
 - `backend/` - Express API service (`/api/v1`)
+- `mobile/` - Expo (React Native) app for iOS and Android
 
 ## Local development
 
@@ -12,6 +13,7 @@ Install dependencies separately:
 ```bash
 npm install --prefix frontend
 npm install --prefix backend
+npm install --prefix mobile
 ```
 
 Run both services with a single command (kills ports `3000` and `4001` first):
@@ -27,7 +29,45 @@ Or run in separate terminals:
 ```bash
 npm run dev:frontend
 npm run dev:backend
+npm run dev:mobile
 ```
+
+## Mobile app
+
+The Expo app talks to the same REST API as the web client.
+
+1. Copy env file and set your API URL:
+
+```bash
+cp mobile/.env.example mobile/.env
+```
+
+For a physical device on the same network, use your machine IP instead of `localhost`:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:4001/api/v1
+```
+
+2. Start Expo:
+
+```bash
+npm run dev:mobile
+```
+
+3. Build with EAS (requires [Expo account](https://expo.dev) and `eas login`):
+
+```bash
+cd mobile
+eas build --profile preview --platform all
+```
+
+Profiles in `mobile/eas.json`:
+
+- `development` - dev client with simulator support
+- `preview` - internal APK / TestFlight build
+- `production` - store release build
+
+Bundle IDs: `com.alubond.crm` (iOS and Android).
 
 API defaults:
 
@@ -56,3 +96,44 @@ Default seeded admin (dev):
 
 - Email: `admin@alubondcrm.local`
 - Password: `Admin@12345`
+
+## Email notifications (Resend)
+
+Follow-up create/update emails are sent via **Resend SMTP** from `no-reply@crm.alubond.com`.
+
+Verified domain in Resend: `crm.alubond.com`
+
+### Local setup
+
+1. Copy `backend/.env.example` → `backend/.env` if needed.
+2. Set `SMTP_PASS` to a Resend API key with **sending access** for `crm.alubond.com`.
+3. Restart the backend, then test:
+
+```bash
+node scripts/test-email.mjs your-email@example.com
+```
+
+### Render production
+
+In the **alubond-crm-api** service on Render, set:
+
+| Variable | Value |
+|----------|-------|
+| `SMTP_HOST` | `smtp.resend.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_SECURE` | `false` |
+| `SMTP_USER` | `resend` |
+| `SMTP_PASS` | your Resend API key (Secret) |
+| `EMAIL_FROM` | `Alubond CRM <no-reply@crm.alubond.com>` |
+| `APP_BASE_URL` | `https://alubond-crm-web.onrender.com` |
+
+`render.yaml` includes the non-secret values; add `SMTP_PASS` manually in the Render dashboard.
+
+Emails are triggered when follow-ups are created or updated (including from project activity and the AI assistant).
+
+Each notification includes:
+
+- An **`follow-up.ics`** calendar attachment (30-minute event at the due date/time)
+- **Google Calendar** and **Outlook** quick-add links in the HTML email
+
+Open the `.ics` file or tap a calendar link to add the follow-up to your calendar.

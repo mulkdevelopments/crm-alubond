@@ -11,6 +11,7 @@ import { authenticate } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
 import {
   createProject,
+  deleteProject,
   getProjectById,
   listProjects,
   updateProject
@@ -820,6 +821,21 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   });
 
   res.status(200).json({ project });
+});
+
+apiRouter.delete("/projects/:projectId", authenticate, async (req, res) => {
+  if (!req.user || req.user.role !== UserRole.ADMIN) {
+    res.status(403).json({ message: "Only admins can delete projects" });
+    return;
+  }
+
+  const deleted = await deleteProject(req.params.projectId as string);
+  if (!deleted) {
+    res.status(404).json({ message: "Project not found" });
+    return;
+  }
+
+  res.status(204).send();
 });
 
 apiRouter.get("/projects/:projectId/activities", authenticate, async (req, res) => {

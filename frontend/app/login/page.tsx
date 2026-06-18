@@ -33,7 +33,7 @@ export default function LoginPage() {
     <div className="min-h-screen grid place-items-center p-4 bg-[var(--surface)]">
       <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-6 md:p-8">
         <h1 className="text-2xl font-bold tracking-tight">Alubond CRM Login</h1>
-        <p className="text-sm text-3 mt-1">Role-based access for sales teams and leadership.</p>
+        <p className="text-sm text-3 mt-1">Login to your account to continue</p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>

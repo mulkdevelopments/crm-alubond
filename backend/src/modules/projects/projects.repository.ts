@@ -125,3 +125,18 @@ export async function updateProject(projectId: string, input: UpsertProjectInput
   });
   return mapProject(record);
 }
+
+export async function deleteProject(projectId: string): Promise<boolean> {
+  const exists = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { id: true }
+  });
+  if (!exists) {
+    return false;
+  }
+
+  await prisma.project.delete({
+    where: { id: projectId }
+  });
+  return true;
+}
