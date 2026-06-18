@@ -56,13 +56,17 @@ function toAbsoluteAssetUrl(url: string): string {
   return `${apiOrigin}${url}`;
 }
 
-function toActivityAttachmentUrl(url: string): string {
+function toActivityAttachmentUrl(url: string, token?: string | null): string {
   const absolute = toAbsoluteAssetUrl(url);
   if (!absolute.includes('blob.vercel-storage.com')) {
     return absolute;
   }
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4001/api/v1';
-  return `${apiBase}/files/proxy?url=${encodeURIComponent(absolute)}`;
+  const params = new URLSearchParams({ url: absolute });
+  if (token) {
+    params.set('access_token', token);
+  }
+  return `${apiBase}/files/proxy?${params.toString()}`;
 }
 
 function parseLegacyAttachmentLinks(message: string): Array<{ kind: 'file' | 'voice'; name: string; url: string }> {
@@ -803,7 +807,7 @@ export default function ProjectDetailPage() {
   }
 
   async function onShareAttachment(attachmentId: string, attachmentName: string, attachmentUrl: string) {
-    const href = toActivityAttachmentUrl(attachmentUrl);
+    const href = toActivityAttachmentUrl(attachmentUrl, token);
     try {
       if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         setSharingAttachmentId(attachmentId);
@@ -1760,7 +1764,7 @@ export default function ProjectDetailPage() {
                                 {isExpanded && (
                                   <div className="px-2.5 pb-2.5 space-y-2 border-t border-[var(--border)]">
                                     {mediaItems.map((attachment) => {
-                                      const href = toActivityAttachmentUrl(attachment.url);
+                                      const href = toActivityAttachmentUrl(attachment.url, token);
                                       const isVoice = attachment.mimeType.startsWith('audio/') || attachment.kind === 'voice';
                                       return (
                                         <div key={attachment.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">

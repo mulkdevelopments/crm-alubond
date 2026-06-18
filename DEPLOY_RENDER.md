@@ -22,6 +22,8 @@ In `alubond-crm-api` service env vars, set:
 
 - `OPENAI_API_KEY`
 - `BLOB_READ_WRITE_TOKEN`
+- `RESEND_API_KEY` (or `SMTP_PASS` with the same Resend API key)
+- `ADMIN_PASSWORD` (strong secret; not stored in Git)
 
 ## 4) Deploy
 

@@ -7,7 +7,7 @@ import { env } from "../config/env";
 import { storeUploadedFile } from "../lib/file-storage";
 import { isEmailConfigured, sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
-import { authenticate } from "../middleware/auth";
+import { authenticate, authenticateMediaProxy } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
 import {
   createProject,
@@ -93,6 +93,22 @@ async function canAccessProjectById(
     select: { id: true },
   });
   return Boolean(project);
+}
+
+async function resolveAttachmentProjectId(blobUrl: string): Promise<string | null> {
+  const attachment = await prisma.projectActivityAttachment.findFirst({
+    where: { url: blobUrl },
+    select: { activity: { select: { projectId: true } } },
+  });
+  if (attachment) {
+    return attachment.activity.projectId;
+  }
+
+  const legacyActivity = await prisma.projectActivity.findFirst({
+    where: { message: { contains: blobUrl } },
+    select: { projectId: true },
+  });
+  return legacyActivity?.projectId ?? null;
 }
 
 const projectActivitySchema = z.object({
@@ -410,7 +426,7 @@ apiRouter.post("/ai/assistant", authenticate, async (req, res) => {
   }
 });
 
-apiRouter.get("/files/proxy", async (req, res) => {
+apiRouter.get("/files/proxy", authenticateMediaProxy, async (req, res) => {
   const rawUrl = typeof req.query.url === "string" ? req.query.url : "";
   if (!rawUrl) {
     res.status(400).json({ message: "url query is required" });
@@ -428,6 +444,12 @@ apiRouter.get("/files/proxy", async (req, res) => {
   const isBlobHost = /(^|\.)blob\.vercel-storage\.com$/i.test(target.hostname);
   if (!isBlobHost || target.protocol !== "https:") {
     res.status(400).json({ message: "Only Vercel Blob URLs are supported" });
+    return;
+  }
+
+  const projectId = await resolveAttachmentProjectId(rawUrl);
+  if (!projectId || !(await canAccessProjectById(req.user!, projectId))) {
+    res.status(403).json({ message: "Forbidden" });
     return;
   }
 

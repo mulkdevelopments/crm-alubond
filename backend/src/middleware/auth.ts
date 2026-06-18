@@ -17,11 +17,36 @@ function extractBearerToken(req: Request): string | null {
   return token;
 }
 
+function extractAccessToken(req: Request): string | null {
+  return (
+    extractBearerToken(req) ??
+    (typeof req.query.access_token === "string" && req.query.access_token.length > 0
+      ? req.query.access_token
+      : null)
+  );
+}
+
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
   try {
     const token = extractBearerToken(req);
     if (!token) {
       res.status(401).json({ message: "Missing bearer token" });
+      return;
+    }
+
+    req.user = verifyToken(token);
+    next();
+  } catch (_error) {
+    res.status(401).json({ message: "Invalid or expired token" });
+  }
+}
+
+/** Allows Bearer header or `access_token` query param (needed for audio/file media tags). */
+export function authenticateMediaProxy(req: Request, res: Response, next: NextFunction): void {
+  try {
+    const token = extractAccessToken(req);
+    if (!token) {
+      res.status(401).json({ message: "Missing access token" });
       return;
     }
 

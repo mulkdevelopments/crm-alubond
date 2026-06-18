@@ -41,7 +41,7 @@ services:
       - key: ADMIN_EMAIL
         value: admin@alubondcrm.local
       - key: ADMIN_PASSWORD
-        value: Admin@12345
+        sync: false
       - key: ADMIN_FIRST_NAME
         value: System
       - key: ADMIN_LAST_NAME
