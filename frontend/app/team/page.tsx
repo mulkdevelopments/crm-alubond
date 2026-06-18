@@ -672,7 +672,9 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
     }
 
     const managerIds = new Set(managerCards.map((manager) => manager.id));
-    const regionalProjects = projects.filter((project) => managerIds.has(project.managerId));
+    const regionalProjects = projects.filter(
+      (project) => project.managerId != null && managerIds.has(project.managerId),
+    );
     const regionalProjectIds = new Set(regionalProjects.map((project) => project.id));
     const regionalPipelineProjects = regionalProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
     const regionalVisits = activities.filter((activity) => activity.type === 'visit' && regionalProjectIds.has(activity.projectId));

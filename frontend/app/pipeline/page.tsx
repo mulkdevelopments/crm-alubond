@@ -11,6 +11,7 @@ import { STAGES, type Stage } from '@/lib/data';
 import { listManagers, listMyTeam, listRegionalManagers, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
 import {
   createProject as createProjectApi,
+  deleteProject as deleteProjectApi,
   listProjects as listProjectsApi,
   updateProject as updateProjectApi,
   type ApiProject,

@@ -422,7 +422,9 @@ function resolveTargetProgress(
             const managerIds = new Set(
               users.filter((entry) => entry.role === 'MANAGER' && entry.regionalManagerId === owner.id).map((entry) => entry.id)
             );
-            return wonProjects.filter((project) => managerIds.has(project.managerId));
+            return wonProjects.filter(
+              (project) => project.managerId != null && managerIds.has(project.managerId),
+            );
           })()
         : owner.role === 'MANAGER'
           ? wonProjects.filter((project) => project.managerId === owner.id)
