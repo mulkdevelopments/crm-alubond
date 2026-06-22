@@ -8,6 +8,7 @@ import { storeUploadedFile } from "../lib/file-storage";
 import { isEmailConfigured, sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
 import { commercialSpecsComplete, resolveItemNameFromSpecs } from "../lib/project-specs";
+import { userCanSetBusinessDivision } from "../lib/business-division-access";
 import { authenticate, authenticateMediaProxy } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
 import {
@@ -786,9 +787,11 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     return;
   }
 
+  const canSetDivision = await userCanSetBusinessDivision(req.user);
+
   const project = await createProject({
     ...payload,
-    businessDivision: payload.businessDivision ?? null,
+    businessDivision: canSetDivision ? payload.businessDivision ?? null : null,
     ...commercialFields,
     regionalManagerId: assignees.regionalManagerId,
     regionalManagerName: assignees.regionalManagerName,
@@ -822,6 +825,7 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     where: { id: req.params.projectId as string },
     select: {
       id: true,
+      businessDivision: true,
       regionalManagerId: true,
       regionalManagerName: true,
       managerId: true,
@@ -884,9 +888,13 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   const resolvedOwner =
     resolvedSalesRepNames[0] ?? resolvedManagerName ?? resolvedRegionalManagerName ?? existingProject.owner;
 
+  const canSetDivision = await userCanSetBusinessDivision(req.user);
+
   const project = await updateProject(req.params.projectId as string, {
     ...payload,
-    businessDivision: payload.businessDivision ?? null,
+    businessDivision: canSetDivision
+      ? payload.businessDivision ?? null
+      : existingProject.businessDivision,
     ...commercialFields,
     regionalManagerId: resolvedRegionalManagerId,
     regionalManagerName: resolvedRegionalManagerName,

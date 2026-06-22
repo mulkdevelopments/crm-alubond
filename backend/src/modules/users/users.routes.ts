@@ -24,7 +24,8 @@ const createUserSchema = z.object({
   reportsToId: optionalEntityIdSchema,
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocation: z.string().min(1),
-  yearlyTarget: z.number().positive().optional().nullable()
+  yearlyTarget: z.number().positive().optional().nullable(),
+  canSetBusinessDivision: z.boolean().optional().default(false)
 });
 
 const updateUserSchema = z.object({
@@ -39,7 +40,8 @@ const updateUserSchema = z.object({
   operationLocation: z.string().min(1),
   yearlyTarget: z.number().positive().optional().nullable(),
   password: z.string().min(8).optional(),
-  isActive: z.boolean().optional()
+  isActive: z.boolean().optional(),
+  canSetBusinessDivision: z.boolean().optional()
 });
 
 const updateProfileSchema = z.object({
@@ -259,7 +261,9 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
       reportsToId: payload.role === UserRole.REGIONAL_MANAGER ? payload.reportsToId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
       operationLocation: payload.operationLocation,
-      yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null
+      yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
+      canSetBusinessDivision:
+        payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false
     }
   });
 
@@ -378,7 +382,9 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
       operationLocation: payload.operationLocation,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
       passwordHash,
-      isActive: payload.isActive ?? undefined
+      isActive: payload.isActive ?? undefined,
+      canSetBusinessDivision:
+        payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false
     }
   });
 
@@ -462,6 +468,7 @@ usersRouter.get("/", async (req, res) => {
       operationLocation: true,
       yearlyTarget: true,
       isActive: true,
+      canSetBusinessDivision: true,
       createdAt: true,
       locationPings: {
         select: { recordedAt: true },
@@ -509,6 +516,7 @@ usersRouter.get("/", async (req, res) => {
     operationLocation: user.operationLocation,
     yearlyTarget: user.yearlyTarget,
     isActive: user.isActive,
+    canSetBusinessDivision: user.canSetBusinessDivision,
     createdAt: user.createdAt,
     manager: user.manager,
     regionalManager: user.regionalManager,
@@ -531,6 +539,7 @@ usersRouter.get("/me", async (req, res) => {
       managerId: true,
       regionalManagerId: true,
       regions: true,
+      canSetBusinessDivision: true,
       createdAt: true
     }
   });

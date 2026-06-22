@@ -43,3 +43,9 @@ export function canAccessTeam(role: AuthUser["role"] | undefined) {
 export function canManageProjects(role: AuthUser["role"] | undefined) {
   return role === "ADMIN" || role === "CEO" || role === "MANAGER" || role === "REGIONAL_MANAGER";
 }
+
+export function canSetBusinessDivision(user: AuthUser | null | undefined) {
+  if (!user) return false;
+  if (user.role === "ADMIN" || user.role === "CEO") return true;
+  return user.role === "REGIONAL_MANAGER" && Boolean(user.canSetBusinessDivision);
+}

@@ -1,6 +1,6 @@
 databases:
   - name: alubond-crm-db
-    plan: free
+    plan: basic-256mb
     databaseName: alubond_crm
     user: alubond
 
@@ -9,7 +9,7 @@ services:
     name: alubond-crm-api
     runtime: node
     rootDir: backend
-    plan: free
+    plan: starter
     buildCommand: npm ci --include=dev && npm run prisma:generate && npm run build
     startCommand: npm run prisma:push && npm run start
     healthCheckPath: /api/v1/health

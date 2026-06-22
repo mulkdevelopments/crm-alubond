@@ -28,7 +28,7 @@ import {
   updateProject,
   type ApiProject,
 } from "@/lib/api/projects-api";
-import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
+import { useAuth, canManageProjects, canSetBusinessDivision } from "@/lib/auth/AuthContext";
 import { normalizeOptionalId } from "@/lib/utils";
 import {
   SPEC_CORE_OPTIONS,
@@ -45,6 +45,7 @@ export default function ProjectFormScreen() {
   const { token, user } = useAuth();
   const editing = Boolean(id);
   const canManage = canManageProjects(user?.role);
+  const canSetDivision = canSetBusinessDivision(user);
 
   const [loading, setLoading] = useState(editing);
   const [saving, setSaving] = useState(false);
@@ -58,6 +59,7 @@ export default function ProjectFormScreen() {
   const [country, setCountry] = useState("United Arab Emirates");
   const [developer, setDeveloper] = useState("");
   const [businessDivision, setBusinessDivision] = useState<(typeof BUSINESS_DIVISIONS)[number] | "">("");
+  const [savedBusinessDivision, setSavedBusinessDivision] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("Lead Identified");
   const [value, setValue] = useState("");
   const [itemQuantity, setItemQuantity] = useState("");
@@ -116,6 +118,7 @@ export default function ProjectFormScreen() {
     setCountry(project.country);
     setDeveloper(project.developer);
     setBusinessDivision(project.businessDivision ?? "");
+    setSavedBusinessDivision(project.businessDivision);
     setStage(project.stage);
     setValue(String(project.valueAed));
     setItemQuantity(String(project.itemQuantity));
@@ -195,7 +198,7 @@ export default function ProjectFormScreen() {
         city: city.trim(),
         country: country.trim(),
         developer: developer.trim(),
-        businessDivision: businessDivision || null,
+        businessDivision: canSetDivision ? businessDivision || null : savedBusinessDivision,
         stage,
         valueAed: Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0,
         itemName,
@@ -286,18 +289,22 @@ export default function ProjectFormScreen() {
           ))}
         </View>
 
-        <Text style={styles.label}>Business division</Text>
-        <View style={styles.chips}>
-          <Chip label="None" active={!businessDivision} onPress={() => setBusinessDivision("")} />
-          {BUSINESS_DIVISIONS.map((entry) => (
-            <Chip
-              key={entry}
-              label={entry}
-              active={businessDivision === entry}
-              onPress={() => setBusinessDivision(entry)}
-            />
-          ))}
-        </View>
+        {canSetDivision ? (
+          <>
+            <Text style={styles.label}>Business division</Text>
+            <View style={styles.chips}>
+              <Chip label="None" active={!businessDivision} onPress={() => setBusinessDivision("")} />
+              {BUSINESS_DIVISIONS.map((entry) => (
+                <Chip
+                  key={entry}
+                  label={entry}
+                  active={businessDivision === entry}
+                  onPress={() => setBusinessDivision(entry)}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Text style={styles.label}>Location</Text>
         <View style={styles.row}>

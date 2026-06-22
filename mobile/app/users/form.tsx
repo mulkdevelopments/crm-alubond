@@ -52,6 +52,7 @@ export default function UserFormScreen() {
   const [regionalManagerId, setRegionalManagerId] = useState("");
   const [reportsToId, setReportsToId] = useState("");
   const [regionsInput, setRegionsInput] = useState("");
+  const [canSetBusinessDivision, setCanSetBusinessDivision] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -76,6 +77,7 @@ export default function UserFormScreen() {
         setRegionalManagerId(existing.regionalManagerId ?? "");
         setReportsToId(existing.reportsToId ?? "");
         setRegionsInput(existing.regions.join(", "));
+        setCanSetBusinessDivision(existing.role === "REGIONAL_MANAGER" ? existing.canSetBusinessDivision : false);
         if (existing.role === "SALES_REP") {
           setManagerId(existing.managerId ? existing.managerId : DIRECT_REGIONAL);
         }
@@ -157,6 +159,7 @@ export default function UserFormScreen() {
         regions: role === "REGIONAL_MANAGER" ? parsedRegions : [],
         operationLocation: operationLocation.trim(),
         yearlyTarget: role !== "ADMIN" ? parsedYearlyTarget : null,
+        canSetBusinessDivision: role === "REGIONAL_MANAGER" ? canSetBusinessDivision : false,
       };
 
       if (editing && id) {
@@ -184,7 +187,17 @@ export default function UserFormScreen() {
         <Text style={styles.label}>Role</Text>
         <View style={styles.chips}>
           {ROLES.map((entry) => (
-            <Chip key={entry} label={entry.replace("_", " ")} active={role === entry} onPress={() => setRole(entry)} />
+            <Chip
+              key={entry}
+              label={entry.replace("_", " ")}
+              active={role === entry}
+              onPress={() => {
+                setRole(entry);
+                if (entry !== "REGIONAL_MANAGER") {
+                  setCanSetBusinessDivision(false);
+                }
+              }}
+            />
           ))}
         </View>
 
@@ -215,6 +228,19 @@ export default function UserFormScreen() {
                   onPress={() => setReportsToId(entry.id)}
                 />
               ))}
+            </View>
+            <Text style={styles.label}>Business division access</Text>
+            <View style={styles.chips}>
+              <Chip
+                label="Disabled"
+                active={!canSetBusinessDivision}
+                onPress={() => setCanSetBusinessDivision(false)}
+              />
+              <Chip
+                label="Can set on projects"
+                active={canSetBusinessDivision}
+                onPress={() => setCanSetBusinessDivision(true)}
+              />
             </View>
           </>
         ) : null}

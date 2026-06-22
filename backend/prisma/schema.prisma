@@ -26,6 +26,7 @@ model User {
   regions      String[] @default([])
   yearlyTarget Float? @map("monthlyTarget")
   isActive     Boolean  @default(true)
+  canSetBusinessDivision Boolean @default(false)
 
   managerId String?
   manager   User?    @relation("ManagerReps", fields: [managerId], references: [id], onDelete: SetNull)

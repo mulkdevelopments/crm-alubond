@@ -23,6 +23,7 @@ import {
   formatProjectSpecs,
   formatSpecsSummary,
 } from '@/lib/project-specs';
+import { canSetBusinessDivision } from '@/lib/permissions';
 
 type ProjectAssignment = {
   regionalManagerId: string | null;
@@ -141,6 +142,9 @@ export default function PipelinePage() {
   const [mobileStage, setMobileStage] = useState<Stage>('Lead Identified');
   const [mobileQuery, setMobileQuery] = useState('');
   const [desktopQuery, setDesktopQuery] = useState('');
+  const [businessDivisionFilter, setBusinessDivisionFilter] = useState<
+    'ALL' | 'UNASSIGNED' | (typeof BUSINESS_DIVISIONS)[number]
+  >('ALL');
   const [desktopFocusedStage, setDesktopFocusedStage] = useState<Stage | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -172,6 +176,7 @@ export default function PipelinePage() {
   const isManager = user?.role === 'MANAGER';
   const isRegionalManager = user?.role === 'REGIONAL_MANAGER';
   const canCreateProject = isAdmin || isManager || isRegionalManager || user?.role === 'CEO';
+  const canSetDivision = canSetBusinessDivision(user);
   const editingProject = editingId ? items.find((p) => p.id === editingId) ?? null : null;
   const regionalManagerForForm =
     (isRegionalManager && user?.id ? user.id : form.regionalManagerId) || '';
@@ -204,8 +209,8 @@ export default function PipelinePage() {
     return true;
   });
 
-  function totalFor(stage: Stage) {
-    return items.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
+  function totalFor(stage: Stage, projects = items) {
+    return projects.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
   }
 
   function matchesProjectQuery(project: PipelineProject, query: string) {
@@ -215,6 +220,18 @@ export default function PipelinePage() {
       project.name.toLowerCase().includes(q) ||
       project.city.toLowerCase().includes(q) ||
       project.developer.toLowerCase().includes(q)
+    );
+  }
+
+  function matchesBusinessDivisionFilter(project: PipelineProject) {
+    if (!canSetDivision || businessDivisionFilter === 'ALL') return true;
+    if (businessDivisionFilter === 'UNASSIGNED') return !project.businessDivision?.trim();
+    return project.businessDivision === businessDivisionFilter;
+  }
+
+  function filterPipelineProjects(projects: PipelineProject[], query: string) {
+    return projects.filter(
+      (project) => matchesProjectQuery(project, query) && matchesBusinessDivisionFilter(project),
     );
   }
 
@@ -743,7 +760,9 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     const lat = Number(form.lat);
     const lng = Number(form.lng);
     const probability = Math.max(0, Math.min(100, Number(form.probability)));
-    const businessDivision = form.businessDivision || null;
+    const businessDivision = canSetDivision
+      ? form.businessDivision || null
+      : editingProject?.businessDivision ?? null;
     const normalizedValue = Number.isFinite(value) && value >= 0 ? value : 0;
     const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
     const normalizedSpecs = {
@@ -847,18 +866,22 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     }
   }
 
-  const mobileStageItems = items
-    .filter((project) => project.stage === mobileStage)
-    .filter((project) => matchesProjectQuery(project, mobileQuery));
+  const mobileStageItems = filterPipelineProjects(
+    items.filter((project) => project.stage === mobileStage),
+    mobileQuery,
+  );
 
-  const desktopFilteredItems = items.filter((project) => matchesProjectQuery(project, desktopQuery));
+  const desktopFilteredItems = filterPipelineProjects(items, desktopQuery);
+  const mobileVisibleItems = canSetDivision
+    ? items.filter((project) => matchesBusinessDivisionFilter(project))
+    : items;
   const desktopVisibleStages = desktopFocusedStage ? [desktopFocusedStage] : PIPELINE_VISIBLE_STAGES;
 
   return (
     <>
-      <div className="px-4 lg:px-8 pt-6 lg:pt-8 pb-4 flex justify-end">
+      <div className="hidden md:flex px-4 lg:px-8 pt-6 lg:pt-8 pb-4 justify-end">
         <div className="flex items-center gap-2">
-          <div className="relative hidden md:block">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
             <input
               value={desktopQuery}
@@ -867,6 +890,26 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
               placeholder="Filter projects…"
             />
           </div>
+          {canSetDivision ? (
+            <select
+              value={businessDivisionFilter}
+              onChange={(event) =>
+                setBusinessDivisionFilter(
+                  event.target.value as 'ALL' | 'UNASSIGNED' | (typeof BUSINESS_DIVISIONS)[number],
+                )
+              }
+              className="h-9 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+              aria-label="Filter by business division"
+            >
+              <option value="ALL">All divisions</option>
+              <option value="UNASSIGNED">Unassigned</option>
+              {BUSINESS_DIVISIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {canCreateProject && (
             <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreateForm}>Add project</Button>
           )}
@@ -879,7 +922,7 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
         <p className="px-4 lg:px-8 pb-2 text-sm text-3">No projects yet. Create your first project.</p>
       )}
 
-      <div className="md:hidden px-4 pb-8 space-y-3">
+      <div className="md:hidden px-4 pt-6 pb-8 space-y-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
@@ -897,10 +940,31 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
           )}
         </div>
 
+        {canSetDivision ? (
+          <select
+            value={businessDivisionFilter}
+            onChange={(event) =>
+              setBusinessDivisionFilter(
+                event.target.value as 'ALL' | 'UNASSIGNED' | (typeof BUSINESS_DIVISIONS)[number],
+              )
+            }
+            className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+            aria-label="Filter by business division"
+          >
+            <option value="ALL">All divisions</option>
+            <option value="UNASSIGNED">Unassigned</option>
+            {BUSINESS_DIVISIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
         <div className="overflow-x-auto -mx-4 px-4 pb-1">
           <div className="inline-flex gap-2 min-w-max">
             {PIPELINE_VISIBLE_STAGES.map((stage) => {
-              const count = items.filter((project) => project.stage === stage).length;
+              const count = mobileVisibleItems.filter((project) => project.stage === stage).length;
               return (
                 <button
                   key={`mobile-stage-${stage}`}
@@ -924,7 +988,7 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-3.5 py-2.5">
           <p className="text-[11px] text-3">Stage value</p>
-          <p className="text-sm font-semibold">{formatAED(totalFor(mobileStage), true)}</p>
+          <p className="text-sm font-semibold">{formatAED(totalFor(mobileStage, mobileVisibleItems), true)}</p>
         </div>
 
         <div className="space-y-2">
@@ -1218,23 +1282,25 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                   placeholder="Developer"
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
-                <select
-                  value={form.businessDivision}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      businessDivision: e.target.value as ProjectFormState['businessDivision'],
-                    }))
-                  }
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-                >
-                  <option value="">Business division (optional)</option>
-                  {BUSINESS_DIVISIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+                {canSetDivision ? (
+                  <select
+                    value={form.businessDivision}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        businessDivision: e.target.value as ProjectFormState['businessDivision'],
+                      }))
+                    }
+                    className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  >
+                    <option value="">Business division (optional)</option>
+                    {BUSINESS_DIVISIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 <input
                   list="project-country-options"
                   value={form.country}

@@ -9,6 +9,7 @@ export type AuthUser = {
   regions?: string[];
   firstName?: string;
   lastName?: string;
+  canSetBusinessDivision?: boolean;
 };
 
 export type Role = AuthUser["role"];
@@ -42,6 +43,7 @@ export type UserListItem = {
   operationLocation: string;
   yearlyTarget: number | null;
   isActive: boolean;
+  canSetBusinessDivision: boolean;
   createdAt: string;
   lastLocationPingAt: string | null;
   manager: ManagerOption | null;
@@ -230,6 +232,7 @@ export async function createUser(
   regions?: string[];
     operationLocation: string;
     yearlyTarget?: number | null;
+    canSetBusinessDivision?: boolean;
   }
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/users`, {
@@ -263,6 +266,7 @@ export async function updateUser(
     yearlyTarget?: number | null;
     password?: string;
     isActive?: boolean;
+    canSetBusinessDivision?: boolean;
   }
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/users/${userId}`, {

@@ -75,6 +75,7 @@ export default function UsersPage() {
   const [operationLocation, setOperationLocation] = useState('');
   const [yearlyTarget, setYearlyTarget] = useState('');
   const [password, setPassword] = useState('');
+  const [canSetBusinessDivision, setCanSetBusinessDivision] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | Role>('ALL');
   const [regionalManagerFilter, setRegionalManagerFilter] = useState('ALL');
@@ -247,6 +248,7 @@ export default function UsersPage() {
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
+          canSetBusinessDivision: role === 'REGIONAL_MANAGER' ? canSetBusinessDivision : false,
           password: password.trim() ? password : undefined,
         });
       } else {
@@ -268,6 +270,7 @@ export default function UsersPage() {
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
           operationLocation,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
+          canSetBusinessDivision: role === 'REGIONAL_MANAGER' ? canSetBusinessDivision : false,
       });
       }
       setFirstName('');
@@ -276,6 +279,7 @@ export default function UsersPage() {
       setOperationLocation('');
       setYearlyTarget('');
       setPassword('');
+      setCanSetBusinessDivision(false);
       setManagerId('');
       setRegionalManagerId('');
       setReportsToId('');
@@ -304,6 +308,7 @@ export default function UsersPage() {
     setOperationLocation('');
     setYearlyTarget('');
     setPassword('');
+    setCanSetBusinessDivision(false);
     setUserDialogOpen(true);
     setMessage(null);
   }
@@ -334,6 +339,7 @@ export default function UsersPage() {
     setEmail(entry.email);
     setOperationLocation(entry.operationLocation);
     setYearlyTarget(entry.yearlyTarget != null ? String(entry.yearlyTarget) : '');
+    setCanSetBusinessDivision(entry.role === 'REGIONAL_MANAGER' ? entry.canSetBusinessDivision : false);
     setPassword('');
     setUserDialogOpen(true);
     setMessage(null);
@@ -552,6 +558,9 @@ export default function UsersPage() {
                                 </td>
                                 <td className="px-4 py-3">
                                   <Badge tone={roleBadgeTone(entry.role as Role)}>{entry.role.replace('_', ' ')}</Badge>
+                                  {entry.role === 'REGIONAL_MANAGER' && entry.canSetBusinessDivision ? (
+                                    <p className="mt-1 text-[10px] text-3">Business division access</p>
+                                  ) : null}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-2 max-w-[180px]">{getReportsToLabel(entry)}</td>
                                 <td className="px-4 py-3 text-xs text-2 max-w-[180px]">
@@ -741,7 +750,13 @@ export default function UsersPage() {
             />
             <select
               value={role}
-              onChange={(event) => setRole(event.target.value as Role)}
+              onChange={(event) => {
+                const nextRole = event.target.value as Role;
+                setRole(nextRole);
+                if (nextRole !== 'REGIONAL_MANAGER') {
+                  setCanSetBusinessDivision(false);
+                }
+              }}
               className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
             >
               {ROLES.map((entry) => (
@@ -788,6 +803,20 @@ export default function UsersPage() {
                   className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
                   required
                 />
+                <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={canSetBusinessDivision}
+                    onChange={(event) => setCanSetBusinessDivision(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium text-[var(--text)]">Can set business division</span>
+                    <span className="mt-1 block text-xs text-3">
+                      Allows this regional manager to choose alubond architecture, alubond transport, or uniqube on projects.
+                    </span>
+                  </span>
+                </label>
               </>
             )}
             {role === 'SALES_REP' && (

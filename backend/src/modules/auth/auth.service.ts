@@ -58,11 +58,14 @@ export function verifyToken(token: string): AuthUser {
   };
 }
 
-export function toAuthUser(user: Pick<User, "id" | "email" | "role" | "managerId">): AuthUser {
+export function toAuthUser(
+  user: Pick<User, "id" | "email" | "role" | "managerId" | "canSetBusinessDivision">
+): AuthUser {
   return {
     id: user.id,
     email: user.email,
     role: user.role,
-    managerId: user.managerId
+    managerId: user.managerId,
+    canSetBusinessDivision: user.canSetBusinessDivision,
   };
 }
