@@ -10,8 +10,8 @@ services:
     runtime: node
     rootDir: backend
     plan: starter
-    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run build
-    startCommand: npm run prisma:push && npm run start
+    buildCommand: npm ci --include=dev && npm run prisma:generate && npm run prisma:push && npm run build
+    startCommand: npm run start
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
