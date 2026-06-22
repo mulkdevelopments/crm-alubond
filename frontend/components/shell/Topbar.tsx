@@ -5,6 +5,7 @@ import { Bell, Sun, Moon, Menu, Check, X, MapPin, AlertTriangle, Clock3, CheckCi
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '@/components/auth/AuthContext';
+import { MobileAppNotificationPromo } from '@/components/shell/MobileAppNotificationPromo';
 import { listUsers, type UserListItem } from '@/lib/auth-api';
 import { listFollowUps } from '@/lib/followups-api';
 import { listProjectActivities, listProjects, type ApiProject } from '@/lib/projects-api';
@@ -349,6 +350,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
                   Mark all read
                 </button>
               </div>
+              <MobileAppNotificationPromo />
               <div className="max-h-[340px] overflow-y-auto">
                 {notificationsLoading ? (
                   <p className="px-3.5 py-3 text-xs text-3">Loading notifications...</p>

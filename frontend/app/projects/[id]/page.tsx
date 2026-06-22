@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
 import {
   createProjectActivity,
@@ -188,6 +189,8 @@ export default function ProjectDetailPage() {
   const [commercialError, setCommercialError] = useState<string | null>(null);
   const [savingCommercial, setSavingCommercial] = useState(false);
   const [showAssignmentPerformance, setShowAssignmentPerformance] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<BlobPart[]>([]);
@@ -1005,21 +1008,19 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function onDeleteProject() {
-    if (!project || !token || user?.role !== 'ADMIN') return;
-    const confirmed = typeof window !== 'undefined'
-      ? window.confirm(
-          `Delete project "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
-        )
-      : false;
-    if (!confirmed) return;
+  const isAdmin = user?.role === 'ADMIN';
 
+  async function onDeleteProject() {
+    if (!project || !token || !isAdmin) return;
+
+    setDeletingProject(true);
     setError(null);
     try {
       await deleteProjectApi(token, project.id);
       router.push('/pipeline');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete project.');
+      setDeletingProject(false);
     }
   }
 
@@ -1129,13 +1130,15 @@ export default function ProjectDetailPage() {
         <Link href="/pipeline" className="inline-flex items-center gap-1.5 text-xs text-3 hover:text-[var(--text)] transition-colors">
           <ArrowLeft className="h-3.5 w-3.5" /> Back to pipeline
         </Link>
-        {user?.role === 'ADMIN' && (
+        {isAdmin && (
           <Button
             type="button"
             size="sm"
             variant="secondary"
             className="text-rose-600 hover:text-rose-700"
-            onClick={() => void onDeleteProject()}
+            data-admin-only="true"
+            aria-label="Delete project"
+            onClick={() => setDeleteConfirmOpen(true)}
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete project
           </Button>
@@ -2182,6 +2185,24 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete project?"
+        description={
+          project
+            ? `Delete "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete project"
+        cancelLabel="Cancel"
+        destructive
+        loading={deletingProject}
+        onCancel={() => {
+          if (deletingProject) return;
+          setDeleteConfirmOpen(false);
+        }}
+        onConfirm={() => void onDeleteProject()}
+      />
     </>
   );
 }

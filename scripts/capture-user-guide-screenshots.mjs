@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
-const OUT = path.join(ROOT, "docs", "user-guide", "screenshots");
+const OUT = path.join(ROOT, "frontend", "public", "docs", "user-guide");
+const SCREENSHOTS = path.join(OUT, "screenshots");
 const BASE = "http://localhost:3000";
 const EMAIL = "admin@alubondcrm.local";
 const PASSWORD = "Admin@12345";
@@ -22,7 +23,7 @@ async function hideAdminOnlyUi(page) {
 
 async function shot(page, name, options = {}) {
   await hideAdminOnlyUi(page);
-  const file = path.join(OUT, `${name}.png`);
+  const file = path.join(SCREENSHOTS, `${name}.png`);
   await page.screenshot({ path: file, fullPage: true, ...options });
   console.log(`Saved ${file}`);
   return `screenshots/${name}.png`;
@@ -38,7 +39,7 @@ async function login(page) {
 }
 
 async function main() {
-  await mkdir(OUT, { recursive: true });
+  await mkdir(SCREENSHOTS, { recursive: true });
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -107,7 +108,7 @@ async function main() {
   await mobilePage.waitForTimeout(1500);
   manifest.mobilePipeline = await shot(mobilePage, "11-mobile-pipeline");
 
-  await writeFile(path.join(ROOT, "docs", "user-guide", "screenshots.json"), JSON.stringify(manifest, null, 2));
+  await writeFile(path.join(OUT, "screenshots.json"), JSON.stringify(manifest, null, 2));
   await browser.close();
   console.log("Done.", manifest);
 }

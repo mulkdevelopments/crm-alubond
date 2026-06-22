@@ -4,6 +4,12 @@ import { UserRole } from "@prisma/client";
 import { z } from "zod";
 
 import { env } from "../../config/env";
+import {
+  createPasswordResetTokenValue,
+  hashPasswordResetToken,
+  isAuthEmailConfigured,
+  sendPasswordResetEmail,
+} from "../../lib/auth-mailer";
 import { prisma } from "../../lib/prisma";
 import { authenticate, authorize } from "../../middleware/auth";
 import { toAuthUser, validateCredentials } from "./auth.service";
@@ -11,6 +17,22 @@ import { toAuthUser, validateCredentials } from "./auth.service";
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(32),
+  password: z.string().min(8),
+});
+
+const requestAccessSchema = z.object({
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  email: z.string().email(),
+  message: z.string().trim().max(1000).optional().default(""),
 });
 
 const bootstrapSchema = z.object({
@@ -37,6 +59,134 @@ authRouter.post("/login", async (req, res) => {
   }
 
   res.status(200).json(result);
+});
+
+const PASSWORD_RESET_SENT_MESSAGE = "Password reset instructions have been sent to your email.";
+
+authRouter.post("/forgot-password", async (req, res) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid payload", issues: parsed.error.flatten() });
+    return;
+  }
+
+  if (!isAuthEmailConfigured()) {
+    res.status(503).json({ message: "Password reset email is not configured. Contact your administrator." });
+    return;
+  }
+
+  const email = parsed.data.email.toLowerCase();
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, email: true, firstName: true, isActive: true },
+  });
+
+  if (!user || !user.isActive) {
+    res.status(404).json({ message: "No account exists for this email." });
+    return;
+  }
+
+  const token = createPasswordResetTokenValue();
+  const tokenHash = hashPasswordResetToken(token);
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+  await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, tokenHash, expiresAt },
+  });
+
+  const baseUrl = env.APP_BASE_URL || env.FRONTEND_ORIGIN;
+  const resetUrl = `${baseUrl.replace(/\/$/, "")}/reset-password?token=${token}`;
+
+  try {
+    await sendPasswordResetEmail({
+      email: user.email,
+      firstName: user.firstName,
+      resetUrl,
+    });
+  } catch (error) {
+    console.error("[auth] Failed to send password reset email:", error);
+    res.status(500).json({ message: "Could not send reset email. Try again later." });
+    return;
+  }
+
+  res.status(200).json({ message: PASSWORD_RESET_SENT_MESSAGE });
+});
+
+authRouter.post("/reset-password", async (req, res) => {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid payload", issues: parsed.error.flatten() });
+    return;
+  }
+
+  const tokenHash = hashPasswordResetToken(parsed.data.token);
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: { user: { select: { id: true, passwordHash: true, isActive: true } } },
+  });
+
+  if (!resetToken || !resetToken.user.isActive || resetToken.expiresAt.getTime() < Date.now()) {
+    res.status(400).json({ message: "Reset link is invalid or has expired." });
+    return;
+  }
+
+  const nextEqualsCurrent = await bcrypt.compare(parsed.data.password, resetToken.user.passwordHash);
+  if (nextEqualsCurrent) {
+    res.status(400).json({ message: "New password must be different from your current password." });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash },
+    }),
+    prisma.passwordResetToken.deleteMany({ where: { userId: resetToken.userId } }),
+  ]);
+
+  res.status(200).json({ message: "Password updated. You can sign in now." });
+});
+
+authRouter.post("/request-access", async (req, res) => {
+  const parsed = requestAccessSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid payload", issues: parsed.error.flatten() });
+    return;
+  }
+
+  const email = parsed.data.email.toLowerCase();
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, isActive: true },
+  });
+  if (existingUser?.isActive) {
+    res.status(409).json({ message: "An account already exists for this email. Try signing in or reset your password." });
+    return;
+  }
+
+  const existingRequest = await prisma.accessRequest.findFirst({
+    where: { email },
+    select: { id: true },
+  });
+  if (existingRequest) {
+    res.status(409).json({ message: "Already submitted." });
+    return;
+  }
+
+  await prisma.accessRequest.create({
+    data: {
+      firstName: parsed.data.firstName.trim(),
+      lastName: parsed.data.lastName.trim(),
+      email,
+      message: parsed.data.message?.trim() ?? "",
+    },
+  });
+
+  res.status(200).json({
+    message: "Access request submitted. An administrator will review it soon.",
+  });
 });
 
 authRouter.post("/bootstrap-admin", async (req, res) => {

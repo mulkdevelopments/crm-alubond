@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { CalendarDays, ChevronDown, ChevronRight, Pencil, Search, ShieldAlert, User, UserPlus, X } from 'lucide-react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
 
@@ -39,6 +40,8 @@ const ROLE_SORT_ORDER: Record<Role, number> = {
 
 export default function UsersPage() {
   const { user, token } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<UserListItem[]>([]);
   const [managers, setManagers] = useState<UserListItem[]>([]);
   const [regionalManagers, setRegionalManagers] = useState<ManagerOption[]>([]);
@@ -112,6 +115,27 @@ export default function UsersPage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, isAdmin]);
+
+  useEffect(() => {
+    if (!isAdmin || searchParams.get('create') !== '1') return;
+
+    setEditingUserId(null);
+    setRole('SALES_REP');
+    setManagerId('');
+    setRegionalManagerId('');
+    setReportsToId('');
+    setRegionsInput('');
+    setFirstName(searchParams.get('firstName') ?? '');
+    setLastName(searchParams.get('lastName') ?? '');
+    setEmail(searchParams.get('email') ?? '');
+    setOperationLocation('');
+    setYearlyTarget('');
+    setPassword('');
+    setCanSetBusinessDivision(false);
+    setUserDialogOpen(true);
+    setMessage(null);
+    router.replace('/users', { scroll: false });
+  }, [isAdmin, router, searchParams]);
 
   const stats = useMemo(() => {
     return {
@@ -295,16 +319,16 @@ export default function UsersPage() {
     }
   }
 
-  function openCreateUserDialog() {
+  function openCreateUserDialog(prefill?: { firstName?: string; lastName?: string; email?: string }) {
     setEditingUserId(null);
     setRole('SALES_REP');
     setManagerId('');
     setRegionalManagerId('');
     setReportsToId('');
     setRegionsInput('');
-    setFirstName('');
-    setLastName('');
-    setEmail('');
+    setFirstName(prefill?.firstName ?? '');
+    setLastName(prefill?.lastName ?? '');
+    setEmail(prefill?.email ?? '');
     setOperationLocation('');
     setYearlyTarget('');
     setPassword('');
@@ -450,7 +474,7 @@ export default function UsersPage() {
                 <Badge tone="success">Regional Managers {stats.regionalManagers}</Badge>
                 <Badge tone="warning">Managers {stats.managers}</Badge>
                 <Badge tone="info">Sales reps {stats.reps}</Badge>
-                <Button type="button" variant="primary" size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={openCreateUserDialog}>
+                <Button type="button" variant="primary" size="sm" icon={<UserPlus className="h-4 w-4" />} onClick={() => openCreateUserDialog()}>
                   Create user
                 </Button>
               </div>

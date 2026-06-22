@@ -4,6 +4,9 @@ import { useEffect, useMemo } from 'react';
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import L, { type LatLngExpression } from 'leaflet';
 
+import { MapInteractionOverlay } from '@/components/map/MapInteractionOverlay';
+import { useScrollFriendlyMap } from '@/components/map/useScrollFriendlyMap';
+
 const DEFAULT_CENTER: LatLngExpression = [20, 0];
 
 // Use hosted marker assets so pins render correctly in Next.js.
@@ -71,21 +74,25 @@ export function LocationPickerMap({
     ? ([lat, lng] as LatLngExpression)
     : null;
 
+  const mapInteraction = useScrollFriendlyMap();
+  const mapInteractive = interactive && mapInteraction.interactive;
+
   return (
-    <MapContainer
-      center={center}
-      zoom={initialZoom}
-      minZoom={2}
-      maxZoom={18}
-      dragging={interactive}
-      touchZoom={interactive}
-      doubleClickZoom={interactive}
-      boxZoom={interactive}
-      keyboard={interactive}
-      scrollWheelZoom={interactive}
-      className={heightClassName}
-      attributionControl
-    >
+    <div className={`relative ${heightClassName}`}>
+      <MapContainer
+        center={center}
+        zoom={initialZoom}
+        minZoom={2}
+        maxZoom={18}
+        dragging={mapInteractive}
+        touchZoom={mapInteractive}
+        doubleClickZoom={mapInteractive}
+        boxZoom={mapInteractive}
+        keyboard={mapInteractive}
+        scrollWheelZoom={false}
+        className="h-full"
+        attributionControl
+      >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -98,6 +105,15 @@ export function LocationPickerMap({
         const pos = marker.getLatLng();
         onPick(pos.lat, pos.lng);
       } }} />}
-    </MapContainer>
+      </MapContainer>
+      {interactive ? (
+        <MapInteractionOverlay
+          visible={mapInteraction.isMobile}
+          active={mapInteraction.active}
+          onActivate={mapInteraction.activate}
+          onDeactivate={mapInteraction.deactivate}
+        />
+      ) : null}
+    </div>
   );
 }

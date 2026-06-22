@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import "react-native-reanimated";
 
+import { BrandMark } from "@/components/BrandLogo";
 import { fetchMe, login as loginApi, type AuthUser } from "@/lib/api/auth-api";
 import { AuthProvider, useAuth } from "@/lib/auth/AuthContext";
 import { clearSession, getStoredToken, getStoredUser, saveSession } from "@/lib/auth/session";
@@ -82,7 +83,8 @@ export default function RootLayout() {
   if (!loaded || booting) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
-        <ActivityIndicator color={colors.brand} />
+        <BrandMark size="lg" />
+        <ActivityIndicator color={colors.brand} style={{ marginTop: 24 }} />
       </View>
     );
   }

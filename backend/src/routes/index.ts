@@ -18,6 +18,7 @@ import {
   listProjects,
   updateProject
 } from "../modules/projects/projects.repository";
+import { accessRequestsRouter } from "../modules/access-requests/access-requests.routes";
 import { authRouter } from "../modules/auth/auth.routes";
 import { usersRouter } from "../modules/users/users.routes";
 
@@ -445,6 +446,7 @@ apiRouter.get("/health", (_req, res) => {
 });
 
 apiRouter.use("/auth", authRouter);
+apiRouter.use("/access-requests", accessRequestsRouter);
 apiRouter.use("/users", usersRouter);
 
 apiRouter.post("/ai/assistant", authenticate, async (req, res) => {

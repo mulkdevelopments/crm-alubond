@@ -191,6 +191,9 @@
     .yes { color: var(--success); font-weight: 700; }
     .no { color: #94a3b8; }
 
+    a { color: var(--brand); }
+    a:hover { color: var(--brand-dark); }
+
     code {
       background: #f1f5f9;
       padding: 2px 6px;
@@ -253,9 +256,9 @@
       <h1>Alubond CRM User Guide</h1>
       <p>
         A practical guide for sales reps, managers, regional managers, and leadership —
-        covering daily workflows on web and mobile. Admin-only features are not included here.
+        covering daily workflows on web and mobile.
       </p>
-      <span class="badge">Version 1.0 · Web + Android app</span>
+      <span class="badge">Alubond Sales Intelligence · Web CRM</span>
     </div>
   </header>
 
@@ -287,20 +290,28 @@
       <div class="card tip">
         <strong>What you need</strong>
         <ul>
-          <li>An account created by your administrator (email + password).</li>
-          <li>Web browser: Chrome, Safari, or Edge (desktop or phone).</li>
-          <li>Optional: the Alubond CRM Android app (APK) for field use.</li>
+          <li>A company email address and password for Alubond CRM (provided when your account is set up).</li>
+          <li>A modern web browser: Chrome, Safari, or Edge — on desktop, tablet, or phone.</li>
           <li>Location permission when logging site visits (GPS is recorded automatically).</li>
         </ul>
       </div>
 
       <div class="card">
-        <strong>Web app URLs</strong>
+        <strong>Open the CRM</strong>
         <ul>
-          <li><strong>Production:</strong> use the URL shared by your admin (Render-hosted).</li>
-          <li><strong>Local dev:</strong> <code>http://localhost:3000</code></li>
+          <li>Sign in at <a href="https://crm.alubond.com"><strong>crm.alubond.com</strong></a> using the email and password for your account.</li>
+          <li>Bookmark this link on your phone or laptop for quick access in the field.</li>
+          <li>Do not have an account yet? Use <strong>Request access</strong> on the login page — your request is reviewed by the team.</li>
         </ul>
       </div>
+
+      <h3>Your first day — quick path</h3>
+      <ol class="steps">
+        <li>Sign in and review the <strong>Dashboard</strong> for your pipeline summary.</li>
+        <li>Open <strong>Pipeline</strong> and find projects assigned to you.</li>
+        <li>Tap a project to open its detail page and <strong>log your first activity</strong> (call, visit, or note).</li>
+        <li>Check <strong>Follow-ups</strong> for any tasks due today or overdue.</li>
+      </ol>
     </section>
 
     <section id="login">
@@ -308,21 +319,28 @@
       <p class="lead">Open the login page and enter the email and password provided for your account.</p>
 
       <ol class="steps">
-        <li>Go to the CRM login page.</li>
+        <li>Go to <strong>crm.alubond.com</strong>.</li>
         <li>Enter your <strong>email</strong> and <strong>password</strong>.</li>
         <li>Click <strong>Sign in</strong>. You are taken to the Dashboard.</li>
       </ol>
 
+      <h3>No account or forgot password?</h3>
+      <ul>
+        <li><strong>Request access</strong> — on the login page, submit your name and email if you are new to the CRM.</li>
+        <li><strong>Forgot password</strong> — enter your email to receive a reset link (check spam if it does not arrive within a few minutes).</li>
+      </ul>
+
       <figure>
         <img src="screenshots/01-login.png" alt="Alubond CRM login screen" />
-        <figcaption>Login screen — use your assigned credentials. Contact your admin if you cannot sign in.</figcaption>
+        <figcaption>Login screen — use your company email and password. Links below the form let you request access or reset your password.</figcaption>
       </figure>
 
       <div class="card warn">
         <strong>Session tips</strong>
         <ul>
           <li>Your session stays active for several days; sign out from Profile when using a shared device.</li>
-          <li>If you see “Login failed”, double-check email/password or ask admin to reset your account.</li>
+          <li>If sign-in fails, double-check your email and password, or use <strong>Forgot password</strong> on the login page.</li>
+          <li>Still stuck? Contact your manager or company support with your email address and a screenshot of the error.</li>
         </ul>
       </div>
     </section>
@@ -351,7 +369,8 @@
       </table>
 
       <div class="card tip">
-        The red badge on <strong>Follow-ups</strong> in the sidebar shows how many open tasks you still have.
+        The badge on <strong>Follow-ups</strong> in the sidebar shows how many open tasks you still have.
+        The bell icon in the top bar shows alerts such as overdue follow-ups and recent project updates.
       </div>
     </section>
 
@@ -395,13 +414,15 @@
         <figcaption>Pipeline — projects organised by sales stage from Lead Identified through Won/Lost.</figcaption>
       </figure>
 
-      <h3>Create or edit a project (managers, regional managers, CEO)</h3>
+      <h3>Add or edit a project (managers, regional managers, CEO)</h3>
       <ol class="steps">
-        <li>Click <strong>+ New project</strong> (or the edit icon on an existing card).</li>
+        <li>Click <strong>Add project</strong> (or the edit icon on an existing card).</li>
         <li>Fill in project name, city, country, developer, value, and location on the map.</li>
         <li>Assign regional manager, manager, and sales reps as needed.</li>
         <li>Save — the project appears in the pipeline for the assigned team.</li>
       </ol>
+
+      <p>When moving a project to Tender or later stages, you may be asked for commercial details (value, quantity, and product specifications).</p>
 
       <div class="card tip">
         Sales reps typically <strong>view</strong> assigned projects and log activity; they do not create new projects unless your process assigns that to managers.
@@ -419,8 +440,8 @@
         <figcaption>Project detail — commercial info, stakeholders, and activity timeline.</figcaption>
       </figure>
 
-      <h3>Log an activity</h3>
-      <p>Click <strong>Log activity</strong> (or the + button) to open the activity composer. Supported types:</p>
+      <h3>Log an update</h3>
+      <p>Open the activity section on the project page and click to add an update. Supported types:</p>
       <table>
         <thead>
           <tr><th>Type</th><th>When to use</th></tr>
@@ -436,7 +457,7 @@
 
       <figure>
         <img src="screenshots/05-log-activity.png" alt="Log activity composer" />
-        <figcaption>Activity composer — choose type, add notes, attach files or voice notes, save to the timeline.</figcaption>
+        <figcaption>Activity form — choose type, add notes, attach files or voice notes, then click <strong>Log update</strong>.</figcaption>
       </figure>
 
       <h3>Logging a site visit</h3>
@@ -445,7 +466,7 @@
         <li>Enter who you met and the meeting date/time.</li>
         <li>Allow <strong>location access</strong> when prompted — your GPS coordinates are saved with the visit.</li>
         <li>Add a recap of what was discussed and any next steps.</li>
-        <li>Optionally attach photos or a voice note, then click <strong>Save activity</strong>.</li>
+        <li>Optionally attach photos or a voice note, then click <strong>Log update</strong>.</li>
       </ol>
 
       <div class="card tip">
@@ -502,10 +523,11 @@
       </figure>
 
       <ul>
-        <li>Pan and zoom the map to explore regions.</li>
+        <li>On desktop, pan and zoom the map freely.</li>
+        <li>On phone, tap <strong>Tap to use map</strong> before panning; tap <strong>Lock map</strong> when you want to scroll the page again.</li>
         <li>Click a pin to see project name, stage, and city.</li>
         <li>Use <strong>stage filter chips</strong> to show only Lead, Tender, Won, etc.</li>
-        <li>Click through to the project detail page from a marker popup.</li>
+        <li>Open the project detail page from a marker popup.</li>
       </ul>
     </section>
 
@@ -562,39 +584,38 @@
     </section>
 
     <section id="mobile">
-      <h2>Mobile app (Android)</h2>
+      <h2>Mobile app</h2>
       <p class="lead">
-        The Alubond CRM Android app mirrors the same workflows for use in the field — pipeline, visits with GPS,
-        follow-ups, map, and profile.
+        Native apps for <strong>iOS</strong> and <strong>Android</strong> are coming soon. They will mirror the same
+        workflows as the web CRM — pipeline, visits with GPS, follow-ups, map, and profile — optimised for use on site.
       </p>
 
       <div class="two-col">
         <figure>
           <img src="screenshots/10-mobile-home.png" alt="Mobile home screen" />
-          <figcaption>Mobile — Home tab with KPI summary.</figcaption>
+          <figcaption>Mobile — Home tab with KPI summary (preview).</figcaption>
         </figure>
         <figure>
           <img src="screenshots/11-mobile-pipeline.png" alt="Mobile pipeline screen" />
-          <figcaption>Mobile — Pipeline list; tap a project to log activity on site.</figcaption>
+          <figcaption>Mobile — Pipeline list; tap a project to log activity on site (preview).</figcaption>
         </figure>
       </div>
 
-      <h3>Install the app</h3>
-      <ol class="steps">
-        <li>Install the APK file shared by your admin on your Android phone.</li>
-        <li>Allow installation from unknown sources if Android prompts you.</li>
-        <li>Open the app and sign in with the same email and password as the web CRM.</li>
-        <li>Grant <strong>location</strong> and <strong>photos</strong> permissions when logging visits or attachments.</li>
-      </ol>
-
       <div class="card tip">
-        Mobile tabs: <strong>Home · Pipeline · Tasks · Map · Profile</strong>. Managers also see <strong>Team</strong>.
+        <strong>Coming soon</strong>
+        <ul>
+          <li>Until the apps launch, use <strong>crm.alubond.com</strong> in your phone browser — the web CRM works on mobile.</li>
+          <li>When the apps are ready, you will see an announcement in the <strong>notifications</strong> bell at the top of the screen.</li>
+          <li>Sign in with the same email and password as the web CRM — no separate account needed.</li>
+        </ul>
       </div>
+
+      <p>Planned mobile tabs: <strong>Home · Pipeline · Tasks · Map · Profile</strong>. Managers will also see <strong>Team</strong>.</p>
     </section>
 
     <section id="roles">
       <h2>Access by role</h2>
-      <p class="lead">What you can see and do depends on your role. Your admin assigns this when creating your account.</p>
+      <p class="lead">What you can see and do depends on your role, which is set when your account is created.</p>
 
       <table>
         <thead>
@@ -643,14 +664,14 @@
       </table>
 
       <div class="card">
-        <strong>Need help?</strong> Contact your CRM administrator for account access, password resets,
-        or project assignment changes. For technical issues, share a screenshot and the page you were on.
+        <strong>Need help?</strong> Contact your manager or company support for account access, password issues,
+        or project assignment questions. Include a screenshot and the page you were on when reporting a problem.
       </div>
     </section>
   </main>
 
   <footer>
-    Alubond CRM User Guide · Generated for internal team use · Screenshots captured from the live application
+    Alubond CRM User Guide · Alubond Sales Intelligence
   </footer>
 </body>
 </html>

@@ -103,6 +103,50 @@ export async function login(email: string, password: string): Promise<{ token: s
   return response.json();
 }
 
+export async function requestPasswordReset(email: string): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  const body = (await response.json().catch(() => ({}))) as { message?: string };
+  if (!response.ok) {
+    throw new Error(body.message ?? "Could not request password reset");
+  }
+  return { message: body.message ?? "Password reset instructions have been sent to your email." };
+}
+
+export async function resetPasswordWithToken(token: string, password: string): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+  const body = (await response.json().catch(() => ({}))) as { message?: string };
+  if (!response.ok) {
+    throw new Error(body.message ?? "Could not reset password");
+  }
+  return { message: body.message ?? "Password updated." };
+}
+
+export async function requestAccountAccess(payload: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  message?: string;
+}): Promise<{ message: string }> {
+  const response = await fetch(`${API_BASE}/auth/request-access`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = (await response.json().catch(() => ({}))) as { message?: string };
+  if (!response.ok) {
+    throw new Error(body.message ?? "Could not submit access request");
+  }
+  return { message: body.message ?? "Access request sent." };
+}
+
 export async function fetchMe(token: string): Promise<AuthUser> {
   const response = await fetch(`${API_BASE}/users/me`, {
     headers: {

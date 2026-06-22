@@ -24,6 +24,8 @@ import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/components/auth/AuthContext';
 import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
 import { formatAED } from '@/lib/utils';
+import { MapInteractionOverlay } from '@/components/map/MapInteractionOverlay';
+import { useScrollFriendlyMap } from '@/components/map/useScrollFriendlyMap';
 
 const STAGE_META: Record<string, { color: string; icon: LucideIcon; tone: 'brand' | 'neutral' | 'success' | 'warning' | 'danger' | 'info' }> = {
   'Lead Identified': { color: '#e30613', icon: CircleDot, tone: 'danger' },
@@ -115,6 +117,7 @@ export default function MapPage() {
     [validProjects, focusedProjectId]
   );
   const focusedProjectUpdates = focusedProject ? (recentActivitiesByProjectId[focusedProject.id] ?? []) : [];
+  const mapInteraction = useScrollFriendlyMap();
 
   async function loadProjects() {
     if (!token) {
@@ -218,12 +221,17 @@ export default function MapPage() {
             </div>
           </div>
           <div className="p-4">
-            <div className="rounded-2xl overflow-hidden border border-[var(--border)] h-[640px]">
+            <div className="relative rounded-2xl overflow-hidden border border-[var(--border)] h-[280px] sm:h-[420px] lg:h-[640px]">
               <MapContainer
                 center={mapCenter}
                 zoom={filteredProjects.length > 0 ? 4 : 2}
                 minZoom={2}
                 maxZoom={18}
+                dragging={mapInteraction.interactive}
+                touchZoom={mapInteraction.interactive}
+                doubleClickZoom={mapInteraction.interactive}
+                boxZoom={mapInteraction.interactive}
+                scrollWheelZoom={false}
                 className="h-full"
               >
                 <TileLayer
@@ -244,6 +252,12 @@ export default function MapPage() {
                   />
                 ))}
               </MapContainer>
+              <MapInteractionOverlay
+                visible={mapInteraction.isMobile}
+                active={mapInteraction.active}
+                onActivate={mapInteraction.activate}
+                onDeactivate={mapInteraction.deactivate}
+              />
             </div>
           </div>
         </Card>

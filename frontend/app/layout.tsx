@@ -6,6 +6,13 @@ export const metadata: Metadata = {
   title: 'Alubond CRM — Sales Intelligence',
   description:
     'A modern, mobile-first sales war room for façade systems and ACP — built for Alubond.',
+  icons: {
+    icon: [
+      { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/brand/favicon.png', sizes: '48x48', type: 'image/png' },
+    ],
+    apple: '/brand/apple-touch-icon.png',
+  },
 };
 
 export const viewport: Viewport = {

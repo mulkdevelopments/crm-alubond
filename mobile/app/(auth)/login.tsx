@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 
+import { AuthBrandHeader } from "@/components/BrandLogo";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { colors } from "@/constants/theme";
 
@@ -38,25 +39,27 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.card}>
-        <Text style={styles.brand}>Alubond CRM</Text>
+        <AuthBrandHeader />
         <Text style={styles.subtitle}>Sign in to manage projects in the field</Text>
 
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="email-address"
-          placeholder="Email"
+          placeholder="you@company.com"
           value={email}
           onChangeText={setEmail}
           style={styles.input}
         />
         <TextInput
           secureTextEntry
-          placeholder="Password"
+          placeholder="Enter your password"
           value={password}
           onChangeText={setPassword}
           style={styles.input}
         />
+
+        <Text style={styles.helpText}>Accounts are created by your administrator.</Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -82,8 +85,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 24,
   },
-  brand: { fontSize: 28, fontWeight: "800", color: colors.brand },
-  subtitle: { marginTop: 8, marginBottom: 24, color: colors.textMuted, fontSize: 14 },
+  subtitle: { marginTop: 8, marginBottom: 24, color: colors.textMuted, fontSize: 14, textAlign: "center" },
   input: {
     height: 48,
     borderRadius: 12,
@@ -103,4 +105,5 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   error: { color: colors.danger, marginBottom: 8, fontSize: 13 },
+  helpText: { marginBottom: 8, fontSize: 12, color: colors.textMuted },
 });

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
+import { BrandLogo } from "@/components/BrandLogo";
 import { colors } from "@/constants/theme";
 import { useAuth, canAccessTeam } from "@/lib/auth/AuthContext";
 
@@ -16,6 +17,8 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.textMuted,
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
+        headerTitle: () => <BrandLogo markSize="sm" />,
+        headerTitleAlign: "left",
       }}
     >
       <Tabs.Screen

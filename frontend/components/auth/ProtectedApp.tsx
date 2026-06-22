@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, KanbanSquare, LayoutDashboard, LogOut, MapPin, UserCircle2, UserCog, Users, X } from "lucide-react";
+import { Bell, BookOpen, KanbanSquare, LayoutDashboard, LogOut, MapPin, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
 
 import { AuthProvider } from "@/components/auth/AuthContext";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import { AIAssistantFab } from "@/components/ai/AIAssistantFab";
 import { QuickActivityFab } from "@/components/activity/QuickActivityFab";
 import { MobileNav } from "@/components/shell/MobileNav";
@@ -66,10 +67,16 @@ function readStoredTelemetry() {
   }
 }
 
+const PUBLIC_AUTH_PATHS = ["/login", "/forgot-password", "/reset-password", "/request-access"];
+
+function isPublicAuthPath(pathname: string) {
+  return PUBLIC_AUTH_PATHS.includes(pathname);
+}
+
 export function ProtectedApp({ children }: ProtectedAppProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const isAuthPage = pathname === "/login";
+  const isAuthPage = isPublicAuthPath(pathname);
   const [checking, setChecking] = useState(true);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -81,13 +88,18 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
     { href: "/map", label: "Geo Intel", icon: MapPin },
     { href: "/follow-ups", label: "Follow-ups", icon: Bell },
     { href: "/team", label: "Field Team", icon: Users },
-    ...(user?.role === "ADMIN" ? [{ href: "/users", label: "Users", icon: UserCog }] : []),
+    { href: "/docs", label: "Docs", icon: BookOpen },
+    ...(user?.role === "ADMIN"
+      ? [
+          { href: "/access-requests", label: "Access requests", icon: UserPlus },
+          { href: "/users", label: "Users", icon: UserCog },
+        ]
+      : []),
     { href: "/profile", label: "Profile", icon: UserCircle2 },
   ];
 
   useEffect(() => {
-    const isAuthPage = pathname === "/login";
-    if (isAuthPage) {
+    if (isPublicAuthPath(pathname)) {
       setChecking(false);
       return;
     }
@@ -238,7 +250,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
     }));
   }
 
-  if (pathname === "/login") {
+  if (isPublicAuthPath(pathname)) {
     return <>{children}</>;
   }
 
@@ -277,8 +289,8 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
             className="h-full w-[280px] max-w-[85vw] surface border-r border-[var(--border)] shadow-soft"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between">
-              <p className="font-semibold tracking-tight">Menu</p>
+            <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
+              <BrandLogo markSize="sm" className="min-w-0" />
               <button
                 type="button"
                 className="h-8 w-8 inline-flex items-center justify-center rounded-lg hover:bg-[var(--surface-2)]"

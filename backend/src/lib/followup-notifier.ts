@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 
 import { env } from "../config/env";
+import { emailButtonStyle, wrapEmailHtml } from "./email-layout";
 import { prisma } from "./prisma";
 
 type FollowUpNotificationAction = "created" | "updated";
@@ -151,8 +152,7 @@ function buildFollowUpEmail(input: {
     "Alubond CRM",
   ].filter(Boolean);
 
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px">
+  const html = wrapEmailHtml(`
       <p style="margin:0 0 16px">Hello ${escapeHtml(input.recipientName)},</p>
       <p style="margin:0 0 16px">A follow-up has been <strong>${actionLabel}</strong> by ${escapeHtml(input.actor)}.</p>
       <table style="width:100%;border-collapse:collapse;margin:0 0 20px">
@@ -171,12 +171,10 @@ function buildFollowUpEmail(input: {
       </p>
       ${
         input.appLink
-          ? `<p style="margin:0 0 20px"><a href="${escapeHtml(input.appLink)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px">Open follow-ups</a></p>`
+          ? `<p style="margin:0 0 20px"><a href="${escapeHtml(input.appLink)}" style="${emailButtonStyle()}">Open follow-ups</a></p>`
           : ""
       }
-      <p style="margin:0;color:#64748b;font-size:13px">Alubond CRM · no-reply@crm.alubond.com</p>
-    </div>
-  `.trim();
+  `);
 
   return { subject, text: textLines.join("\n"), html };
 }

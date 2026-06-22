@@ -6,6 +6,7 @@ import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, Ma
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Badge } from '@/components/ui/Badge';
 import { STAGES, type Stage } from '@/lib/data';
 import { listManagers, listMyTeam, listRegionalManagers, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
@@ -171,6 +172,8 @@ export default function PipelinePage() {
     error: string | null;
     saving: boolean;
   } | null>(null);
+  const [projectPendingDelete, setProjectPendingDelete] = useState<PipelineProject | null>(null);
+  const [deletingProject, setDeletingProject] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
   const isManager = user?.role === 'MANAGER';
@@ -664,22 +667,27 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     });
   }
 
-  async function deleteProjectById(project: PipelineProject) {
-    if (!isAdmin || !token) return;
-    const confirmed = window.confirm(
-      `Delete project "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
-    );
-    if (!confirmed) return;
+  function requestDeleteProject(project: PipelineProject) {
+    if (!isAdmin) return;
+    setProjectPendingDelete(project);
+  }
 
+  async function confirmDeleteProject() {
+    if (!isAdmin || !token || !projectPendingDelete) return;
+
+    setDeletingProject(true);
     setProjectsError(null);
     try {
-      await deleteProjectApi(token, project.id);
-      if (editingId === project.id) {
+      await deleteProjectApi(token, projectPendingDelete.id);
+      if (editingId === projectPendingDelete.id) {
         closeForm();
       }
+      setProjectPendingDelete(null);
       await refreshProjects(token);
     } catch (error) {
       setProjectsError(error instanceof Error ? error.message : 'Failed to delete project.');
+    } finally {
+      setDeletingProject(false);
     }
   }
 
@@ -1017,7 +1025,7 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                   {isAdmin && (
                     <button
                       type="button"
-                      onClick={() => void deleteProjectById(project)}
+                      onClick={() => requestDeleteProject(project)}
                       className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
                       aria-label={`Delete ${project.name}`}
                     >
@@ -1142,7 +1150,7 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                                 {isAdmin && (
                                   <button
                                     type="button"
-                                    onClick={() => void deleteProjectById(p)}
+                                    onClick={() => requestDeleteProject(p)}
                                     className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
                                     aria-label={`Delete ${p.name}`}
                                   >
@@ -1253,20 +1261,22 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
       )}
 
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-[min(1400px,100%)] h-[calc(100vh-2rem)] mx-auto surface border border-[var(--border)] rounded-2xl shadow-card flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-[var(--surface)] sm:bg-black/40 sm:backdrop-blur-sm sm:p-4 overflow-hidden">
+          <div className="w-full h-full sm:h-[calc(100vh-2rem)] sm:max-w-[min(1400px,100%)] sm:mx-auto sm:rounded-2xl surface sm:border border-[var(--border)] shadow-card flex flex-col overflow-hidden">
+            <div className="shrink-0 p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface)]">
               <h2 className="text-base font-semibold tracking-tight">{editingId ? 'Edit project' : 'Add project'}</h2>
               <button
                 onClick={closeForm}
-                className="h-8 w-8 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                className="h-9 w-9 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
                 aria-label="Close form"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[430px,1fr]">
-              <div className="min-h-0 overflow-y-auto p-4 space-y-3 border-b xl:border-b-0 xl:border-r border-[var(--border)]">
+            <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto xl:overflow-hidden overscroll-contain">
+                <div className="grid grid-cols-1 xl:grid-cols-[430px,1fr] xl:h-full xl:min-h-0">
+                  <div className="p-4 space-y-3 border-b xl:border-b-0 xl:border-r border-[var(--border)] xl:overflow-y-auto xl:min-h-0">
                 <input
                   value={form.name}
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
@@ -1454,53 +1464,83 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                 </div>
                 {peopleError && <p className="text-xs text-rose-600">{peopleError}</p>}
                 {formError && <p className="text-xs text-rose-600">{formError}</p>}
-                <div className="flex items-center justify-end gap-2 pt-1">
+                <div className="hidden xl:flex items-center justify-end gap-2 pt-1">
                   <Button type="button" variant="secondary" size="sm" onClick={closeForm}>Cancel</Button>
                   <Button type="submit" variant="primary" size="sm">{editingId ? 'Save changes' : 'Create project'}</Button>
                 </div>
-              </div>
+                  </div>
 
-              <div className="min-h-0 p-4 flex flex-col">
-                <div className="mb-2 flex gap-2">
-                  <input
-                    value={locationQuery}
-                    onChange={(e) => setLocationQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        void searchLocation();
-                      }
-                    }}
-                    placeholder="Search place or address"
-                    className="h-9 flex-1 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void searchLocation()}
-                    disabled={locationSearchLoading}
-                  >
-                    {locationSearchLoading ? 'Searching...' : 'Go'}
-                  </Button>
+                  <div className="p-4 flex flex-col xl:min-h-0">
+                    <div className="mb-2 flex flex-col sm:flex-row gap-2">
+                      <input
+                        value={locationQuery}
+                        onChange={(e) => setLocationQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void searchLocation();
+                          }
+                        }}
+                        placeholder="Search place or address"
+                        className="h-10 sm:h-9 flex-1 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={() => void searchLocation()}
+                        disabled={locationSearchLoading}
+                      >
+                        {locationSearchLoading ? 'Searching...' : 'Go'}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-2 mb-2 inline-flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5" /> Tap map or drag marker to set location
+                    </p>
+                    <div className="h-[240px] sm:h-[300px] xl:h-auto xl:flex-1 xl:min-h-[340px] rounded-2xl overflow-hidden border border-[var(--border)]">
+                      <LocationPickerMap
+                        lat={form.lat.trim() === '' ? null : Number(form.lat)}
+                        lng={form.lng.trim() === '' ? null : Number(form.lng)}
+                        onPick={pickLocationFromMap}
+                        heightClassName="h-full"
+                      />
+                    </div>
+                    {locationSearchError && <p className="mt-2 text-xs text-rose-600">{locationSearchError}</p>}
+                  </div>
                 </div>
-                <p className="text-xs text-2 mb-2 inline-flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5" /> Click map or drag marker to set location
-                </p>
-                <div className="flex-1 min-h-[340px] rounded-2xl overflow-hidden border border-[var(--border)]">
-                  <LocationPickerMap
-                    lat={form.lat.trim() === '' ? null : Number(form.lat)}
-                    lng={form.lng.trim() === '' ? null : Number(form.lng)}
-                    onPick={pickLocationFromMap}
-                    heightClassName="h-full"
-                  />
-                </div>
-                {locationSearchError && <p className="mt-2 text-xs text-rose-600">{locationSearchError}</p>}
+              </div>
+              <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex items-center justify-end gap-2 xl:hidden">
+                <Button type="button" variant="secondary" size="sm" className="flex-1 sm:flex-none" onClick={closeForm}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="primary" size="sm" className="flex-1 sm:flex-none">
+                  {editingId ? 'Save changes' : 'Create project'}
+                </Button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(projectPendingDelete)}
+        title="Delete project?"
+        description={
+          projectPendingDelete
+            ? `Delete "${projectPendingDelete.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete project"
+        cancelLabel="Cancel"
+        destructive
+        loading={deletingProject}
+        onCancel={() => {
+          if (deletingProject) return;
+          setProjectPendingDelete(null);
+        }}
+        onConfirm={() => void confirmDeleteProject()}
+      />
     </>
   );
 }

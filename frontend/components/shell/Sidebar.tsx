@@ -7,8 +7,10 @@ import {
   KanbanSquare,
   MapPin,
   Bell,
+  BookOpen,
   UserCog,
   UserCircle2,
+  UserPlus,
   Users,
   LogOut,
   ChevronsLeft,
@@ -17,7 +19,9 @@ import {
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthContext';
+import { BrandMark } from '@/components/brand/BrandLogo';
 import { listFollowUps } from '@/lib/followups-api';
+import { getPendingAccessRequestCount } from '@/lib/access-requests-api';
 
 type NavItem = {
   href: string;
@@ -32,6 +36,7 @@ const NAV: NavItem[] = [
   { href: '/map', label: 'Geo Intel', icon: MapPin },
   { href: '/follow-ups', label: 'Follow-ups', icon: Bell },
   { href: '/team', label: 'Field Team', icon: Users },
+  { href: '/docs', label: 'Docs', icon: BookOpen },
 ];
 
 export function Sidebar() {
@@ -39,8 +44,16 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout, token } = useAuth();
   const [followUpBadgeCount, setFollowUpBadgeCount] = useState<number | null>(null);
+  const [accessRequestBadgeCount, setAccessRequestBadgeCount] = useState<number | null>(null);
   const navItems: NavItem[] =
-    user?.role === 'ADMIN' ? [...NAV.slice(0, 5), { href: '/users', label: 'Users', icon: UserCog }, ...NAV.slice(5)] : NAV;
+    user?.role === 'ADMIN'
+      ? [
+          ...NAV.slice(0, 5),
+          { href: '/access-requests', label: 'Access requests', icon: UserPlus },
+          { href: '/users', label: 'Users', icon: UserCog },
+          ...NAV.slice(5),
+        ]
+      : NAV;
   const userName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() || user?.email || 'User';
 
   useEffect(() => {
@@ -59,6 +72,22 @@ export function Sidebar() {
     void loadFollowUpsCount();
   }, [token]);
 
+  useEffect(() => {
+    async function loadAccessRequestCount() {
+      if (!token || user?.role !== 'ADMIN') {
+        setAccessRequestBadgeCount(null);
+        return;
+      }
+      try {
+        const count = await getPendingAccessRequestCount(token);
+        setAccessRequestBadgeCount(count);
+      } catch {
+        setAccessRequestBadgeCount(null);
+      }
+    }
+    void loadAccessRequestCount();
+  }, [token, user?.role]);
+
   return (
     <aside
       className={cn(
@@ -67,21 +96,28 @@ export function Sidebar() {
       )}
     >
       <div className="flex items-center gap-2.5 px-5 h-16 border-b border-[var(--border)]">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white font-black text-sm shrink-0 shadow-brand">
-          A
-        </div>
-        {!collapsed && (
-          <div className="flex flex-col leading-none">
-            <span className="font-bold tracking-tight">Alubond</span>
-            <span className="text-[10px] text-3 mt-0.5 tracking-wider uppercase">Sales Intelligence</span>
-          </div>
-        )}
+        <Link href="/" className="flex items-center gap-2.5 min-w-0" aria-label="Alubond home">
+          <BrandMark size={collapsed ? 'sm' : 'md'} priority />
+          {!collapsed && (
+            <div className="flex flex-col leading-none min-w-0">
+              <span className="font-bold tracking-tight truncate">Alubond</span>
+              <span className="text-[10px] text-3 mt-0.5 tracking-wider uppercase whitespace-nowrap">
+                Sales Intelligence
+              </span>
+            </div>
+          )}
+        </Link>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         {navItems.map(({ href, label, icon: Icon, badge }) => {
           const active = href === '/' ? path === '/' : path.startsWith(href);
-          const resolvedBadge = href === '/follow-ups' && followUpBadgeCount != null ? String(followUpBadgeCount) : badge;
+          const resolvedBadge =
+            href === '/follow-ups' && followUpBadgeCount != null
+              ? String(followUpBadgeCount)
+              : href === '/access-requests' && accessRequestBadgeCount != null && accessRequestBadgeCount > 0
+                ? String(accessRequestBadgeCount)
+                : badge;
           return (
             <Link
               key={href}
