@@ -21,7 +21,7 @@ export function ProjectCard({
             {project.name}
           </Text>
           <Text style={styles.meta}>
-            {project.city} · {project.developer || "Developer TBD"}
+            {project.city} · {project.developer || "Customer TBD"}
           </Text>
         </View>
         {trailing}

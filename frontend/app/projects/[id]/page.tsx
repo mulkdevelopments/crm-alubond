@@ -2046,7 +2046,7 @@ export default function ProjectDetailPage() {
               <Row k="Stage" v={project.stage} />
               <Row k="Country" v={project.country} />
               <Row k="City" v={project.city} />
-              <Row k="Developer" v={project.developer} />
+              <Row k="Customer" v={project.developer} />
               <Row k="Business division" v={project.businessDivision?.trim() || 'Not provided'} />
               <Row k="Specifications" v={formatSpecsSummary(project) || 'Not provided'} />
               <Row k="Total quantity (m²)" v={project.itemQuantity > 0 ? `${project.itemQuantity}` : 'Not provided'} />

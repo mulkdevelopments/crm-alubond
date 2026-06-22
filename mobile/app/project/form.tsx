@@ -236,7 +236,7 @@ export default function ProjectFormScreen() {
         <Field label="Project name" value={name} onChangeText={setName} />
         <Field label="City" value={city} onChangeText={setCity} />
         <Field label="Country" value={country} onChangeText={setCountry} />
-        <Field label="Developer" value={developer} onChangeText={setDeveloper} />
+        <Field label="Customer" value={developer} onChangeText={setDeveloper} />
         <Field label="Total project value (AED)" value={value} onChangeText={setValue} keyboardType="numeric" />
         <Field
           label="Total project quantity (m²)"

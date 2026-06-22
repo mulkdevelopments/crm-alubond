@@ -223,7 +223,7 @@ export default function ProjectDetailScreen() {
         <View style={styles.card}>
           <Text style={styles.stage}>{formatStage(project.stage)}</Text>
           <Text style={styles.meta}>{project.city}, {project.country}</Text>
-          <Text style={styles.meta}>{project.developer || "Developer TBD"}</Text>
+          <Text style={styles.meta}>{project.developer || "Customer TBD"}</Text>
           <Text style={styles.value}>{formatAed(project.valueAed)}</Text>
           {project.itemQuantity > 0 ? (
             <Text style={styles.meta}>{project.itemQuantity.toLocaleString()} m²</Text>

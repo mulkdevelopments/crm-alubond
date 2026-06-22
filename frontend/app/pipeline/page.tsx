@@ -1284,7 +1284,7 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                 <input
                   value={form.developer}
                   onChange={(e) => setForm((prev) => ({ ...prev, developer: e.target.value }))}
-                  placeholder="Developer"
+                  placeholder="Customer"
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
                 {canSetDivision ? (
