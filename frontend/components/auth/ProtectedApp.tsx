@@ -277,7 +277,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
     >
       <div className="flex min-h-screen">
         <Sidebar />
-        <div className="relative z-0 flex-1 flex flex-col min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col">
           <Topbar onMenu={() => setMobileMenuOpen((prev) => !prev)} />
           <main className="flex-1 pb-24 lg:pb-12">{children}</main>
           <QuickActivityFab />
