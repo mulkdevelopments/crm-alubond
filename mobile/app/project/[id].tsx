@@ -30,6 +30,7 @@ import {
 } from "@/lib/api/projects-api";
 import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
 import { formatAed, formatStage } from "@/lib/utils";
+import { formatSpecsSummary } from "@/lib/project-specs";
 
 const ACTIVITY_TYPES: ProjectActivity["type"][] = ["note", "call", "visit", "email", "whatsapp"];
 
@@ -224,6 +225,12 @@ export default function ProjectDetailScreen() {
           <Text style={styles.meta}>{project.city}, {project.country}</Text>
           <Text style={styles.meta}>{project.developer || "Developer TBD"}</Text>
           <Text style={styles.value}>{formatAed(project.valueAed)}</Text>
+          {project.itemQuantity > 0 ? (
+            <Text style={styles.meta}>{project.itemQuantity.toLocaleString()} m²</Text>
+          ) : null}
+          {formatSpecsSummary(project) ? (
+            <Text style={styles.meta}>{formatSpecsSummary(project)}</Text>
+          ) : null}
           <Text style={styles.meta}>Manager: {project.managerName || "—"}</Text>
           <Text style={styles.meta}>Reps: {project.salesRepNames.join(", ") || "—"}</Text>
         </View>

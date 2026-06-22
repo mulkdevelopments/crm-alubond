@@ -61,6 +61,9 @@ model Project {
   valueAed     Float
   itemName     String   @default("")
   itemQuantity Int      @default(0)
+  specThickness String  @default("")
+  specCore      String  @default("")
+  specPaintType String  @default("")
   lat          Float
   lng          Float
   probability  Int

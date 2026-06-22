@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
 import {
   createProjectActivity,
   createProjectStakeholder,
@@ -29,6 +30,11 @@ import {
 } from '@/lib/projects-api';
 import { createLocationPing } from '@/lib/auth-api';
 import { STAGES } from '@/lib/data';
+import {
+  commercialSpecsComplete,
+  formatProjectSpecs,
+  formatSpecsSummary,
+} from '@/lib/project-specs';
 import { cn, formatAED, relativeTime } from '@/lib/utils';
 
 type SpeechRecognitionLike = {
@@ -175,8 +181,10 @@ export default function ProjectDetailPage() {
   const [siteLocationShareMessage, setSiteLocationShareMessage] = useState<string | null>(null);
   const [editingCommercial, setEditingCommercial] = useState(false);
   const [commercialValueAed, setCommercialValueAed] = useState('');
-  const [commercialItemName, setCommercialItemName] = useState('');
   const [commercialItemQuantity, setCommercialItemQuantity] = useState('');
+  const [commercialSpecThickness, setCommercialSpecThickness] = useState('');
+  const [commercialSpecCore, setCommercialSpecCore] = useState('');
+  const [commercialSpecPaintType, setCommercialSpecPaintType] = useState('');
   const [commercialError, setCommercialError] = useState<string | null>(null);
   const [savingCommercial, setSavingCommercial] = useState(false);
   const [showAssignmentPerformance, setShowAssignmentPerformance] = useState(false);
@@ -262,11 +270,20 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!project) return;
     setCommercialValueAed(String(project.valueAed));
-    setCommercialItemName(project.itemName ?? '');
     setCommercialItemQuantity(String(project.itemQuantity ?? 0));
+    setCommercialSpecThickness(project.specThickness ?? '');
+    setCommercialSpecCore(project.specCore ?? '');
+    setCommercialSpecPaintType(project.specPaintType ?? '');
     setCommercialError(null);
     setEditingCommercial(false);
-  }, [project?.id, project?.valueAed, project?.itemName, project?.itemQuantity]);
+  }, [
+    project?.id,
+    project?.valueAed,
+    project?.itemQuantity,
+    project?.specThickness,
+    project?.specCore,
+    project?.specPaintType,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -578,22 +595,32 @@ export default function ProjectDetailPage() {
     event.preventDefault();
     if (!token || !project) return;
     const nextValue = Number(commercialValueAed);
-    const nextItemName = commercialItemName.trim();
     const parsedQuantity = Number(commercialItemQuantity);
     const nextItemQuantity = Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? Math.round(parsedQuantity) : 0;
 
     if (!Number.isFinite(nextValue) || nextValue <= 0) {
-      setCommercialError('Value must be greater than 0.');
-      return;
-    }
-    if (requiresCommercialDetails(project.stage) && !nextItemName) {
-      setCommercialError('Item name is required for quatation stage and later.');
+      setCommercialError('Total project value must be greater than 0.');
       return;
     }
     if (requiresCommercialDetails(project.stage) && nextItemQuantity <= 0) {
-      setCommercialError('Item quantity is required for quatation stage and later.');
+      setCommercialError('Total project quantity is required for quotation stage and later.');
       return;
     }
+    if (
+      requiresCommercialDetails(project.stage) &&
+      !commercialSpecsComplete(commercialSpecThickness, commercialSpecCore, commercialSpecPaintType)
+    ) {
+      setCommercialError('Select thickness, core, and paint type.');
+      return;
+    }
+
+    const nextItemName = commercialSpecsComplete(
+      commercialSpecThickness,
+      commercialSpecCore,
+      commercialSpecPaintType,
+    )
+      ? formatProjectSpecs(commercialSpecThickness, commercialSpecCore, commercialSpecPaintType)
+      : project.itemName;
 
     setSavingCommercial(true);
     setCommercialError(null);
@@ -608,6 +635,9 @@ export default function ProjectDetailPage() {
         valueAed: nextValue,
         itemName: nextItemName,
         itemQuantity: nextItemQuantity,
+        specThickness: commercialSpecThickness,
+        specCore: commercialSpecCore,
+        specPaintType: commercialSpecPaintType,
         lat: project.lat,
         lng: project.lng,
         probability: project.probability,
@@ -1150,32 +1180,20 @@ export default function ProjectDetailPage() {
             </div>
             {editingCommercial ? (
               <form className="mt-2 space-y-2" onSubmit={onSaveCommercialDetails}>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    value={commercialValueAed}
-                    onChange={(e) => setCommercialValueAed(e.target.value)}
-                    placeholder="Value (AED)"
-                    className="h-10 px-3 rounded-xl bg-white/70 dark:bg-amber-500/10 border border-amber-300/70 dark:border-amber-500/30 focus:outline-none text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={commercialItemName}
-                    onChange={(e) => setCommercialItemName(e.target.value)}
-                    placeholder="Item name"
-                    className="h-10 px-3 rounded-xl bg-white/70 dark:bg-amber-500/10 border border-amber-300/70 dark:border-amber-500/30 focus:outline-none text-sm"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={commercialItemQuantity}
-                    onChange={(e) => setCommercialItemQuantity(e.target.value)}
-                    placeholder="Quantity"
-                    className="h-10 px-3 rounded-xl bg-white/70 dark:bg-amber-500/10 border border-amber-300/70 dark:border-amber-500/30 focus:outline-none text-sm"
-                  />
-                </div>
+                <ProjectCommercialFields
+                  idPrefix="project-commercial"
+                  value={commercialValueAed}
+                  itemQuantity={commercialItemQuantity}
+                  specThickness={commercialSpecThickness}
+                  specCore={commercialSpecCore}
+                  specPaintType={commercialSpecPaintType}
+                  onValueChange={setCommercialValueAed}
+                  onItemQuantityChange={setCommercialItemQuantity}
+                  onSpecThicknessChange={setCommercialSpecThickness}
+                  onSpecCoreChange={setCommercialSpecCore}
+                  onSpecPaintTypeChange={setCommercialSpecPaintType}
+                  required={requiresCommercialDetails(project.stage)}
+                />
                 <div className="flex items-center justify-end gap-2">
                   {commercialError && (
                     <p className="text-xs text-rose-700 dark:text-rose-300 mr-auto">{commercialError}</p>
@@ -1188,8 +1206,10 @@ export default function ProjectDetailPage() {
                       setEditingCommercial(false);
                       setCommercialError(null);
                       setCommercialValueAed(String(project.valueAed));
-                      setCommercialItemName(project.itemName ?? '');
                       setCommercialItemQuantity(String(project.itemQuantity ?? 0));
+                      setCommercialSpecThickness(project.specThickness ?? '');
+                      setCommercialSpecCore(project.specCore ?? '');
+                      setCommercialSpecPaintType(project.specPaintType ?? '');
                     }}
                   >
                     Cancel
@@ -1200,23 +1220,23 @@ export default function ProjectDetailPage() {
                 </div>
               </form>
             ) : (
-              <div className="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
-                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Value</p>
+                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Total value</p>
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
                     {formatAED(project.valueAed, true)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Item name</p>
+                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Total quantity</p>
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    {project.itemName.trim() || 'Not provided'}
+                    {project.itemQuantity > 0 ? `${project.itemQuantity} m²` : 'Not provided'}
                   </p>
                 </div>
-                <div>
-                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Quantity</p>
+                <div className="sm:col-span-2">
+                  <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Specifications</p>
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    {project.itemQuantity > 0 ? `${project.itemQuantity} qty` : 'Not provided'}
+                    {formatSpecsSummary(project) || 'Not provided'}
                   </p>
                 </div>
               </div>
@@ -2028,8 +2048,8 @@ export default function ProjectDetailPage() {
               <Row k="City" v={project.city} />
               <Row k="Developer" v={project.developer} />
               <Row k="Business division" v={project.businessDivision?.trim() || 'Not provided'} />
-              <Row k="Item name" v={project.itemName.trim() || 'Not provided'} />
-              <Row k="Item quantity" v={project.itemQuantity > 0 ? `${project.itemQuantity}` : 'Not provided'} />
+              <Row k="Specifications" v={formatSpecsSummary(project) || 'Not provided'} />
+              <Row k="Total quantity (m²)" v={project.itemQuantity > 0 ? `${project.itemQuantity}` : 'Not provided'} />
             </div>
           </Card>
         </div>

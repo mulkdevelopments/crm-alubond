@@ -7,6 +7,7 @@ import { env } from "../config/env";
 import { storeUploadedFile } from "../lib/file-storage";
 import { isEmailConfigured, sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
+import { commercialSpecsComplete, resolveItemNameFromSpecs } from "../lib/project-specs";
 import { authenticate, authenticateMediaProxy } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
 import {
@@ -40,6 +41,9 @@ const projectPayloadSchema = z.object({
   valueAed: z.number().min(0).optional().default(0),
   itemName: z.string().trim().max(120).optional().default(""),
   itemQuantity: z.number().int().min(0).optional().default(0),
+  specThickness: z.string().trim().max(16).optional().default(""),
+  specCore: z.string().trim().max(16).optional().default(""),
+  specPaintType: z.string().trim().max(16).optional().default(""),
   lat: z.number().gte(-90).lte(90).optional().default(0),
   lng: z.number().gte(-180).lte(180).optional().default(0),
   probability: z.number().min(0).max(100).optional().default(0),
@@ -54,6 +58,46 @@ const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Ex
 
 function requiresCommercialDetails(stage: string) {
   return tenderOrLaterStages.has(stage);
+}
+
+function validateCommercialPayload(payload: {
+  stage: string;
+  valueAed: number;
+  itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
+}): string | null {
+  if (!requiresCommercialDetails(payload.stage)) {
+    return null;
+  }
+  if (payload.valueAed <= 0) {
+    return "Total project value is required for Tender stage and later.";
+  }
+  if (payload.itemQuantity <= 0) {
+    return "Total project quantity is required for Tender stage and later.";
+  }
+  if (!commercialSpecsComplete(payload.specThickness, payload.specCore, payload.specPaintType)) {
+    return "Project specifications (thickness, core, and paint type) are required for Tender stage and later.";
+  }
+  return null;
+}
+
+function normalizeCommercialFields(payload: {
+  itemName: string;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
+}) {
+  const specThickness = payload.specThickness.trim();
+  const specCore = payload.specCore.trim();
+  const specPaintType = payload.specPaintType.trim();
+  return {
+    specThickness,
+    specCore,
+    specPaintType,
+    itemName: resolveItemNameFromSpecs(specThickness, specCore, specPaintType, payload.itemName),
+  };
 }
 
 function canManageProjects(role: UserRole) {
@@ -717,17 +761,22 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     return;
   }
 
-  const itemName = payload.itemName.trim();
-  if (requiresCommercialDetails(payload.stage) && payload.valueAed <= 0) {
-    res.status(400).json({ message: "Project value is required for Tender stage and later." });
-    return;
-  }
-  if (requiresCommercialDetails(payload.stage) && !itemName) {
-    res.status(400).json({ message: "Item name is required for Tender stage and later." });
-    return;
-  }
-  if (requiresCommercialDetails(payload.stage) && payload.itemQuantity <= 0) {
-    res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
+  const commercialFields = normalizeCommercialFields({
+    itemName: payload.itemName,
+    specThickness: payload.specThickness,
+    specCore: payload.specCore,
+    specPaintType: payload.specPaintType,
+  });
+  const commercialError = validateCommercialPayload({
+    stage: payload.stage,
+    valueAed: payload.valueAed,
+    itemQuantity: payload.itemQuantity,
+    specThickness: commercialFields.specThickness,
+    specCore: commercialFields.specCore,
+    specPaintType: commercialFields.specPaintType,
+  });
+  if (commercialError) {
+    res.status(400).json({ message: commercialError });
     return;
   }
 
@@ -740,7 +789,7 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
   const project = await createProject({
     ...payload,
     businessDivision: payload.businessDivision ?? null,
-    itemName,
+    ...commercialFields,
     regionalManagerId: assignees.regionalManagerId,
     regionalManagerName: assignees.regionalManagerName,
     managerId: assignees.managerId,
@@ -787,17 +836,22 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     return;
   }
 
-  const itemName = payload.itemName.trim();
-  if (requiresCommercialDetails(payload.stage) && payload.valueAed <= 0) {
-    res.status(400).json({ message: "Project value is required for Tender stage and later." });
-    return;
-  }
-  if (requiresCommercialDetails(payload.stage) && !itemName) {
-    res.status(400).json({ message: "Item name is required for Tender stage and later." });
-    return;
-  }
-  if (requiresCommercialDetails(payload.stage) && payload.itemQuantity <= 0) {
-    res.status(400).json({ message: "Item quantity is required for Tender stage and later." });
+  const commercialFields = normalizeCommercialFields({
+    itemName: payload.itemName,
+    specThickness: payload.specThickness,
+    specCore: payload.specCore,
+    specPaintType: payload.specPaintType,
+  });
+  const commercialError = validateCommercialPayload({
+    stage: payload.stage,
+    valueAed: payload.valueAed,
+    itemQuantity: payload.itemQuantity,
+    specThickness: commercialFields.specThickness,
+    specCore: commercialFields.specCore,
+    specPaintType: commercialFields.specPaintType,
+  });
+  if (commercialError) {
+    res.status(400).json({ message: commercialError });
     return;
   }
 
@@ -833,7 +887,7 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   const project = await updateProject(req.params.projectId as string, {
     ...payload,
     businessDivision: payload.businessDivision ?? null,
-    itemName,
+    ...commercialFields,
     regionalManagerId: resolvedRegionalManagerId,
     regionalManagerName: resolvedRegionalManagerName,
     managerId: resolvedManagerId,

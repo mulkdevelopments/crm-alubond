@@ -17,6 +17,12 @@ import {
   type ApiProject,
 } from '@/lib/projects-api';
 import { cn, formatAED } from '@/lib/utils';
+import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
+import {
+  commercialSpecsComplete,
+  formatProjectSpecs,
+  formatSpecsSummary,
+} from '@/lib/project-specs';
 
 type ProjectAssignment = {
   regionalManagerId: string | null;
@@ -34,8 +40,10 @@ type ProjectFormState = {
   developer: string;
   businessDivision: '' | 'alubond architecture' | 'alubond transport' | 'uniqube';
   value: string;
-  itemName: string;
   itemQuantity: string;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
   lat: string;
   lng: string;
   stage: Stage;
@@ -55,8 +63,11 @@ type PipelineProject = {
   businessDivision: 'alubond architecture' | 'alubond transport' | 'uniqube' | null;
   stage: Stage;
   value: number;
-  itemName: string;
   itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
+  itemName: string;
   lat: number;
   lng: number;
   probability: number;
@@ -109,8 +120,10 @@ const EMPTY_FORM: ProjectFormState = {
   developer: '',
   businessDivision: '',
   value: '',
-  itemName: '',
   itemQuantity: '',
+  specThickness: '',
+  specCore: '',
+  specPaintType: '',
   lat: '',
   lng: '',
   stage: 'Lead Identified',
@@ -147,8 +160,10 @@ export default function PipelinePage() {
     projectId: string;
     targetStage: Stage;
     value: string;
-    itemName: string;
     itemQuantity: string;
+    specThickness: string;
+    specCore: string;
+    specPaintType: string;
     error: string | null;
     saving: boolean;
   } | null>(null);
@@ -207,18 +222,54 @@ export default function PipelinePage() {
     return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
   }
 
+  function validateCommercialInput(input: {
+    value: string;
+    itemQuantity: string;
+    specThickness: string;
+    specCore: string;
+    specPaintType: string;
+  }): string | null {
+    const nextValue = Number(input.value);
+    const nextItemQuantity = Number(input.itemQuantity);
+    if (!Number.isFinite(nextValue) || nextValue <= 0) {
+      return 'Total project value must be greater than 0.';
+    }
+    if (!Number.isFinite(nextItemQuantity) || nextItemQuantity <= 0) {
+      return 'Total project quantity must be greater than 0.';
+    }
+    if (!commercialSpecsComplete(input.specThickness, input.specCore, input.specPaintType)) {
+      return 'Select thickness, core, and paint type.';
+    }
+    return null;
+  }
+
   async function persistProjectStageUpdate(
     project: PipelineProject,
     nextStage: Stage,
-    value: number,
-    itemName: string,
-    itemQuantity: number,
+    commercial: {
+      value: number;
+      itemQuantity: number;
+      specThickness: string;
+      specCore: string;
+      specPaintType: string;
+    },
   ) {
+    const itemName = formatProjectSpecs(commercial.specThickness, commercial.specCore, commercial.specPaintType);
     const nextDaysInStage = project.stage === nextStage ? project.daysInStage : 1;
     setItems((prev) =>
       prev.map((p) =>
         p.id === project.id
-          ? { ...p, stage: nextStage, daysInStage: nextDaysInStage, value, itemName, itemQuantity }
+          ? {
+              ...p,
+              stage: nextStage,
+              daysInStage: nextDaysInStage,
+              value: commercial.value,
+              itemQuantity: commercial.itemQuantity,
+              specThickness: commercial.specThickness,
+              specCore: commercial.specCore,
+              specPaintType: commercial.specPaintType,
+              itemName,
+            }
           : p,
       ),
     );
@@ -230,9 +281,12 @@ export default function PipelinePage() {
       developer: project.developer,
       businessDivision: project.businessDivision,
       stage: nextStage,
-      valueAed: value,
+      valueAed: commercial.value,
       itemName,
-      itemQuantity,
+      itemQuantity: commercial.itemQuantity,
+      specThickness: commercial.specThickness,
+      specCore: commercial.specCore,
+      specPaintType: commercial.specPaintType,
       lat: project.lat,
       lng: project.lng,
       probability: project.probability,
@@ -457,14 +511,22 @@ export default function PipelinePage() {
         projectId: project.id,
         targetStage: stage,
         value: String(project.value > 0 ? project.value : ''),
-        itemName: project.itemName ?? '',
         itemQuantity: String(project.itemQuantity > 0 ? project.itemQuantity : ''),
+        specThickness: project.specThickness ?? '',
+        specCore: project.specCore ?? '',
+        specPaintType: project.specPaintType ?? '',
         error: null,
         saving: false,
       });
       return;
     }
-    void persistProjectStageUpdate(project, stage, project.value, project.itemName, project.itemQuantity).catch(() => {
+    void persistProjectStageUpdate(project, stage, {
+      value: project.value,
+      itemQuantity: project.itemQuantity,
+      specThickness: project.specThickness,
+      specCore: project.specCore,
+      specPaintType: project.specPaintType,
+    }).catch(() => {
       setProjectsError('Failed to update stage. Please retry.');
     });
   }
@@ -482,35 +544,24 @@ export default function PipelinePage() {
       return;
     }
 
-    const nextValue = Number(commercialPrompt.value);
-    const nextItemName = commercialPrompt.itemName.trim();
-    const nextItemQuantity = Number(commercialPrompt.itemQuantity);
-    if (!Number.isFinite(nextValue) || nextValue <= 0) {
-      setCommercialPrompt((prev) => (prev ? { ...prev, error: 'Value must be greater than 0.' } : prev));
-      return;
-    }
-    if (!Number.isFinite(nextItemQuantity) || nextItemQuantity <= 0) {
-      setCommercialPrompt((prev) =>
-        prev ? { ...prev, error: 'Item quantity must be greater than 0.' } : prev,
-      );
-      return;
-    }
-    if (!nextItemName) {
-      setCommercialPrompt((prev) =>
-        prev ? { ...prev, error: 'Item name is required.' } : prev,
-      );
+    const validationError = validateCommercialInput(commercialPrompt);
+    if (validationError) {
+      setCommercialPrompt((prev) => (prev ? { ...prev, error: validationError } : prev));
       return;
     }
 
+    const nextValue = Number(commercialPrompt.value);
+    const nextItemQuantity = Math.round(Number(commercialPrompt.itemQuantity));
+
     setCommercialPrompt((prev) => (prev ? { ...prev, error: null, saving: true } : prev));
     try {
-      await persistProjectStageUpdate(
-        project,
-        commercialPrompt.targetStage,
-        nextValue,
-        nextItemName,
-        Math.round(nextItemQuantity),
-      );
+      await persistProjectStageUpdate(project, commercialPrompt.targetStage, {
+        value: nextValue,
+        itemQuantity: nextItemQuantity,
+        specThickness: commercialPrompt.specThickness,
+        specCore: commercialPrompt.specCore,
+        specPaintType: commercialPrompt.specPaintType,
+      });
       closeCommercialPrompt();
     } catch {
       setCommercialPrompt((prev) =>
@@ -562,8 +613,10 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
       developer: project.developer,
       businessDivision: project.businessDivision ?? '',
       value: String(project.value),
-      itemName: project.itemName ?? '',
       itemQuantity: String(project.itemQuantity),
+      specThickness: project.specThickness ?? '',
+      specCore: project.specCore ?? '',
+      specPaintType: project.specPaintType ?? '',
       lat: String(project.lat),
       lng: String(project.lng),
       stage: project.stage,
@@ -686,15 +739,29 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     const country = form.country.trim();
     const developer = form.developer.trim();
     const value = Number(form.value);
-    const itemName = form.itemName.trim();
     const itemQuantity = Number(form.itemQuantity);
     const lat = Number(form.lat);
     const lng = Number(form.lng);
     const probability = Math.max(0, Math.min(100, Number(form.probability)));
     const businessDivision = form.businessDivision || null;
     const normalizedValue = Number.isFinite(value) && value >= 0 ? value : 0;
-    const normalizedItemName = itemName;
     const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
+    const normalizedSpecs = {
+      specThickness: form.specThickness,
+      specCore: form.specCore,
+      specPaintType: form.specPaintType,
+    };
+    const normalizedItemName = commercialSpecsComplete(
+      normalizedSpecs.specThickness,
+      normalizedSpecs.specCore,
+      normalizedSpecs.specPaintType,
+    )
+      ? formatProjectSpecs(
+          normalizedSpecs.specThickness,
+          normalizedSpecs.specCore,
+          normalizedSpecs.specPaintType,
+        )
+      : '';
     const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
     const assignmentPayload = buildProjectAssignmentPayload(form, isManager, isRegionalManager, user?.id);
 
@@ -702,17 +769,18 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
       setFormError('Fill project name and city.');
       return;
     }
-    if (requiresCommercialDetails(form.stage) && normalizedValue <= 0) {
-      setFormError('Project value is required for quatation stage and later.');
-      return;
-    }
-    if (requiresCommercialDetails(form.stage) && !normalizedItemName) {
-      setFormError('Item name is required for quatation stage and later.');
-      return;
-    }
-    if (requiresCommercialDetails(form.stage) && normalizedItemQuantity <= 0) {
-      setFormError('Item quantity is required for quatation stage and later.');
-      return;
+    if (requiresCommercialDetails(form.stage)) {
+      const commercialError = validateCommercialInput({
+        value: form.value,
+        itemQuantity: form.itemQuantity,
+        specThickness: form.specThickness,
+        specCore: form.specCore,
+        specPaintType: form.specPaintType,
+      });
+      if (commercialError) {
+        setFormError(commercialError);
+        return;
+      }
     }
 
     const normalizedLat = Number.isFinite(lat) ? lat : 0;
@@ -732,6 +800,9 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
           valueAed: normalizedValue,
           itemName: normalizedItemName,
           itemQuantity: normalizedItemQuantity,
+          specThickness: normalizedSpecs.specThickness,
+          specCore: normalizedSpecs.specCore,
+          specPaintType: normalizedSpecs.specPaintType,
           lat: normalizedLat,
           lng: normalizedLng,
           probability: normalizedProbability,
@@ -758,6 +829,9 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
         valueAed: normalizedValue,
         itemName: normalizedItemName,
         itemQuantity: normalizedItemQuantity,
+        specThickness: normalizedSpecs.specThickness,
+        specCore: normalizedSpecs.specCore,
+        specPaintType: normalizedSpecs.specPaintType,
         lat: normalizedLat,
         lng: normalizedLng,
         probability: normalizedProbability,
@@ -1013,7 +1087,11 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                               <span className="text-sm font-bold tracking-tight num-tabular">{formatAED(p.value, true)}</span>
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] text-3 truncate max-w-[110px]">
-                                  {p.itemName ? `${p.itemName}: ` : ''}{p.itemQuantity} qty
+                                  {(() => {
+                                    const specs = formatSpecsSummary(p);
+                                    const quantity = p.itemQuantity > 0 ? `${p.itemQuantity} m²` : '';
+                                    return [specs, quantity].filter(Boolean).join(' · ');
+                                  })()}
                                 </span>
                                 <span className="flex items-center gap-1 text-[10px] text-3 num-tabular">
                                   <Clock className="h-2.5 w-2.5" /> {p.daysInStage}d
@@ -1053,44 +1131,38 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
 
       {commercialPrompt && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 flex items-center justify-center">
-          <div className="w-full max-w-md surface border border-[var(--border)] rounded-2xl shadow-card p-4">
+          <div className="w-full max-w-lg surface border border-[var(--border)] rounded-2xl shadow-card p-4">
             <h2 className="text-base font-semibold tracking-tight">Required before moving stage</h2>
             <p className="mt-1 text-sm text-2">
-              To move this project to <span className="font-semibold">{stageTitle(commercialPrompt.targetStage)}</span>, provide value and item quantity.
+              To move this project to <span className="font-semibold">{stageTitle(commercialPrompt.targetStage)}</span>, provide commercial details and specifications.
             </p>
 
-            <div className="mt-4 space-y-2">
-              <input
-                type="number"
-                min={1}
+            <div className="mt-4">
+              <ProjectCommercialFields
+                idPrefix="stage-move"
                 value={commercialPrompt.value}
-                onChange={(e) =>
-                  setCommercialPrompt((prev) => (prev ? { ...prev, value: e.target.value, error: null } : prev))
+                itemQuantity={commercialPrompt.itemQuantity}
+                specThickness={commercialPrompt.specThickness}
+                specCore={commercialPrompt.specCore}
+                specPaintType={commercialPrompt.specPaintType}
+                onValueChange={(value) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, value, error: null } : prev))
                 }
-                placeholder="Value (AED)"
-                className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-              />
-              <input
-                type="text"
-                value={commercialPrompt.itemName}
-                onChange={(e) =>
-                  setCommercialPrompt((prev) => (prev ? { ...prev, itemName: e.target.value, error: null } : prev))
+                onItemQuantityChange={(itemQuantity) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, itemQuantity, error: null } : prev))
                 }
-                placeholder="Item name"
-                className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-              />
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={commercialPrompt.itemQuantity}
-                onChange={(e) =>
-                  setCommercialPrompt((prev) => (prev ? { ...prev, itemQuantity: e.target.value, error: null } : prev))
+                onSpecThicknessChange={(specThickness) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, specThickness, error: null } : prev))
                 }
-                placeholder="Item quantity"
-                className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                onSpecCoreChange={(specCore) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, specCore, error: null } : prev))
+                }
+                onSpecPaintTypeChange={(specPaintType) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, specPaintType, error: null } : prev))
+                }
+                required
               />
-              {commercialPrompt.error && <p className="text-xs text-rose-600">{commercialPrompt.error}</p>}
+              {commercialPrompt.error && <p className="mt-2 text-xs text-rose-600">{commercialPrompt.error}</p>}
             </div>
 
             <div className="mt-4 flex items-center justify-end gap-2">
@@ -1186,36 +1258,24 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                     </option>
                   ))}
                 </select>
-                <input
-                  type="number"
-                  min={0}
+                <ProjectCommercialFields
+                  idPrefix="project-form"
                   value={form.value}
-                  onChange={(e) => setForm((prev) => ({ ...prev, value: e.target.value }))}
-                  placeholder="Value (AED)"
+                  itemQuantity={form.itemQuantity}
+                  specThickness={form.specThickness}
+                  specCore={form.specCore}
+                  specPaintType={form.specPaintType}
+                  onValueChange={(value) => setForm((prev) => ({ ...prev, value }))}
+                  onItemQuantityChange={(itemQuantity) => setForm((prev) => ({ ...prev, itemQuantity }))}
+                  onSpecThicknessChange={(specThickness) => setForm((prev) => ({ ...prev, specThickness }))}
+                  onSpecCoreChange={(specCore) => setForm((prev) => ({ ...prev, specCore }))}
+                  onSpecPaintTypeChange={(specPaintType) => setForm((prev) => ({ ...prev, specPaintType }))}
                   required={requiresCommercialDetails(form.stage)}
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-                />
-                <input
-                  type="text"
-                  value={form.itemName}
-                  onChange={(e) => setForm((prev) => ({ ...prev, itemName: e.target.value }))}
-                  placeholder="Item name"
-                  required={requiresCommercialDetails(form.stage)}
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={form.itemQuantity}
-                  onChange={(e) => setForm((prev) => ({ ...prev, itemQuantity: e.target.value }))}
-                  placeholder="Item quantity"
-                  required={requiresCommercialDetails(form.stage)}
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  showSpecifications={requiresCommercialDetails(form.stage)}
                 />
                 {requiresCommercialDetails(form.stage) && (
-                  <p className="text-[11px] text-amber-600">
-                    quatation stage and later require value, item name, and item quantity.
+                  <p className="mt-2 text-[11px] text-amber-600">
+                    Quotation stage and later require total value, quantity (m²), and specifications.
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-2">
@@ -1390,7 +1450,7 @@ function stageDot(s: Stage) {
 }
 
 function stageTitle(stage: Stage) {
-  if (stage === 'Tender') return 'quatation';
+  if (stage === 'Tender') return 'Quotation';
   if (stage === 'PO Expected') return 'po awaited';
   if (stage === 'Lost') return 'Loss';
   if (stage === 'Won') return 'Win';
@@ -1408,8 +1468,11 @@ function toPipelineProject(project: ApiProject): PipelineProject {
     businessDivision: project.businessDivision,
     stage: toStage(normalizedStage),
     value: project.valueAed,
-    itemName: project.itemName,
     itemQuantity: project.itemQuantity,
+    specThickness: project.specThickness ?? '',
+    specCore: project.specCore ?? '',
+    specPaintType: project.specPaintType ?? '',
+    itemName: project.itemName,
     lat: project.lat,
     lng: project.lng,
     probability: project.probability,

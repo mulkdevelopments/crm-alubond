@@ -30,6 +30,14 @@ import {
 } from "@/lib/api/projects-api";
 import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
 import { normalizeOptionalId } from "@/lib/utils";
+import {
+  SPEC_CORE_OPTIONS,
+  SPEC_PAINT_TYPE_OPTIONS,
+  SPEC_THICKNESS_OPTIONS,
+  commercialSpecsComplete,
+  formatProjectSpecs,
+  requiresCommercialDetails,
+} from "@/lib/project-specs";
 
 export default function ProjectFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -52,8 +60,10 @@ export default function ProjectFormScreen() {
   const [businessDivision, setBusinessDivision] = useState<(typeof BUSINESS_DIVISIONS)[number] | "">("");
   const [stage, setStage] = useState<string>("Lead Identified");
   const [value, setValue] = useState("");
-  const [itemName, setItemName] = useState("");
   const [itemQuantity, setItemQuantity] = useState("");
+  const [specThickness, setSpecThickness] = useState("");
+  const [specCore, setSpecCore] = useState("");
+  const [specPaintType, setSpecPaintType] = useState("");
   const [lat, setLat] = useState("");
   const [lng, setLng] = useState("");
   const [competitor, setCompetitor] = useState("");
@@ -108,8 +118,10 @@ export default function ProjectFormScreen() {
     setBusinessDivision(project.businessDivision ?? "");
     setStage(project.stage);
     setValue(String(project.valueAed));
-    setItemName(project.itemName);
     setItemQuantity(String(project.itemQuantity));
+    setSpecThickness(project.specThickness ?? "");
+    setSpecCore(project.specCore ?? "");
+    setSpecPaintType(project.specPaintType ?? "");
     setLat(String(project.lat));
     setLng(String(project.lng));
     setCompetitor(project.competitor ?? "");
@@ -157,12 +169,26 @@ export default function ProjectFormScreen() {
       if (!name.trim() || !city.trim() || !country.trim()) {
         throw new Error("Name, city, and country are required.");
       }
-      if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+      if (requiresCommercialDetails(stage)) {
+        if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+          throw new Error("Total project value is required for quotation stage and later.");
+        }
+        if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+          throw new Error("Total project quantity (m²) is required for quotation stage and later.");
+        }
+        if (!commercialSpecsComplete(specThickness, specCore, specPaintType)) {
+          throw new Error("Select thickness, core, and paint type.");
+        }
+      } else if (!Number.isFinite(parsedValue) || parsedValue < 0) {
         throw new Error("Enter a valid project value.");
       }
       if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
         throw new Error("Set valid coordinates (use current location).");
       }
+
+      const itemName = commercialSpecsComplete(specThickness, specCore, specPaintType)
+        ? formatProjectSpecs(specThickness, specCore, specPaintType)
+        : "";
 
       const payload = {
         name: name.trim(),
@@ -171,9 +197,12 @@ export default function ProjectFormScreen() {
         developer: developer.trim(),
         businessDivision: businessDivision || null,
         stage,
-        valueAed: parsedValue,
-        itemName: itemName.trim() || "TBD",
-        itemQuantity: Number.isFinite(parsedQty) ? parsedQty : 0,
+        valueAed: Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0,
+        itemName,
+        itemQuantity: Number.isFinite(parsedQty) && parsedQty > 0 ? Math.round(parsedQty) : 0,
+        specThickness,
+        specCore,
+        specPaintType,
         lat: parsedLat,
         lng: parsedLng,
         probability: 0,
@@ -205,9 +234,49 @@ export default function ProjectFormScreen() {
         <Field label="City" value={city} onChangeText={setCity} />
         <Field label="Country" value={country} onChangeText={setCountry} />
         <Field label="Developer" value={developer} onChangeText={setDeveloper} />
-        <Field label="Value (AED)" value={value} onChangeText={setValue} keyboardType="numeric" />
-        <Field label="Item name" value={itemName} onChangeText={setItemName} />
-        <Field label="Item quantity" value={itemQuantity} onChangeText={setItemQuantity} keyboardType="numeric" />
+        <Field label="Total project value (AED)" value={value} onChangeText={setValue} keyboardType="numeric" />
+        <Field
+          label="Total project quantity (m²)"
+          value={itemQuantity}
+          onChangeText={setItemQuantity}
+          keyboardType="numeric"
+        />
+
+        {requiresCommercialDetails(stage) ? (
+          <>
+            <Text style={styles.label}>Thickness</Text>
+            <View style={styles.chips}>
+              {SPEC_THICKNESS_OPTIONS.map((entry) => (
+                <Chip
+                  key={entry}
+                  label={entry}
+                  active={specThickness === entry}
+                  onPress={() => setSpecThickness(entry)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.label}>Core</Text>
+            <View style={styles.chips}>
+              {SPEC_CORE_OPTIONS.map((entry) => (
+                <Chip key={entry} label={entry} active={specCore === entry} onPress={() => setSpecCore(entry)} />
+              ))}
+            </View>
+
+            <Text style={styles.label}>Paint type</Text>
+            <View style={styles.chips}>
+              {SPEC_PAINT_TYPE_OPTIONS.map((entry) => (
+                <Chip
+                  key={entry}
+                  label={entry}
+                  active={specPaintType === entry}
+                  onPress={() => setSpecPaintType(entry)}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
+
         <Field label="Competitor" value={competitor} onChangeText={setCompetitor} />
 
         <Text style={styles.label}>Stage</Text>

@@ -52,7 +52,7 @@ const STAGE_LEGEND_ORDER = [
 ];
 
 function stageLabel(stage: string) {
-  if (stage === 'Tender') return 'quatation';
+  if (stage === 'Tender') return 'Quotation';
   return stage;
 }
 

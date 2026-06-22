@@ -11,6 +11,9 @@ export type ApiProject = {
   valueAed: number;
   itemName: string;
   itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
   lat: number;
   lng: number;
   probability: number;
@@ -74,6 +77,9 @@ export type ProjectUpsertPayload = {
   valueAed: number;
   itemName: string;
   itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
   lat: number;
   lng: number;
   probability: number;

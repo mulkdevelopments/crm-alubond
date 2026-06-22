@@ -12,6 +12,9 @@ export type ProjectRecord = {
   valueAed: number;
   itemName: string;
   itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
   lat: number;
   lng: number;
   probability: number;
@@ -38,6 +41,9 @@ export type UpsertProjectInput = {
   valueAed: number;
   itemName: string;
   itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
   lat: number;
   lng: number;
   probability: number;
@@ -63,6 +69,9 @@ function mapProject(record: {
   valueAed: number;
   itemName: string;
   itemQuantity: number;
+  specThickness: string;
+  specCore: string;
+  specPaintType: string;
   lat: number;
   lng: number;
   probability: number;
