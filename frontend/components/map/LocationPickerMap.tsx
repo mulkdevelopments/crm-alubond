@@ -78,7 +78,7 @@ export function LocationPickerMap({
   const mapInteractive = interactive && mapInteraction.interactive;
 
   return (
-    <div className={`relative ${heightClassName}`}>
+    <div className={`relative isolate overflow-hidden ${heightClassName}`}>
       <MapContainer
         center={center}
         zoom={initialZoom}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, BookOpen, KanbanSquare, LayoutDashboard, LogOut, MapPin, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
+import { Bell, BookOpen, KanbanSquare, LayoutDashboard, LogOut, MapPin, MessageCircle, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
 
 import { AuthProvider } from "@/components/auth/AuthContext";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -15,6 +15,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { clearSession, getStoredUser, getToken, setSession } from "@/lib/auth";
 import { AuthUser, fetchMe, getMyLatestLocationPing } from "@/lib/auth-api";
 import { cn } from "@/lib/utils";
+import { FEEDBACK_WHATSAPP_URL } from "@/lib/feedback";
 
 type ProtectedAppProps = {
   children: React.ReactNode;
@@ -89,6 +90,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
     { href: "/follow-ups", label: "Follow-ups", icon: Bell },
     { href: "/team", label: "Field Team", icon: Users },
     { href: "/docs", label: "Docs", icon: BookOpen },
+    { href: FEEDBACK_WHATSAPP_URL, label: "Report issue", icon: MessageCircle, external: true },
     ...(user?.role === "ADMIN"
       ? [
           { href: "/access-requests", label: "Access requests", icon: UserPlus },
@@ -275,7 +277,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
     >
       <div className="flex min-h-screen">
         <Sidebar />
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="relative z-0 flex-1 flex flex-col min-w-0">
           <Topbar onMenu={() => setMobileMenuOpen((prev) => !prev)} />
           <main className="flex-1 pb-24 lg:pb-12">{children}</main>
           <QuickActivityFab />
@@ -301,16 +303,36 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
               </button>
             </div>
             <nav className="p-3 space-y-1.5">
-              {mobileMenuItems.map(({ href, label, icon: Icon }) => {
-                const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+              {mobileMenuItems.map(({ href, label, icon: Icon, external }) => {
+                const active =
+                  !external && (href === "/" ? pathname === "/" : pathname.startsWith(href));
+                const className = cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
+                  active ? "bg-[var(--surface-2)] text-[var(--text)]" : "text-2 hover:bg-[var(--surface-2)] hover:text-[var(--text)]",
+                );
+
+                if (external) {
+                  return (
+                    <a
+                      key={href}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={className}
+                      aria-label={`${label} on WhatsApp`}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{label}</span>
+                    </a>
+                  );
+                }
+
                 return (
                   <Link
                     key={href}
                     href={href}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors",
-                      active ? "bg-[var(--surface-2)] text-[var(--text)]" : "text-2 hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-                    )}
+                    className={className}
                     onClick={() => setMobileMenuOpen(false)}
                   >
                     <Icon className="h-4 w-4" />

@@ -26,7 +26,7 @@ export function MapInteractionOverlay({
         aria-label="Enable map interaction"
         onClick={onActivate}
         className={cn(
-          'absolute inset-0 z-[1000] flex items-center justify-center bg-[var(--surface)]/35 backdrop-blur-[1px]',
+          'absolute inset-0 z-10 flex items-center justify-center bg-[var(--surface)]/35 backdrop-blur-[1px]',
           className,
         )}
       >
@@ -43,7 +43,7 @@ export function MapInteractionOverlay({
       type="button"
       onClick={onDeactivate}
       className={cn(
-        'absolute top-3 left-3 z-[1000] rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-soft',
+        'absolute top-3 left-3 z-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-soft',
         className,
       )}
     >

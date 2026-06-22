@@ -122,7 +122,6 @@ export default function DashboardPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Sales Command Center"
         title={<>Good morning, {user?.firstName ?? 'there'} <span className="text-brand-600">.</span></>}
       />
 

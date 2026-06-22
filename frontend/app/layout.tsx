@@ -4,8 +4,14 @@ import { ProtectedApp } from '@/components/auth/ProtectedApp';
 
 export const metadata: Metadata = {
   title: 'Alubond CRM — Sales Intelligence',
+  applicationName: 'Alubond CRM',
   description:
     'A modern, mobile-first sales war room for façade systems and ACP — built for Alubond.',
+  appleWebApp: {
+    capable: true,
+    title: 'Alubond CRM',
+    statusBarStyle: 'default',
+  },
   icons: {
     icon: [
       { url: '/brand/favicon-32.png', sizes: '32x32', type: 'image/png' },

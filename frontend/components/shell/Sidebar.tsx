@@ -8,6 +8,7 @@ import {
   MapPin,
   Bell,
   BookOpen,
+  MessageCircle,
   UserCog,
   UserCircle2,
   UserPlus,
@@ -20,6 +21,7 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/AuthContext';
 import { BrandMark } from '@/components/brand/BrandLogo';
+import { FEEDBACK_WHATSAPP_URL } from '@/lib/feedback';
 import { listFollowUps } from '@/lib/followups-api';
 import { getPendingAccessRequestCount } from '@/lib/access-requests-api';
 
@@ -28,6 +30,7 @@ type NavItem = {
   label: string;
   icon: typeof LayoutDashboard;
   badge?: string;
+  external?: boolean;
 };
 
 const NAV: NavItem[] = [
@@ -37,6 +40,12 @@ const NAV: NavItem[] = [
   { href: '/follow-ups', label: 'Follow-ups', icon: Bell },
   { href: '/team', label: 'Field Team', icon: Users },
   { href: '/docs', label: 'Docs', icon: BookOpen },
+  {
+    href: FEEDBACK_WHATSAPP_URL,
+    label: 'Report issue',
+    icon: MessageCircle,
+    external: true,
+  },
 ];
 
 export function Sidebar() {
@@ -91,7 +100,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'hidden lg:flex flex-col h-screen sticky top-0 border-r border-[var(--border)] surface transition-all',
+        'hidden lg:flex flex-col h-screen sticky top-0 z-20 border-r border-[var(--border)] surface transition-all',
         collapsed ? 'w-[72px]' : 'w-[248px]',
       )}
     >
@@ -110,26 +119,23 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {navItems.map(({ href, label, icon: Icon, badge }) => {
-          const active = href === '/' ? path === '/' : path.startsWith(href);
+        {navItems.map(({ href, label, icon: Icon, badge, external }) => {
+          const active = !external && (href === '/' ? path === '/' : path.startsWith(href));
           const resolvedBadge =
             href === '/follow-ups' && followUpBadgeCount != null
               ? String(followUpBadgeCount)
               : href === '/access-requests' && accessRequestBadgeCount != null && accessRequestBadgeCount > 0
                 ? String(accessRequestBadgeCount)
                 : badge;
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative',
-                active
-                  ? 'bg-[var(--surface-2)] text-[var(--text)]'
-                  : 'text-2 hover:bg-[var(--surface-2)] hover:text-[var(--text)]',
-                collapsed && 'justify-center px-0',
-              )}
-            >
+          const itemClassName = cn(
+            'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all relative',
+            active
+              ? 'bg-[var(--surface-2)] text-[var(--text)]'
+              : 'text-2 hover:bg-[var(--surface-2)] hover:text-[var(--text)]',
+            collapsed && 'justify-center px-0',
+          );
+          const itemContent = (
+            <>
               {active && !collapsed && (
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-brand-600 rounded-r" />
               )}
@@ -138,14 +144,33 @@ export function Sidebar() {
                 <>
                   <span className="truncate flex-1">{label}</span>
                   {resolvedBadge && (
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded-md font-bold tracking-wider bg-brand-600 text-white"
-                    >
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md font-bold tracking-wider bg-brand-600 text-white">
                       {resolvedBadge}
                     </span>
                   )}
                 </>
               )}
+            </>
+          );
+
+          if (external) {
+            return (
+              <a
+                key={href}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={itemClassName}
+                aria-label={`${label} on WhatsApp`}
+              >
+                {itemContent}
+              </a>
+            );
+          }
+
+          return (
+            <Link key={href} href={href} className={itemClassName}>
+              {itemContent}
             </Link>
           );
         })}

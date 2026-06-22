@@ -4,6 +4,7 @@ import multer from "multer";
 import { z } from "zod";
 
 import { env } from "../config/env";
+import { deleteActivityAttachmentFiles } from "../lib/attachment-cleanup";
 import { storeUploadedFile } from "../lib/file-storage";
 import { isEmailConfigured, sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
@@ -1221,6 +1222,12 @@ apiRouter.delete("/projects/:projectId/activities/:activityId", authenticate, as
   if (!canDelete) {
     res.status(403).json({ message: "You can only delete your own activity" });
     return;
+  }
+
+  try {
+    await deleteActivityAttachmentFiles(req.params.activityId as string);
+  } catch (error) {
+    console.error(`Failed to delete attachment files for activity ${req.params.activityId}:`, error);
   }
 
   await followUpModel.deleteMany({

@@ -176,9 +176,7 @@ export default function MapPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Geo Intelligence"
         title="Live coverage map"
-        subtitle="Real project locations from your backend. Stage-aware map intelligence for your pipeline."
         actions={
           <Button
             variant="primary"
@@ -221,7 +219,7 @@ export default function MapPage() {
             </div>
           </div>
           <div className="p-4">
-            <div className="relative rounded-2xl overflow-hidden border border-[var(--border)] h-[280px] sm:h-[420px] lg:h-[640px]">
+            <div className="relative isolate overflow-hidden rounded-2xl border border-[var(--border)] h-[280px] sm:h-[420px] lg:h-[640px]">
               <MapContainer
                 center={mapCenter}
                 zoom={filteredProjects.length > 0 ? 4 : 2}

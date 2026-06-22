@@ -133,13 +133,9 @@ html, body {
   }
 }
 
-/* Keep Leaflet maps below sticky app header/top overlays. */
+/* Keep Leaflet maps contained below app chrome (sidebar z-20, topbar z-30). */
 .leaflet-container {
+  position: relative;
   z-index: 0;
-}
-
-.leaflet-pane,
-.leaflet-top,
-.leaflet-bottom {
-  z-index: 10;
+  isolation: isolate;
 }

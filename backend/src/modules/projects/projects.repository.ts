@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { deleteProjectAttachmentFiles } from "../../lib/attachment-cleanup";
 import { prisma } from "../../lib/prisma";
 
 export type ProjectRecord = {
@@ -142,6 +143,12 @@ export async function deleteProject(projectId: string): Promise<boolean> {
   });
   if (!exists) {
     return false;
+  }
+
+  try {
+    await deleteProjectAttachmentFiles(projectId);
+  } catch (error) {
+    console.error(`Failed to delete attachment files for project ${projectId}:`, error);
   }
 
   await prisma.project.delete({

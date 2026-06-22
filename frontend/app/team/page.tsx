@@ -139,7 +139,6 @@ export default function TeamPage() {
       <PageHeader
         eyebrow="Team Performance"
         title="CEO → regional → manager → sales cards"
-        subtitle="Target, pipeline, visits and conversion in a focused drill-down view."
       />
 
       {error && (
