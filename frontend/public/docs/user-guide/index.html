@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Alubond CRM — User Guide</title>
   <style>
     :root {
@@ -54,8 +54,19 @@
 
     * { box-sizing: border-box; }
 
+    html {
+      width: 100%;
+      min-width: 100%;
+      overflow-x: clip;
+      -webkit-text-size-adjust: 100%;
+    }
+
     body {
       margin: 0;
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+      overflow-x: clip;
       font-family: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
       font-feature-settings: 'cv11', 'ss01', 'ss03';
       -webkit-font-smoothing: antialiased;
@@ -71,6 +82,10 @@
         linear-gradient(135deg, var(--brand-950) 0%, var(--brand-600) 52%, var(--brand-800) 100%);
       color: #fff;
       padding: 48px 24px 56px;
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     header.hero .inner {
@@ -108,17 +123,25 @@
       z-index: 10;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
       overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+      contain: inline-size;
     }
 
     nav.toc ul {
       list-style: none;
       margin: 0;
       padding: 0 16px;
-      display: flex;
+      display: inline-flex;
+      align-items: stretch;
       gap: 8px;
-      max-width: 1100px;
-      margin-inline: auto;
+      box-sizing: border-box;
     }
 
     nav.toc a {
@@ -142,6 +165,7 @@
 
     main {
       max-width: 960px;
+      width: 100%;
       margin: 0 auto;
       padding: 32px 24px 80px;
     }
@@ -202,6 +226,7 @@
     figure img {
       display: block;
       width: 100%;
+      max-width: 100%;
       height: auto;
     }
 
@@ -215,6 +240,7 @@
 
     table {
       width: 100%;
+      max-width: 100%;
       border-collapse: collapse;
       font-size: 0.92rem;
       background: var(--surface);
@@ -227,6 +253,7 @@
       padding: 12px 14px;
       text-align: left;
       border-bottom: 1px solid var(--border);
+      word-break: break-word;
     }
 
     th {
@@ -287,7 +314,11 @@
 
     @media (max-width: 720px) {
       .two-col { grid-template-columns: 1fr; }
+      header.hero { padding: 32px 16px 40px; }
       header.hero h1 { font-size: 1.75rem; }
+      main { padding: 24px 16px 64px; }
+      .card { padding: 16px 18px; }
+      table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     }
 
     footer {
@@ -297,6 +328,10 @@
       font-size: 0.88rem;
       border-top: 1px solid var(--border);
       background: var(--surface);
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
 
     ::-webkit-scrollbar {
@@ -385,7 +420,6 @@
       <li><a href="#team">Field Team</a></li>
       <li><a href="#profile">Profile</a></li>
       <li><a href="#mobile">Mobile app</a></li>
-      <li><a href="#roles">Access by role</a></li>
     </ul>
   </nav>
 
@@ -718,64 +752,6 @@
           <li>When the apps are ready, you will see an announcement in the <strong>notifications</strong> bell at the top of the screen.</li>
           <li>Sign in with the same email and password as the web CRM — no separate account needed.</li>
         </ul>
-      </div>
-
-      <p>Planned mobile tabs: <strong>Home · Pipeline · Tasks · Map · Profile</strong>. Managers will also see <strong>Team</strong>.</p>
-    </section>
-
-    <section id="roles">
-      <h2>Access by role</h2>
-      <p class="lead">What you can see and do depends on your role, which is set when your account is created.</p>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Feature</th>
-            <th>Sales rep</th>
-            <th>Manager</th>
-            <th>Regional mgr</th>
-            <th>CEO</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Dashboard</td>
-            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Pipeline (view)</td>
-            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Pipeline (create/edit)</td>
-            <td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Log activity &amp; visits</td>
-            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Follow-ups</td>
-            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Geo Intel map</td>
-            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Field Team</td>
-            <td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-          <tr>
-            <td>Profile</td>
-            <td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="card">
-        <strong>Need help?</strong> Contact your manager or company support for account access, password issues,
-        or project assignment questions. Include a screenshot and the page you were on when reporting a problem.
       </div>
     </section>
   </main>

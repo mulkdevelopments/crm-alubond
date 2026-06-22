@@ -8,6 +8,7 @@ function getTheme(): 'light' | 'dark' {
 
 export default function DocsPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
 
   const postTheme = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -25,13 +26,33 @@ export default function DocsPage() {
     return () => observer.disconnect();
   }, [postTheme]);
 
+  useEffect(() => {
+    const frame = frameRef.current;
+    const iframe = iframeRef.current;
+    if (!frame || !iframe) return;
+
+    const syncFrameWidth = () => {
+      iframe.style.width = `${frame.clientWidth}px`;
+    };
+
+    syncFrameWidth();
+
+    const resizeObserver = new ResizeObserver(syncFrameWidth);
+    resizeObserver.observe(frame);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
   return (
-    <div className="h-[calc(100dvh-4rem-5.5rem)] lg:h-[calc(100dvh-4rem-1.5rem)]">
+    <div
+      ref={frameRef}
+      className="min-w-0 w-full max-w-full overflow-hidden h-[calc(100dvh-4rem-5.5rem)] lg:h-[calc(100dvh-4rem-1.5rem)]"
+    >
       <iframe
         ref={iframeRef}
         src="/docs/user-guide/index.html"
         title="Alubond CRM User Guide"
-        className="h-full w-full border-0 bg-[var(--surface)]"
+        className="block h-full w-full max-w-full border-0 bg-[var(--surface)]"
         onLoad={postTheme}
       />
     </div>

@@ -9,6 +9,20 @@ const MARK_SIZES = {
   xl: 80,
 } as const;
 
+function brandMarkSources(size: keyof typeof MARK_SIZES) {
+  if (size === 'sm') {
+    return {
+      light: '/brand/logo-mark-sm.png',
+      dark: '/brand/logo-mark-light-sm.png',
+    };
+  }
+
+  return {
+    light: '/brand/logo-mark.png',
+    dark: '/brand/logo-mark-light.png',
+  };
+}
+
 type BrandMarkProps = {
   size?: keyof typeof MARK_SIZES;
   className?: string;
@@ -17,7 +31,7 @@ type BrandMarkProps = {
 
 export function BrandMark({ size = 'md', className, priority = false }: BrandMarkProps) {
   const px = MARK_SIZES[size];
-  const asset = size === 'sm' ? 'logo-mark-sm' : 'logo-mark';
+  const sources = brandMarkSources(size);
 
   return (
     <span
@@ -25,7 +39,7 @@ export function BrandMark({ size = 'md', className, priority = false }: BrandMar
       style={{ width: px, height: px }}
     >
       <Image
-        src={`/brand/${asset}.png`}
+        src={sources.light}
         alt=""
         fill
         priority={priority}
@@ -34,7 +48,7 @@ export function BrandMark({ size = 'md', className, priority = false }: BrandMar
         className="object-contain dark:hidden"
       />
       <Image
-        src={`/brand/${asset}-light.png`}
+        src={sources.dark}
         alt=""
         fill
         priority={priority}
