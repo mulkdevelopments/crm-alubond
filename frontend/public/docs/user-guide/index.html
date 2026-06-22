@@ -77,15 +77,18 @@
     }
 
     header.hero {
-      background:
-        radial-gradient(circle at 50% 0%, rgba(227, 6, 19, 0.22), transparent 62%),
-        linear-gradient(135deg, var(--brand-950) 0%, var(--brand-600) 52%, var(--brand-800) 100%);
-      color: #fff;
+      background: linear-gradient(to bottom right, rgba(227, 6, 19, 0.1), var(--surface) 48%, var(--surface-2));
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
       padding: 48px 24px 56px;
       width: 100%;
       min-width: 100%;
       max-width: 100%;
       box-sizing: border-box;
+    }
+
+    html.dark header.hero {
+      background: linear-gradient(to bottom right, rgba(227, 6, 19, 0.14), var(--surface) 48%, var(--surface-2));
     }
 
     header.hero .inner {
@@ -98,13 +101,14 @@
       font-size: 2.25rem;
       letter-spacing: -0.02em;
       font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+      color: var(--text);
     }
 
     header.hero p {
       margin: 0;
       max-width: 640px;
-      opacity: 0.92;
       font-size: 1.05rem;
+      color: var(--muted);
     }
 
     .badge {
@@ -112,17 +116,92 @@
       margin-top: 16px;
       padding: 6px 12px;
       border-radius: 999px;
-      background: rgba(255,255,255,0.15);
+      background: var(--brand-50);
+      border: 1px solid rgba(227, 6, 19, 0.12);
+      color: var(--brand-700);
       font-size: 0.85rem;
       font-weight: 600;
     }
 
-    nav.toc {
+    html.dark .badge {
+      background: rgba(227, 6, 19, 0.12);
+      border-color: rgba(227, 6, 19, 0.22);
+      color: var(--brand-100);
+    }
+
+    .guide-nav {
       position: sticky;
       top: 0;
       z-index: 10;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
+      width: 100%;
+      min-width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    .doc-search {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(to bottom right, rgba(227, 6, 19, 0.06), var(--surface));
+    }
+
+    html.dark .doc-search {
+      background: linear-gradient(to bottom right, rgba(227, 6, 19, 0.1), var(--surface));
+    }
+
+    .doc-search-inner {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .doc-search-field {
+      position: relative;
+    }
+
+    .doc-search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      color: var(--text-3);
+      pointer-events: none;
+    }
+
+    .doc-search-input {
+      width: 100%;
+      padding: 10px 12px 10px 38px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--text);
+      font: inherit;
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .doc-search-input::placeholder {
+      color: var(--text-3);
+    }
+
+    .doc-search-input:focus {
+      border-color: rgba(227, 6, 19, 0.35);
+      box-shadow: 0 0 0 3px rgba(227, 6, 19, 0.12);
+    }
+
+    .doc-search-status {
+      min-height: 1.25rem;
+      margin: 8px 0 0;
+      font-size: 0.82rem;
+      color: var(--text-3);
+    }
+
+    nav.toc {
+      background: var(--surface);
       width: 100%;
       min-width: 100%;
       max-width: 100%;
@@ -172,7 +251,11 @@
 
     section {
       margin-bottom: 56px;
-      scroll-margin-top: 72px;
+      scroll-margin-top: 132px;
+    }
+
+    section.search-hit h2 {
+      color: var(--brand-700);
     }
 
     h2 {
@@ -407,8 +490,30 @@
     </div>
   </header>
 
-  <nav class="toc">
-    <ul>
+  <div class="guide-nav">
+    <div class="doc-search">
+      <div class="doc-search-inner">
+        <label class="doc-search-field">
+          <svg class="doc-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="M20 20l-3.5-3.5"></path>
+          </svg>
+          <input
+            id="doc-search-input"
+            class="doc-search-input"
+            type="search"
+            placeholder="Search guide topics, features, and tasks…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-controls="doc-search-status"
+          />
+        </label>
+        <p id="doc-search-status" class="doc-search-status" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <nav class="toc" aria-label="Guide sections">
+      <ul>
       <li><a href="#getting-started">Getting started</a></li>
       <li><a href="#login">Sign in</a></li>
       <li><a href="#navigation">Navigation</a></li>
@@ -421,7 +526,8 @@
       <li><a href="#profile">Profile</a></li>
       <li><a href="#mobile">Mobile app</a></li>
     </ul>
-  </nav>
+    </nav>
+  </div>
 
   <main>
     <section id="getting-started">
@@ -759,5 +865,64 @@
   <footer>
     Alubond CRM User Guide · Alubond Sales Intelligence
   </footer>
+  <script>
+    (function () {
+      var input = document.getElementById('doc-search-input');
+      var status = document.getElementById('doc-search-status');
+      if (!input || !status) return;
+
+      var sections = Array.prototype.slice.call(document.querySelectorAll('main section[id]'));
+      var tocItems = Array.prototype.slice.call(document.querySelectorAll('nav.toc li'));
+
+      function normalize(text) {
+        return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      }
+
+      function applySearch() {
+        var query = normalize(input.value);
+
+        if (!query) {
+          sections.forEach(function (section) {
+            section.hidden = false;
+            section.classList.remove('search-hit');
+          });
+          tocItems.forEach(function (item) {
+            item.hidden = false;
+          });
+          status.textContent = '';
+          return;
+        }
+
+        var visible = 0;
+        sections.forEach(function (section) {
+          var match = normalize(section.textContent).indexOf(query) !== -1;
+          section.hidden = !match;
+          section.classList.toggle('search-hit', match);
+          if (match) visible += 1;
+        });
+
+        tocItems.forEach(function (item) {
+          var link = item.querySelector('a[href^="#"]');
+          if (!link) return;
+          var section = document.getElementById(link.getAttribute('href').slice(1));
+          item.hidden = section ? section.hidden : true;
+        });
+
+        status.textContent = visible === 0
+          ? 'No topics match your search.'
+          : visible + ' topic' + (visible === 1 ? '' : 's') + ' found';
+      }
+
+      input.addEventListener('input', applySearch);
+      input.addEventListener('search', applySearch);
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          input.value = '';
+          applySearch();
+          input.blur();
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
