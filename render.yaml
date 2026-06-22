@@ -31,7 +31,7 @@ services:
           name: alubond-crm-db
           property: connectionString
       - key: FRONTEND_ORIGIN
-        value: https://alubond-crm-web.onrender.com
+        value: https://crm.alubond.com
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
@@ -57,17 +57,4 @@ services:
       - key: EMAIL_FROM
         value: Alubond CRM <no-reply@crm.alubond.com>
       - key: APP_BASE_URL
-        value: https://alubond-crm-web.onrender.com
-
-  - type: web
-    name: alubond-crm-web
-    runtime: node
-    rootDir: frontend
-    plan: free
-    buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm run start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://alubond-crm-api.onrender.com/api/v1
+        value: https://crm.alubond.com

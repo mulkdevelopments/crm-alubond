@@ -123,7 +123,7 @@ In the **alubond-crm-api** service on Render, set:
 |----------|-------|
 | `RESEND_API_KEY` | your Resend API key (Secret) |
 | `EMAIL_FROM` | `Alubond CRM <no-reply@crm.alubond.com>` |
-| `APP_BASE_URL` | your frontend URL (e.g. Vercel) |
+| `APP_BASE_URL` | `https://crm.alubond.com` |
 
 `SMTP_PASS` also works as a fallback name for the same Resend API key.
 

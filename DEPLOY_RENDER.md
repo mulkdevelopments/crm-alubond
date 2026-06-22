@@ -1,6 +1,6 @@
 # Deploy on Render
 
-This repo is ready for Render deployment using `render.yaml`.
+This repo uses Render for the **API and database** only. The frontend is hosted on **Vercel** at [https://crm.alubond.com](https://crm.alubond.com).
 
 ## 1) Push repository
 
@@ -14,7 +14,6 @@ Push this project to GitHub/GitLab/Bitbucket (Render needs a git remote).
 4. Render will detect `render.yaml` and create:
    - `alubond-crm-db` (Postgres)
    - `alubond-crm-api` (backend)
-   - `alubond-crm-web` (frontend)
 
 ## 3) Set required secrets
 
@@ -32,12 +31,10 @@ Deploy all services from the Blueprint.
 ## 5) Verify
 
 - Backend health: `https://alubond-crm-api.onrender.com/api/v1/health`
-- Frontend: `https://alubond-crm-web.onrender.com`
+- Frontend (Vercel): `https://crm.alubond.com`
 
 ## Notes
 
 - Backend runs `prisma db push` on startup to sync schema.
-- If you rename services, update:
-  - `FRONTEND_ORIGIN` in backend
-  - `NEXT_PUBLIC_API_BASE_URL` in frontend
+- Frontend env on Vercel: `NEXT_PUBLIC_API_BASE_URL=https://alubond-crm-api.onrender.com/api/v1`
 - On free plan, cold starts are expected.

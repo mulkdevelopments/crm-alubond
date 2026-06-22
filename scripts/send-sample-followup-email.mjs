@@ -53,7 +53,7 @@ const description = [
   "Channel: Visit",
   "Status: Due today",
   "Note: Follow up on revised BOQ and fire-rating sample approval.",
-  `CRM: ${env.APP_BASE_URL || "https://alubond-crm-web.onrender.com"}/follow-ups`,
+  `CRM: ${env.APP_BASE_URL || "https://crm.alubond.com"}/follow-ups`,
 ].join("\n");
 
 const ics = [
@@ -96,7 +96,7 @@ const dueAtLabel = dueAt.toLocaleString("en-AE", {
   hour: "numeric",
   minute: "2-digit",
 });
-const appLink = `${env.APP_BASE_URL || "https://alubond-crm-web.onrender.com"}/follow-ups`;
+const appLink = `${env.APP_BASE_URL || "https://crm.alubond.com"}/follow-ups`;
 const subject = `[Alubond CRM] Follow-up created: ${projectName}`;
 const html = `
   <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px">
