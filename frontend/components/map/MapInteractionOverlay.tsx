@@ -43,7 +43,7 @@ export function MapInteractionOverlay({
       type="button"
       onClick={onDeactivate}
       className={cn(
-        'absolute top-3 left-3 z-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-soft',
+        'absolute bottom-3 left-3 z-30 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium shadow-soft',
         className,
       )}
     >

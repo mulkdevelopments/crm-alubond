@@ -25,6 +25,7 @@ import { useAuth } from '@/components/auth/AuthContext';
 import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
 import { formatAED } from '@/lib/utils';
 import { MapInteractionOverlay } from '@/components/map/MapInteractionOverlay';
+import { MapMobileProjectSheet } from '@/components/map/MapMobileProjectSheet';
 import { useScrollFriendlyMap } from '@/components/map/useScrollFriendlyMap';
 
 const STAGE_META: Record<string, { color: string; icon: LucideIcon; tone: 'brand' | 'neutral' | 'success' | 'warning' | 'danger' | 'info' }> = {
@@ -67,6 +68,7 @@ export default function MapPage() {
   const [error, setError] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
+  const [mobileMapProjectId, setMobileMapProjectId] = useState<string | null>(null);
 
   const validProjects = useMemo(
     () =>
@@ -115,6 +117,10 @@ export default function MapPage() {
   const focusedProject = useMemo(
     () => validProjects.find((project) => project.id === focusedProjectId) ?? null,
     [validProjects, focusedProjectId]
+  );
+  const mobileMapProject = useMemo(
+    () => validProjects.find((project) => project.id === mobileMapProjectId) ?? null,
+    [validProjects, mobileMapProjectId]
   );
   const focusedProjectUpdates = focusedProject ? (recentActivitiesByProjectId[focusedProject.id] ?? []) : [];
   const mapInteraction = useScrollFriendlyMap();
@@ -239,22 +245,45 @@ export default function MapPage() {
                 <MapResetViewButton
                   center={mapCenter}
                   zoom={filteredProjects.length > 0 ? 4 : 2}
-                  onReset={() => setFocusedProjectId(null)}
+                  compact={mapInteraction.isMobile}
+                  onReset={() => {
+                    setFocusedProjectId(null);
+                    setMobileMapProjectId(null);
+                  }}
                 />
                 {filteredProjects.map((project) => (
                   <ProjectMarker
                     key={project.id}
                     project={project}
                     latestActivity={latestActivityByProjectId[project.id] ?? null}
+                    isMobile={mapInteraction.isMobile}
                     onFocusProject={(projectId) => setFocusedProjectId(projectId)}
+                    onMobileSelect={(projectId) => setMobileMapProjectId(projectId)}
                   />
                 ))}
               </MapContainer>
+              {mapInteraction.isMobile && mobileMapProject && (
+                <MapMobileProjectSheet
+                  project={mobileMapProject}
+                  latestActivity={latestActivityByProjectId[mobileMapProject.id] ?? null}
+                  stageMeta={{
+                    tone: stageTone(mobileMapProject.stage),
+                    icon: STAGE_META[mobileMapProject.stage]?.icon ?? CircleDot,
+                  }}
+                  stageLabel={stageLabel}
+                  onClose={() => setMobileMapProjectId(null)}
+                  onFocus={() => {
+                    setFocusedProjectId(mobileMapProject.id);
+                    setMobileMapProjectId(null);
+                  }}
+                />
+              )}
               <MapInteractionOverlay
                 visible={mapInteraction.isMobile}
                 active={mapInteraction.active}
                 onActivate={mapInteraction.activate}
                 onDeactivate={mapInteraction.deactivate}
+                className={mobileMapProject ? '!bottom-44' : undefined}
               />
             </div>
           </div>
@@ -430,15 +459,24 @@ function ProjectMarker({
   project,
   latestActivity,
   onFocusProject,
+  isMobile,
+  onMobileSelect,
 }: {
   project: ApiProject;
   latestActivity: ProjectActivity | null;
   onFocusProject: (projectId: string) => void;
+  isMobile: boolean;
+  onMobileSelect: (projectId: string) => void;
 }) {
   const map = useMap();
   const StageIcon = STAGE_META[project.stage]?.icon ?? CircleDot;
   const color = markerColor(project.stage);
   const radius = project.valueAed >= 5_000_000 ? 10 : project.valueAed >= 1_000_000 ? 8 : 6;
+
+  function focusProject() {
+    map.flyTo([project.lat, project.lng], 16, { animate: true, duration: 0.8 });
+    onFocusProject(project.id);
+  }
 
   return (
     <>
@@ -461,52 +499,69 @@ function ProjectMarker({
           fillOpacity: 0.92,
           weight: 2,
         }}
+        eventHandlers={
+          isMobile
+            ? {
+                click: () => {
+                  focusProject();
+                  onMobileSelect(project.id);
+                },
+              }
+            : undefined
+        }
       >
-        <Popup>
-          <div className="min-w-[240px] space-y-2">
-            <div>
-              <p className="text-sm font-semibold leading-tight">{project.name}</p>
-              <p className="text-xs text-2">{project.city}, {project.country}</p>
+        {!isMobile && (
+          <Popup
+            minWidth={0}
+            maxWidth={260}
+            autoPanPaddingTopLeft={[16, 16]}
+            autoPanPaddingBottomRight={[16, 24]}
+          >
+            <div className="space-y-2.5">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold leading-tight line-clamp-2">{project.name}</p>
+                <p className="text-xs text-2 truncate">{project.city}, {project.country}</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Badge tone={stageTone(project.stage)} className="!text-[10px] !inline-flex !items-center !gap-1">
+                  <StageIcon className="h-3 w-3" /> {stageLabel(project.stage)}
+                </Badge>
+                <span className="text-xs font-semibold num-tabular">{formatAED(project.valueAed, true)}</span>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Latest update</p>
+                {latestActivity ? (
+                  <>
+                    <p className="text-xs mt-1 truncate">
+                      {latestActivity.type} · {(latestActivity.createdByName ?? 'System')}
+                    </p>
+                    <p className="text-[11px] text-3 mt-0.5 line-clamp-2 break-words">
+                      {latestActivity.message.split('\n')[0] || 'Activity logged.'}
+                    </p>
+                    <p className="text-[10px] text-3 mt-1">{new Date(latestActivity.createdAt).toLocaleString('en-AE')}</p>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-3 mt-1">No updates yet.</p>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={focusProject}
+                  className="h-9 w-full rounded-lg inline-flex items-center justify-center gap-1.5 text-xs font-medium bg-brand-600 text-white hover:bg-brand-700"
+                >
+                  <LocateFixed className="h-3.5 w-3.5" /> Go to location
+                </button>
+                <Link
+                  href={`/projects/${project.id}`}
+                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] inline-flex items-center justify-center text-xs font-medium text-brand-600 hover:bg-[var(--surface-2)]"
+                >
+                  Open project
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <Badge tone={stageTone(project.stage)} className="!text-[10px] !inline-flex !items-center !gap-1">
-                <StageIcon className="h-3 w-3" /> {stageLabel(project.stage)}
-              </Badge>
-              <span className="text-xs font-semibold">{formatAED(project.valueAed, true)}</span>
-            </div>
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2">
-              <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Latest update</p>
-              {latestActivity ? (
-                <>
-                  <p className="text-xs mt-1 truncate">
-                    {latestActivity.type} · {(latestActivity.createdByName ?? 'System')}
-                  </p>
-                  <p className="text-[11px] text-3 mt-0.5 line-clamp-2">
-                    {latestActivity.message.split('\n')[0] || 'Activity logged.'}
-                  </p>
-                  <p className="text-[10px] text-3 mt-1">{new Date(latestActivity.createdAt).toLocaleString('en-AE')}</p>
-                </>
-              ) : (
-                <p className="text-[11px] text-3 mt-1">No updates yet.</p>
-              )}
-            </div>
-            <div className="pt-1 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  map.flyTo([project.lat, project.lng], 16, { animate: true, duration: 0.8 });
-                  onFocusProject(project.id);
-                }}
-                className="h-7 px-2.5 rounded-lg inline-flex items-center gap-1 text-[11px] font-medium bg-brand-600 text-white hover:bg-brand-700"
-              >
-                <LocateFixed className="h-3.5 w-3.5" /> Go to location
-              </button>
-              <Link href={`/projects/${project.id}`} className="text-xs font-medium text-brand-600 hover:underline">
-                Open project
-              </Link>
-            </div>
-          </div>
-        </Popup>
+          </Popup>
+        )}
       </CircleMarker>
     </>
   );
@@ -516,10 +571,12 @@ function MapResetViewButton({
   center,
   zoom,
   onReset,
+  compact = false,
 }: {
   center: [number, number];
   zoom: number;
   onReset?: () => void;
+  compact?: boolean;
 }) {
   const map = useMap();
 
@@ -532,11 +589,11 @@ function MapResetViewButton({
             map.flyTo(center, zoom, { animate: true, duration: 0.8 });
             onReset?.();
           }}
-          className="h-9 px-3 m-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-soft inline-flex items-center gap-1.5 text-xs font-medium"
+          className="h-9 px-2.5 sm:px-3 m-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-soft inline-flex items-center gap-1.5 text-xs font-medium"
           aria-label="Reset map view"
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          Back to overview
+          {!compact && <span>Back to overview</span>}
         </button>
       </div>
     </div>
