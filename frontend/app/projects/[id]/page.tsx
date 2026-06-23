@@ -1358,18 +1358,22 @@ export default function ProjectDetailPage() {
                 </select>
               </div>
               {showActivityComposer && (
-              <div className="fixed inset-0 z-50 bg-black/45 px-4 py-6 sm:p-8" onClick={() => setShowActivityComposer(false)}>
+              <div
+                className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 pb-24 sm:p-8 lg:pb-8"
+                onClick={() => setShowActivityComposer(false)}
+              >
                 <div
-                  className="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+                  className="mx-auto flex w-full max-w-3xl max-h-[calc(100dvh-6rem)] sm:max-h-[calc(100dvh-4rem)] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--border)]">
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
                     <p className="text-sm font-semibold tracking-tight">Log new update</p>
                     <Button type="button" size="sm" variant="ghost" onClick={() => setShowActivityComposer(false)}>
                       Close
                     </Button>
                   </div>
-                  <form onSubmit={onCreateActivity} className="p-4 space-y-2">
+                  <form onSubmit={onCreateActivity} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
                 <div className="grid grid-cols-1 sm:grid-cols-[140px,1fr] gap-2">
                   <select
                     value={activityType}
@@ -1600,8 +1604,9 @@ export default function ProjectDetailPage() {
                   />
                 </div>
                 )}
-                <div className="flex items-center justify-end gap-2">
-                  {activityError && <p className="text-xs text-rose-600 mr-auto">{activityError}</p>}
+                </div>
+                <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+                  {activityError && <p className="mr-auto text-xs text-rose-600">{activityError}</p>}
                   <Button
                     type="submit"
                     variant="primary"
