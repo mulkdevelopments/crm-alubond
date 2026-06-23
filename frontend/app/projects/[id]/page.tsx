@@ -547,6 +547,12 @@ export default function ProjectDetailPage() {
         : activityType === 'whatsapp'
           ? 'WhatsApp to'
           : 'Meeting with';
+  const canAddActivityToFollowUps =
+    activityType === 'call' ||
+    activityType === 'email' ||
+    activityType === 'whatsapp' ||
+    activityType === 'visit';
+
   const assignmentMembers = [
     ...(project.regionalManagerId
       ? [
@@ -702,11 +708,11 @@ export default function ProjectDetailPage() {
         return;
       }
     }
-    if (addToFollowUps && !activityFollowUpDueAt) {
+    if (canAddActivityToFollowUps && addToFollowUps && !activityFollowUpDueAt) {
       setActivityError('Select follow-up date & time.');
       return;
     }
-    if (addToFollowUps) {
+    if (canAddActivityToFollowUps && addToFollowUps) {
       const dueAtMs = new Date(activityFollowUpDueAt).getTime();
       if (!Number.isFinite(dueAtMs) || dueAtMs < Date.now()) {
         setActivityError('Follow-up date & time must be in the future.');
@@ -809,7 +815,10 @@ export default function ProjectDetailPage() {
       const created = await createProjectActivity(token, project.id, {
         type: activityType,
         message: details.join('\n'),
-        followUpDueAt: addToFollowUps ? new Date(activityFollowUpDueAt).toISOString() : undefined,
+        followUpDueAt:
+          canAddActivityToFollowUps && addToFollowUps
+            ? new Date(activityFollowUpDueAt).toISOString()
+            : undefined,
         visitLocation: visitLocationPayload,
         attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
       });
@@ -830,6 +839,7 @@ export default function ProjectDetailPage() {
       setActivityVoicePreviewUrl(null);
       setActivityVoiceAttachment(null);
       setActivityFollowUpDueAt('');
+      setAddToFollowUps(false);
       setShowActivityComposer(false);
     } catch (err) {
       setActivityError(err instanceof Error ? err.message : 'Failed to save activity.');
@@ -1363,7 +1373,19 @@ export default function ProjectDetailPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-[140px,1fr] gap-2">
                   <select
                     value={activityType}
-                    onChange={(e) => setActivityType(e.target.value as ProjectActivity['type'])}
+                    onChange={(e) => {
+                      const nextType = e.target.value as ProjectActivity['type'];
+                      setActivityType(nextType);
+                      if (
+                        nextType !== 'call' &&
+                        nextType !== 'email' &&
+                        nextType !== 'whatsapp' &&
+                        nextType !== 'visit'
+                      ) {
+                        setAddToFollowUps(false);
+                        setActivityFollowUpDueAt('');
+                      }
+                    }}
                     className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
                   >
                     <option value="note">Note</option>
@@ -1549,6 +1571,7 @@ export default function ProjectDetailPage() {
                   </label>
                   {activityAttachment && <p className="mt-1 text-[11px] text-3 truncate">Attached: {activityAttachment.name}</p>}
                 </div>
+                {canAddActivityToFollowUps && (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2">
                   <label className="inline-flex items-start gap-2 text-xs text-2 cursor-pointer">
                     <input
@@ -1563,7 +1586,7 @@ export default function ProjectDetailPage() {
                         Add to follow-ups
                       </span>
                       <span className="block text-[11px] text-3 mt-0.5">
-                        This will notify you regarding this activity.
+                        Creates a reminder linked to this contact.
                       </span>
                     </span>
                   </label>
@@ -1576,6 +1599,7 @@ export default function ProjectDetailPage() {
                     className="h-10 w-full px-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] focus:border-[var(--border-strong)] focus:outline-none text-sm disabled:opacity-60"
                   />
                 </div>
+                )}
                 <div className="flex items-center justify-end gap-2">
                   {activityError && <p className="text-xs text-rose-600 mr-auto">{activityError}</p>}
                   <Button
