@@ -1013,15 +1013,16 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                   <p className="mt-1 text-[11px] text-3 truncate">{project.city} · {project.developer}</p>
                 </Link>
                 <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => openEditForm(project)}
-                    className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
-                    aria-label={`Edit ${project.name}`}
-                    disabled={!canCreateProject}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
+                  {canCreateProject && (
+                    <button
+                      type="button"
+                      onClick={() => openEditForm(project)}
+                      className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                      aria-label={`Edit ${project.name}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   {isAdmin && (
                     <button
                       type="button"
@@ -1138,15 +1139,16 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
                                 </h4>
                               </Link>
                               <div className="flex items-center gap-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => openEditForm(p)}
-                                  className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
-                                  aria-label={`Edit ${p.name}`}
-                                  disabled={!canCreateProject}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
+                                {canCreateProject && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditForm(p)}
+                                    className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                                    aria-label={`Edit ${p.name}`}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
                                 {isAdmin && (
                                   <button
                                     type="button"
