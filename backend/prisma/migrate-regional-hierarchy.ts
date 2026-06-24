@@ -12,7 +12,7 @@ async function ensureRegionalManagers() {
       firstName: "Anita",
       lastName: "Menon",
       role: UserRole.REGIONAL_MANAGER,
-      operationLocation: "South India",
+      operationLocations: ["South India"],
       regions: ["South India", "Sri Lanka"],
       passwordHash,
       isActive: true,
@@ -22,7 +22,7 @@ async function ensureRegionalManagers() {
       firstName: "Anita",
       lastName: "Menon",
       role: UserRole.REGIONAL_MANAGER,
-      operationLocation: "South India",
+      operationLocations: ["South India"],
       regions: ["South India", "Sri Lanka"],
       passwordHash,
       isActive: true,
@@ -35,7 +35,7 @@ async function ensureRegionalManagers() {
       firstName: "Faisal",
       lastName: "Khan",
       role: UserRole.REGIONAL_MANAGER,
-      operationLocation: "GCC",
+      operationLocations: ["GCC"],
       regions: ["UAE", "KSA", "Qatar"],
       passwordHash,
       isActive: true,
@@ -45,7 +45,7 @@ async function ensureRegionalManagers() {
       firstName: "Faisal",
       lastName: "Khan",
       role: UserRole.REGIONAL_MANAGER,
-      operationLocation: "GCC",
+      operationLocations: ["GCC"],
       regions: ["UAE", "KSA", "Qatar"],
       passwordHash,
       isActive: true,
@@ -58,7 +58,7 @@ async function ensureRegionalManagers() {
 async function assignManagersToRegionalManagers(regionalManagers: { south: { id: string }, gcc: { id: string } }) {
   const managers = await prisma.user.findMany({
     where: { role: UserRole.MANAGER },
-    select: { id: true, operationLocation: true, regionalManagerId: true },
+    select: { id: true, operationLocations: true, regionalManagerId: true },
   });
 
   let updated = 0;
@@ -69,7 +69,7 @@ async function assignManagersToRegionalManagers(regionalManagers: { south: { id:
       take: 20,
     });
 
-    const scopeText = `${manager.operationLocation} ${managerProjects.map((p) => p.country).join(" ")}`.toLowerCase();
+    const scopeText = `${manager.operationLocations.join(" ")} ${managerProjects.map((p) => p.country).join(" ")}`.toLowerCase();
     const looksSouthIndia =
       scopeText.includes("india") ||
       scopeText.includes("kerala") ||

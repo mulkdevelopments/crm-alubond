@@ -6,10 +6,11 @@ import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/Badge';
 import type { ApiProject, ProjectActivity } from '@/lib/projects-api';
-import { formatAED } from '@/lib/utils';
+import { formatProjectValue } from '@/lib/utils';
 
 export function MapMobileProjectSheet({
   project,
+  viewerRole,
   latestActivity,
   stageMeta,
   stageLabel,
@@ -17,6 +18,7 @@ export function MapMobileProjectSheet({
   onFocus,
 }: {
   project: ApiProject;
+  viewerRole?: string;
   latestActivity: ProjectActivity | null;
   stageMeta: {
     tone: 'brand' | 'neutral' | 'success' | 'warning' | 'danger' | 'info';
@@ -51,7 +53,7 @@ export function MapMobileProjectSheet({
           <Badge tone={stageMeta.tone} className="!text-[10px] !inline-flex !items-center !gap-1">
             <StageIcon className="h-3 w-3" /> {stageLabel(project.stage)}
           </Badge>
-          <span className="text-xs font-semibold num-tabular">{formatAED(project.valueAed, true)}</span>
+          <span className="text-xs font-semibold num-tabular">{formatProjectValue(project, viewerRole, true)}</span>
         </div>
 
         {latestActivity && (

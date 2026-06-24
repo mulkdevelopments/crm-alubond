@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Database,
   LayoutDashboard,
   KanbanSquare,
   MapPin,
@@ -60,6 +61,7 @@ export function Sidebar() {
           ...NAV.slice(0, 5),
           { href: '/access-requests', label: 'Access requests', icon: UserPlus },
           { href: '/users', label: 'Users', icon: UserCog },
+          { href: '/master-data', label: 'Master Data', icon: Database },
           ...NAV.slice(5),
         ]
       : NAV;

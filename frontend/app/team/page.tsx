@@ -8,7 +8,11 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { listUsers, type UserListItem } from '@/lib/auth-api';
 import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
-import { formatAED } from '@/lib/utils';
+import { formatAED, formatProjectValue } from '@/lib/utils';
+
+function formatLocations(locations: string[]) {
+  return locations.length > 0 ? locations.join(', ') : 'Not set';
+}
 
 type NodeMetrics = {
   assignedTargetAed: number | null;
@@ -363,7 +367,7 @@ export default function TeamPage() {
                               {project.stage} · {project.city}, {project.country}
                             </p>
                           </div>
-                          <p className="text-xs font-semibold">{formatAED(project.valueAed, true)}</p>
+                          <p className="text-xs font-semibold">{formatProjectValue(project, user?.role, true)}</p>
                         </div>
                       </article>
                     ))}
@@ -515,6 +519,61 @@ function Stat({
   );
 }
 
+function projectsForRep(projects: ApiProject[], repId: string) {
+  return projects.filter((project) => project.salesRepIds.includes(repId));
+}
+
+function isUnattributedDirectRegionalProject(project: ApiProject, regionalId: string) {
+  return (
+    project.regionalManagerId === regionalId &&
+    !project.managerId &&
+    project.salesRepIds.length === 0
+  );
+}
+
+function mergeProjects(...lists: ApiProject[][]) {
+  const byId = new Map<string, ApiProject>();
+  for (const list of lists) {
+    for (const project of list) {
+      byId.set(project.id, project);
+    }
+  }
+  return [...byId.values()];
+}
+
+function projectsForDirectRep(
+  projects: ApiProject[],
+  rep: UserListItem,
+  regionalId: string,
+  soleDirectRep: boolean,
+) {
+  const assigned = projectsForRep(projects, rep.id);
+  if (!soleDirectRep) return assigned;
+  const unattributed = projects.filter((project) => isUnattributedDirectRegionalProject(project, regionalId));
+  return mergeProjects(assigned, unattributed);
+}
+
+function projectsForManager(projects: ApiProject[], managerId: string, repIds: string[]) {
+  const repIdSet = new Set(repIds);
+  return projects.filter(
+    (project) =>
+      project.managerId === managerId || project.salesRepIds.some((salesRepId) => repIdSet.has(salesRepId)),
+  );
+}
+
+function projectsForRegional(
+  projects: ApiProject[],
+  regionalId: string,
+  managerIds: Set<string>,
+  repIds: Set<string>,
+) {
+  return projects.filter((project) => {
+    if (project.regionalManagerId === regionalId) return true;
+    if (project.managerId != null && managerIds.has(project.managerId)) return true;
+    return project.salesRepIds.some((salesRepId) => repIds.has(salesRepId));
+  });
+}
+
 function buildHierarchy(users: UserListItem[], projects: ApiProject[], activities: FlatActivity[]): RegionalCard[] {
   const regionals = users.filter((user) => user.role === 'REGIONAL_MANAGER');
   const managers = users.filter((user) => user.role === 'MANAGER');
@@ -549,7 +608,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
     firstName: string;
     lastName: string;
     regions: string[];
-    operationLocation: string;
+    operationLocations: string[];
     yearlyTarget: number | null;
   };
 
@@ -558,7 +617,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
     firstName: regional.firstName,
     lastName: regional.lastName,
     regions: regional.regions,
-    operationLocation: regional.operationLocation,
+    operationLocations: regional.operationLocations,
     yearlyTarget: regional.yearlyTarget,
   }));
 
@@ -579,7 +638,9 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       firstName: linkedManager?.regionalManager?.firstName ?? 'Regional',
       lastName: linkedManager?.regionalManager?.lastName ?? 'Manager',
       regions: [],
-      operationLocation: linkedManager?.operationLocation || 'Regional coverage',
+      operationLocations: linkedManager?.operationLocations?.length
+        ? linkedManager.operationLocations
+        : ['Regional coverage'],
       yearlyTarget: null,
     });
   }
@@ -587,12 +648,14 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
   return regionalSeeds.map((regional) => {
     const managerUsers = managersByRegional.get(regional.id) ?? [];
     const managerCards = managerUsers.map((manager) => {
-      const managerProjectIds = projects.filter((project) => project.managerId === manager.id).map((project) => project.id);
-      const managerProjects = projects.filter((project) => managerProjectIds.includes(project.id));
+      const managerRepUsers = repsByManager.get(manager.id) ?? [];
+      const managerRepIds = managerRepUsers.map((rep) => rep.id);
+      const managerProjects = projectsForManager(projects, manager.id, managerRepIds);
+      const managerProjectIds = managerProjects.map((project) => project.id);
       const managerVisits = activities.filter((activity) => activity.type === 'visit' && managerProjectIds.includes(activity.projectId));
-      const repCards = (repsByManager.get(manager.id) ?? []).map((rep) => {
-        const repProjectIds = projects.filter((project) => project.salesRepIds.includes(rep.id)).map((project) => project.id);
-        const repProjects = projects.filter((project) => repProjectIds.includes(project.id));
+      const repCards = managerRepUsers.map((rep) => {
+        const repProjects = projectsForRep(projects, rep.id);
+        const repProjectIds = repProjects.map((project) => project.id);
       const repPipelineProjects = repProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
         const repVisits = activities.filter(
           (activity) => activity.type === 'visit' && activity.createdById === rep.id && repProjectIds.includes(activity.projectId)
@@ -600,7 +663,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
         return {
           id: rep.id,
           name: `${rep.firstName} ${rep.lastName}`.trim(),
-          location: rep.operationLocation,
+          location: formatLocations(rep.operationLocations),
           online: isLive(rep.lastLocationPingAt, rep.isActive),
           metrics: computeMetrics(repProjects, rep.yearlyTarget, rep.yearlyTarget, repVisits),
           visits: repVisits,
@@ -612,7 +675,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       return {
         id: manager.id,
         name: `${manager.firstName} ${manager.lastName}`.trim(),
-        location: manager.operationLocation,
+        location: formatLocations(manager.operationLocations),
         reps: repCards,
         metrics: computeMetrics(managerProjects, manager.yearlyTarget, targetFromReps || manager.yearlyTarget, managerVisits),
         visits: managerVisits,
@@ -620,9 +683,12 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       };
     });
 
-    const directRepCards = (directRepsByRegional.get(regional.id) ?? []).map((rep) => {
-      const repProjectIds = projects.filter((project) => project.salesRepIds.includes(rep.id)).map((project) => project.id);
-      const repProjects = projects.filter((project) => repProjectIds.includes(project.id));
+    const directRepUsers = directRepsByRegional.get(regional.id) ?? [];
+    const soleDirectRep = directRepUsers.length === 1;
+
+    const directRepCards = directRepUsers.map((rep) => {
+      const repProjects = projectsForDirectRep(projects, rep, regional.id, soleDirectRep);
+      const repProjectIds = repProjects.map((project) => project.id);
       const repPipelineProjects = repProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
       const repVisits = activities.filter(
         (activity) => activity.type === 'visit' && activity.createdById === rep.id && repProjectIds.includes(activity.projectId)
@@ -630,7 +696,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       return {
         id: rep.id,
         name: `${rep.firstName} ${rep.lastName}`.trim(),
-        location: rep.operationLocation,
+        location: formatLocations(rep.operationLocations),
         online: isLive(rep.lastLocationPingAt, rep.isActive),
         metrics: computeMetrics(repProjects, rep.yearlyTarget, rep.yearlyTarget, repVisits),
         visits: repVisits,
@@ -640,29 +706,14 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
 
     if (directRepCards.length > 0) {
       const directVisits = directRepCards.flatMap((rep) => rep.visits);
-      const directProjectsById = new Map<string, ApiProject>();
-      for (const rep of directRepCards) {
-        for (const project of rep.pipelineProjects) {
-          directProjectsById.set(project.id, project);
-        }
-      }
-      const directWonProjectsById = new Map<string, ApiProject>();
-      for (const rep of directRepCards) {
-        const repWonProjects = projects.filter(
-          (project) => project.stage === 'Won' && project.salesRepIds.includes(rep.id)
-        );
-        for (const project of repWonProjects) {
-          directWonProjectsById.set(project.id, project);
-        }
-      }
-      const directProjects = [...directProjectsById.values(), ...directWonProjectsById.values()].filter(
-        (project, index, list) => list.findIndex((entry) => entry.id === project.id) === index
+      const directProjects = mergeProjects(
+        ...directRepUsers.map((rep) => projectsForDirectRep(projects, rep, regional.id, soleDirectRep)),
       );
       const directTarget = directRepCards.reduce((sum, rep) => sum + rep.metrics.targetAed, 0);
       managerCards.unshift({
         id: `regional-direct-${regional.id}`,
         name: 'Direct regional reports',
-        location: regional.regions.join(', ') || regional.operationLocation || 'Regional coverage',
+        location: regional.regions.join(', ') || formatLocations(regional.operationLocations) || 'Regional coverage',
         reps: directRepCards,
         metrics: computeMetrics(directProjects, directTarget || null, directTarget || null, directVisits),
         visits: directVisits,
@@ -670,10 +721,13 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
       });
     }
 
-    const managerIds = new Set(managerCards.map((manager) => manager.id));
-    const regionalProjects = projects.filter(
-      (project) => project.managerId != null && managerIds.has(project.managerId),
+    const managerIds = new Set(
+      managerCards.map((manager) => manager.id).filter((id) => !id.startsWith('regional-direct-')),
     );
+    const repIdsUnderRegional = new Set(
+      managerCards.flatMap((manager) => manager.reps.map((rep) => rep.id)),
+    );
+    const regionalProjects = projectsForRegional(projects, regional.id, managerIds, repIdsUnderRegional);
     const regionalProjectIds = new Set(regionalProjects.map((project) => project.id));
     const regionalPipelineProjects = regionalProjects.filter((project) => project.stage !== 'Won' && project.stage !== 'Lost');
     const regionalVisits = activities.filter((activity) => activity.type === 'visit' && regionalProjectIds.has(activity.projectId));
@@ -681,7 +735,7 @@ function buildHierarchy(users: UserListItem[], projects: ApiProject[], activitie
     return {
       id: regional.id,
       name: `${regional.firstName} ${regional.lastName}`.trim(),
-      location: regional.regions.join(', ') || regional.operationLocation || 'Regional coverage',
+      location: regional.regions.join(', ') || formatLocations(regional.operationLocations) || 'Regional coverage',
       managers: managerCards,
       metrics: computeMetrics(regionalProjects, regional.yearlyTarget, targetFromManagers || regional.yearlyTarget, regionalVisits),
       visits: regionalVisits,

@@ -26,6 +26,8 @@ export type ApiProject = {
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
+  createdById: string | null;
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
 };

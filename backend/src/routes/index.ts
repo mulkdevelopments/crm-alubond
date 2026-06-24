@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { env } from "../config/env";
 import { deleteActivityAttachmentFiles } from "../lib/attachment-cleanup";
+import { resolveProjectValue } from "../lib/fx";
 import { storeUploadedFile } from "../lib/file-storage";
 import { isEmailConfigured, sendFollowUpNotificationById } from "../lib/followup-notifier";
 import { prisma } from "../lib/prisma";
@@ -21,6 +22,7 @@ import {
 } from "../modules/projects/projects.repository";
 import { accessRequestsRouter } from "../modules/access-requests/access-requests.routes";
 import { authRouter } from "../modules/auth/auth.routes";
+import { masterDataRouter } from "../modules/master-data/master-data.routes";
 import { usersRouter } from "../modules/users/users.routes";
 
 export const apiRouter = Router();
@@ -41,6 +43,8 @@ const projectPayloadSchema = z.object({
   developer: z.string().optional().default(""),
   businessDivision: z.enum(["alubond architecture", "alubond transport", "uniqube"]).nullable().optional(),
   stage: z.string().min(1),
+  valueLocal: z.number().min(0).optional(),
+  currencyCode: z.string().trim().length(3).optional(),
   valueAed: z.number().min(0).optional().default(0),
   itemName: z.string().trim().max(120).optional().default(""),
   itemQuantity: z.number().int().min(0).optional().default(0),
@@ -65,7 +69,7 @@ function requiresCommercialDetails(stage: string) {
 
 function validateCommercialPayload(payload: {
   stage: string;
-  valueAed: number;
+  valueLocal: number;
   itemQuantity: number;
   specThickness: string;
   specCore: string;
@@ -74,7 +78,7 @@ function validateCommercialPayload(payload: {
   if (!requiresCommercialDetails(payload.stage)) {
     return null;
   }
-  if (payload.valueAed <= 0) {
+  if (payload.valueLocal <= 0) {
     return "Total project value is required for Tender stage and later.";
   }
   if (payload.itemQuantity <= 0) {
@@ -449,6 +453,7 @@ apiRouter.get("/health", (_req, res) => {
 
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/access-requests", accessRequestsRouter);
+apiRouter.use("/master-data", masterDataRouter);
 apiRouter.use("/users", usersRouter);
 
 apiRouter.post("/ai/assistant", authenticate, async (req, res) => {
@@ -764,6 +769,31 @@ function applyCreatorProjectDefaults(
   return payload;
 }
 
+async function resolveProjectPayloadValue(payload: z.infer<typeof projectPayloadSchema>) {
+  const hasLocalValue = payload.valueLocal !== undefined && payload.currencyCode;
+  return resolveProjectValue(
+    hasLocalValue
+      ? { valueLocal: payload.valueLocal, currencyCode: payload.currencyCode }
+      : { valueAed: payload.valueAed }
+  );
+}
+
+function projectCoreFields(payload: z.infer<typeof projectPayloadSchema>) {
+  return {
+    name: payload.name,
+    city: payload.city,
+    country: payload.country,
+    developer: payload.developer,
+    stage: payload.stage,
+    lat: payload.lat,
+    lng: payload.lng,
+    probability: payload.probability,
+    daysInStage: payload.daysInStage,
+    competitor: payload.competitor,
+    itemQuantity: payload.itemQuantity,
+  };
+}
+
 apiRouter.post("/projects", authenticate, async (req, res) => {
   if (!req.user || !canManageProjects(req.user.role)) {
     res.status(403).json({ message: "You do not have permission to create projects" });
@@ -789,9 +819,17 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     specCore: payload.specCore,
     specPaintType: payload.specPaintType,
   });
+
+  const valueResult = await resolveProjectPayloadValue(payload);
+  if (!valueResult.ok) {
+    res.status(400).json({ message: valueResult.message });
+    return;
+  }
+  const resolvedValue = valueResult.value;
+
   const commercialError = validateCommercialPayload({
     stage: payload.stage,
-    valueAed: payload.valueAed,
+    valueLocal: resolvedValue.valueLocal,
     itemQuantity: payload.itemQuantity,
     specThickness: commercialFields.specThickness,
     specCore: commercialFields.specCore,
@@ -810,8 +848,15 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
 
   const canSetDivision = await userCanSetBusinessDivision(req.user);
 
+  const creator = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { firstName: true, lastName: true },
+  });
+  const createdByName = creator ? `${creator.firstName} ${creator.lastName}`.trim() : null;
+
   const project = await createProject({
-    ...payload,
+    ...projectCoreFields(payload),
+    ...resolvedValue,
     businessDivision: canSetDivision ? payload.businessDivision ?? null : null,
     ...commercialFields,
     regionalManagerId: assignees.regionalManagerId,
@@ -820,7 +865,9 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     managerName: assignees.managerName,
     owner: assignees.owner,
     salesRepIds: assignees.salesRepIds,
-    salesRepNames: assignees.salesRepNames
+    salesRepNames: assignees.salesRepNames,
+    createdById: req.user.id,
+    createdByName,
   });
 
   res.status(201).json({ project });
@@ -867,9 +914,17 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     specCore: payload.specCore,
     specPaintType: payload.specPaintType,
   });
+
+  const valueResult = await resolveProjectPayloadValue(payload);
+  if (!valueResult.ok) {
+    res.status(400).json({ message: valueResult.message });
+    return;
+  }
+  const resolvedValue = valueResult.value;
+
   const commercialError = validateCommercialPayload({
     stage: payload.stage,
-    valueAed: payload.valueAed,
+    valueLocal: resolvedValue.valueLocal,
     itemQuantity: payload.itemQuantity,
     specThickness: commercialFields.specThickness,
     specCore: commercialFields.specCore,
@@ -912,7 +967,8 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   const canSetDivision = await userCanSetBusinessDivision(req.user);
 
   const project = await updateProject(req.params.projectId as string, {
-    ...payload,
+    ...projectCoreFields(payload),
+    ...resolvedValue,
     businessDivision: canSetDivision
       ? payload.businessDivision ?? null
       : existingProject.businessDivision,

@@ -5,6 +5,25 @@ import { env } from "../src/config/env";
 
 const prisma = new PrismaClient();
 
+const DEFAULT_MASTER_REGIONS = [
+  "South India",
+  "Sri Lanka",
+  "UAE",
+  "KSA",
+  "Qatar",
+  "GCC",
+];
+
+async function seedMasterRegions() {
+  for (const [index, name] of DEFAULT_MASTER_REGIONS.entries()) {
+    await prisma.masterRegion.upsert({
+      where: { name },
+      update: { sortOrder: index, isActive: true },
+      create: { name, sortOrder: index, isActive: true },
+    });
+  }
+}
+
 async function seedAdmin() {
   const passwordHash = await bcrypt.hash(env.ADMIN_PASSWORD, 10);
 
@@ -36,7 +55,7 @@ async function upsertUser(params: {
   password: string;
   managerId?: string | null;
   regionalManagerId?: string | null;
-  operationLocation?: string;
+  operationLocations?: string[];
   yearlyTarget?: number | null;
   regions?: string[];
 }) {
@@ -50,7 +69,7 @@ async function upsertUser(params: {
       passwordHash,
       managerId: params.managerId ?? null,
       regionalManagerId: params.regionalManagerId ?? null,
-      operationLocation: params.operationLocation ?? "Not set",
+      operationLocations: params.operationLocations ?? [],
       yearlyTarget: params.yearlyTarget ?? null,
       regions: params.regions ?? [],
       isActive: true
@@ -63,7 +82,7 @@ async function upsertUser(params: {
       passwordHash,
       managerId: params.managerId ?? null,
       regionalManagerId: params.regionalManagerId ?? null,
-      operationLocation: params.operationLocation ?? "Not set",
+      operationLocations: params.operationLocations ?? [],
       yearlyTarget: params.yearlyTarget ?? null,
       regions: params.regions ?? [],
       isActive: true
@@ -78,7 +97,7 @@ async function seedTeam() {
     lastName: "Menon",
     role: UserRole.REGIONAL_MANAGER,
     password: "Regional@12345",
-    operationLocation: "South India",
+    operationLocations: ["South India"],
     regions: ["South India", "Sri Lanka"],
     yearlyTarget: 90_000_000,
   });
@@ -89,7 +108,7 @@ async function seedTeam() {
     lastName: "Khan",
     role: UserRole.REGIONAL_MANAGER,
     password: "Regional@12345",
-    operationLocation: "GCC",
+    operationLocations: ["GCC"],
     regions: ["UAE", "KSA", "Qatar"],
     yearlyTarget: 120_000_000,
   });
@@ -101,7 +120,7 @@ async function seedTeam() {
     role: UserRole.MANAGER,
     password: "Manager@12345",
     regionalManagerId: regionalManagerSouth.id,
-    operationLocation: "Kerala",
+    operationLocations: ["South India"],
     yearlyTarget: 42_000_000,
   });
 
@@ -112,7 +131,7 @@ async function seedTeam() {
     role: UserRole.MANAGER,
     password: "Manager@12345",
     regionalManagerId: regionalManagerGcc.id,
-    operationLocation: "Dubai",
+    operationLocations: ["UAE"],
     yearlyTarget: 48_000_000,
   });
 
@@ -124,7 +143,7 @@ async function seedTeam() {
     password: "Sales@12345",
     managerId: manager1.id,
     yearlyTarget: 21_600_000,
-    operationLocation: "Kerala",
+    operationLocations: ["South India"],
   });
 
   const rep2 = await upsertUser({
@@ -135,7 +154,7 @@ async function seedTeam() {
     password: "Sales@12345",
     managerId: manager1.id,
     yearlyTarget: 18_000_000,
-    operationLocation: "Tamil Nadu",
+    operationLocations: ["South India"],
   });
 
   const rep3 = await upsertUser({
@@ -146,7 +165,7 @@ async function seedTeam() {
     password: "Sales@12345",
     managerId: manager2.id,
     yearlyTarget: 25_200_000,
-    operationLocation: "Riyadh",
+    operationLocations: ["KSA"],
   });
 
   const rep4 = await upsertUser({
@@ -157,7 +176,7 @@ async function seedTeam() {
     password: "Sales@12345",
     managerId: manager2.id,
     yearlyTarget: 24_000_000,
-    operationLocation: "Dubai",
+    operationLocations: ["UAE"],
   });
 
   return {
@@ -387,6 +406,7 @@ async function seedLocationHistory() {
 }
 
 async function main() {
+  await seedMasterRegions();
   await seedAdmin();
   const team = await seedTeam();
   await seedProjects(team);

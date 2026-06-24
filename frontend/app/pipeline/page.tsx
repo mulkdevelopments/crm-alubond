@@ -17,7 +17,9 @@ import {
   updateProject as updateProjectApi,
   type ApiProject,
 } from '@/lib/projects-api';
-import { cn, formatAED } from '@/lib/utils';
+import { cn, formatAED, formatProjectValue } from '@/lib/utils';
+import { suggestCurrencyCode } from '@/lib/currency-defaults';
+import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem } from '@/lib/master-data-api';
 import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
 import {
   commercialSpecsComplete,
@@ -42,6 +44,7 @@ type ProjectFormState = {
   developer: string;
   businessDivision: '' | 'alubond architecture' | 'alubond transport' | 'uniqube';
   value: string;
+  currencyCode: string;
   itemQuantity: string;
   specThickness: string;
   specCore: string;
@@ -65,6 +68,9 @@ type PipelineProject = {
   businessDivision: 'alubond architecture' | 'alubond transport' | 'uniqube' | null;
   stage: Stage;
   value: number;
+  valueLocal: number;
+  currencyCode: string;
+  valueAed: number;
   itemQuantity: number;
   specThickness: string;
   specCore: string;
@@ -122,6 +128,7 @@ const EMPTY_FORM: ProjectFormState = {
   developer: '',
   businessDivision: '',
   value: '',
+  currencyCode: 'AED',
   itemQuantity: '',
   specThickness: '',
   specCore: '',
@@ -165,6 +172,7 @@ export default function PipelinePage() {
     projectId: string;
     targetStage: Stage;
     value: string;
+    currencyCode: string;
     itemQuantity: string;
     specThickness: string;
     specCore: string;
@@ -174,6 +182,30 @@ export default function PipelinePage() {
   } | null>(null);
   const [projectPendingDelete, setProjectPendingDelete] = useState<PipelineProject | null>(null);
   const [deletingProject, setDeletingProject] = useState(false);
+  const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
+  const [regionDefaults, setRegionDefaults] = useState<Record<string, string>>({});
+
+  function defaultCurrencyForForm(country: string) {
+    return suggestCurrencyCode({ country, regionDefaults });
+  }
+
+  useEffect(() => {
+    if (!token) return;
+    void (async () => {
+      try {
+        const [currencyRows, regionRows] = await Promise.all([
+          listActiveCurrencies(token),
+          listActiveRegionDefaults(token),
+        ]);
+        setCurrencies(currencyRows);
+        setRegionDefaults(
+          Object.fromEntries(regionRows.map((row) => [row.name, row.defaultCurrencyCode])),
+        );
+      } catch {
+        setCurrencies([{ code: 'AED', name: 'UAE Dirham', rateToAed: 1 }]);
+      }
+    })();
+  }, [token]);
 
   const isAdmin = user?.role === 'ADMIN';
   const isManager = user?.role === 'MANAGER';
@@ -269,6 +301,7 @@ export default function PipelinePage() {
     nextStage: Stage,
     commercial: {
       value: number;
+      currencyCode: string;
       itemQuantity: number;
       specThickness: string;
       specCore: string;
@@ -285,6 +318,9 @@ export default function PipelinePage() {
               stage: nextStage,
               daysInStage: nextDaysInStage,
               value: commercial.value,
+              valueLocal: commercial.value,
+              currencyCode: commercial.currencyCode,
+              valueAed: project.valueAed,
               itemQuantity: commercial.itemQuantity,
               specThickness: commercial.specThickness,
               specCore: commercial.specCore,
@@ -302,7 +338,8 @@ export default function PipelinePage() {
       developer: project.developer,
       businessDivision: project.businessDivision,
       stage: nextStage,
-      valueAed: commercial.value,
+      valueLocal: commercial.value,
+      currencyCode: commercial.currencyCode,
       itemName,
       itemQuantity: commercial.itemQuantity,
       specThickness: commercial.specThickness,
@@ -379,7 +416,7 @@ export default function PipelinePage() {
                   regionalManagerId: null,
                   reportsToId: null,
                   regions: [],
-                  operationLocation: 'Not set',
+                  operationLocations: [],
                   yearlyTarget: null,
                   isActive: true,
                   canSetBusinessDivision: false,
@@ -404,7 +441,7 @@ export default function PipelinePage() {
                   regionalManagerId: null,
                   reportsToId: null,
                   regions: [],
-                  operationLocation: 'Not set',
+                  operationLocations: [],
                   yearlyTarget: null,
                   isActive: true,
                   canSetBusinessDivision: false,
@@ -456,7 +493,7 @@ export default function PipelinePage() {
                   regionalManagerId: null,
                   reportsToId: null,
                   regions: [],
-                  operationLocation: 'Not set',
+                  operationLocations: [],
                   yearlyTarget: null,
                   isActive: true,
                   canSetBusinessDivision: false,
@@ -482,7 +519,7 @@ export default function PipelinePage() {
                   regionalManagerId: user.regionalManagerId ?? null,
                   reportsToId: null,
                   regions: user.regions ?? [],
-                  operationLocation: 'Not set',
+                  operationLocations: [],
                   yearlyTarget: null,
                   isActive: true,
                   canSetBusinessDivision: false,
@@ -506,7 +543,7 @@ export default function PipelinePage() {
             regionalManagerId: user?.regionalManagerId ?? null,
             reportsToId: null,
             regions: [],
-            operationLocation: 'Not set',
+            operationLocations: [],
             yearlyTarget: null,
             isActive: true,
             canSetBusinessDivision: false,
@@ -551,7 +588,8 @@ export default function PipelinePage() {
       setCommercialPrompt({
         projectId: project.id,
         targetStage: stage,
-        value: String(project.value > 0 ? project.value : ''),
+        value: String(project.valueLocal > 0 ? project.valueLocal : project.valueAed > 0 ? project.valueAed : ''),
+        currencyCode: project.currencyCode,
         itemQuantity: String(project.itemQuantity > 0 ? project.itemQuantity : ''),
         specThickness: project.specThickness ?? '',
         specCore: project.specCore ?? '',
@@ -562,7 +600,8 @@ export default function PipelinePage() {
       return;
     }
     void persistProjectStageUpdate(project, stage, {
-      value: project.value,
+      value: project.valueLocal > 0 ? project.valueLocal : project.valueAed,
+      currencyCode: project.currencyCode,
       itemQuantity: project.itemQuantity,
       specThickness: project.specThickness,
       specCore: project.specCore,
@@ -598,6 +637,7 @@ export default function PipelinePage() {
     try {
       await persistProjectStageUpdate(project, commercialPrompt.targetStage, {
         value: nextValue,
+        currencyCode: commercialPrompt.currencyCode,
         itemQuantity: nextItemQuantity,
         specThickness: commercialPrompt.specThickness,
         specCore: commercialPrompt.specCore,
@@ -671,7 +711,8 @@ function buildProjectAssignmentPayload(
       country: project.country,
       developer: project.developer,
       businessDivision: project.businessDivision ?? '',
-      value: String(project.value),
+      value: String(project.valueLocal > 0 ? project.valueLocal : project.valueAed),
+      currencyCode: project.currencyCode,
       itemQuantity: String(project.itemQuantity),
       specThickness: project.specThickness ?? '',
       specCore: project.specCore ?? '',
@@ -829,7 +870,6 @@ function buildProjectAssignmentPayload(
           normalizedSpecs.specPaintType,
         )
       : '';
-    const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
     const assignmentPayload = buildProjectAssignmentPayload(
       form,
       isManager,
@@ -871,7 +911,8 @@ function buildProjectAssignmentPayload(
           developer,
           businessDivision,
           stage: form.stage,
-          valueAed: normalizedValue,
+          valueLocal: normalizedValue,
+        currencyCode: form.currencyCode,
           itemName: normalizedItemName,
           itemQuantity: normalizedItemQuantity,
           specThickness: normalizedSpecs.specThickness,
@@ -883,7 +924,7 @@ function buildProjectAssignmentPayload(
           daysInStage: nextDaysInStage,
           competitor: form.competitor.trim() || null,
           ...assignmentPayload,
-          salesRepIds: selectedReps.map((rep) => rep.id),
+          salesRepIds: form.salesRepIds,
         });
         await refreshProjects(token);
         closeForm();
@@ -900,7 +941,8 @@ function buildProjectAssignmentPayload(
         developer,
         businessDivision,
         stage: form.stage,
-        valueAed: normalizedValue,
+        valueLocal: normalizedValue,
+        currencyCode: form.currencyCode,
         itemName: normalizedItemName,
         itemQuantity: normalizedItemQuantity,
         specThickness: normalizedSpecs.specThickness,
@@ -912,7 +954,7 @@ function buildProjectAssignmentPayload(
         daysInStage: 1,
         competitor: form.competitor.trim() || null,
         ...assignmentPayload,
-        salesRepIds: selectedReps.map((rep) => rep.id),
+        salesRepIds: form.salesRepIds,
       });
       await refreshProjects(token);
       closeForm();
@@ -1079,7 +1121,9 @@ function buildProjectAssignmentPayload(
               </div>
 
               <div className="mt-2 flex items-center justify-between gap-2">
-                <p className="text-base font-bold tracking-tight num-tabular">{formatAED(project.value, true)}</p>
+                <p className="text-base font-bold tracking-tight num-tabular">
+                {formatProjectValue(project, user?.role, true)}
+              </p>
                 <span className="text-[10px] text-3 num-tabular inline-flex items-center gap-1">
                   <Clock className="h-3 w-3" /> {project.daysInStage}d
                 </span>
@@ -1205,7 +1249,9 @@ function buildProjectAssignmentPayload(
                             </div>
                             <p className="mt-1 text-[11px] text-3 truncate">{p.city} · {p.developer}</p>
                             <div className="mt-2 flex items-center justify-between">
-                              <span className="text-sm font-bold tracking-tight num-tabular">{formatAED(p.value, true)}</span>
+                              <span className="text-sm font-bold tracking-tight num-tabular">
+                                {formatProjectValue(p, user?.role, true)}
+                              </span>
                               <div className="flex items-center gap-2">
                                 <span className="text-[10px] text-3 truncate max-w-[110px]">
                                   {(() => {
@@ -1229,7 +1275,7 @@ function buildProjectAssignmentPayload(
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className="chip !text-[9px] !px-1.5 !py-0">sales rep-{p.salesRepNames.length}</span>
-                                {p.value > 5_000_000 && <Flame className="h-3 w-3 text-amber-500" />}
+                                {p.valueAed > 5_000_000 && <Flame className="h-3 w-3 text-amber-500" />}
                                 {p.competitor && <span className="chip !text-[9px] !px-1.5 !py-0">vs {p.competitor}</span>}
                               </div>
                             </div>
@@ -1262,12 +1308,17 @@ function buildProjectAssignmentPayload(
               <ProjectCommercialFields
                 idPrefix="stage-move"
                 value={commercialPrompt.value}
+                currencyCode={commercialPrompt.currencyCode}
+                currencies={currencies}
                 itemQuantity={commercialPrompt.itemQuantity}
                 specThickness={commercialPrompt.specThickness}
                 specCore={commercialPrompt.specCore}
                 specPaintType={commercialPrompt.specPaintType}
                 onValueChange={(value) =>
                   setCommercialPrompt((prev) => (prev ? { ...prev, value, error: null } : prev))
+                }
+                onCurrencyCodeChange={(currencyCode) =>
+                  setCommercialPrompt((prev) => (prev ? { ...prev, currencyCode, error: null } : prev))
                 }
                 onItemQuantityChange={(itemQuantity) =>
                   setCommercialPrompt((prev) => (prev ? { ...prev, itemQuantity, error: null } : prev))
@@ -1363,7 +1414,13 @@ function buildProjectAssignmentPayload(
                 <input
                   list="project-country-options"
                   value={form.country}
-                  onChange={(e) => setForm((prev) => ({ ...prev, country: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      country: e.target.value,
+                      currencyCode: defaultCurrencyForForm(e.target.value),
+                    }))
+                  }
                   placeholder="Select or search country"
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
@@ -1386,11 +1443,14 @@ function buildProjectAssignmentPayload(
                 <ProjectCommercialFields
                   idPrefix="project-form"
                   value={form.value}
+                  currencyCode={form.currencyCode}
+                  currencies={currencies}
                   itemQuantity={form.itemQuantity}
                   specThickness={form.specThickness}
                   specCore={form.specCore}
                   specPaintType={form.specPaintType}
                   onValueChange={(value) => setForm((prev) => ({ ...prev, value }))}
+                  onCurrencyCodeChange={(currencyCode) => setForm((prev) => ({ ...prev, currencyCode }))}
                   onItemQuantityChange={(itemQuantity) => setForm((prev) => ({ ...prev, itemQuantity }))}
                   onSpecThicknessChange={(specThickness) => setForm((prev) => ({ ...prev, specThickness }))}
                   onSpecCoreChange={(specCore) => setForm((prev) => ({ ...prev, specCore }))}
@@ -1623,6 +1683,9 @@ function toPipelineProject(project: ApiProject): PipelineProject {
     businessDivision: project.businessDivision,
     stage: toStage(normalizedStage),
     value: project.valueAed,
+    valueLocal: project.valueLocal,
+    currencyCode: project.currencyCode,
+    valueAed: project.valueAed,
     itemQuantity: project.itemQuantity,
     specThickness: project.specThickness ?? '',
     specCore: project.specCore ?? '',

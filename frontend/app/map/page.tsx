@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/components/auth/AuthContext';
 import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
-import { formatAED } from '@/lib/utils';
+import { formatAED, formatProjectValue } from '@/lib/utils';
 import { MapInteractionOverlay } from '@/components/map/MapInteractionOverlay';
 import { MapMobileProjectSheet } from '@/components/map/MapMobileProjectSheet';
 import { useScrollFriendlyMap } from '@/components/map/useScrollFriendlyMap';
@@ -60,7 +60,7 @@ function stageLabel(stage: string) {
 }
 
 export default function MapPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [latestActivityByProjectId, setLatestActivityByProjectId] = useState<Record<string, ProjectActivity | null>>({});
   const [recentActivitiesByProjectId, setRecentActivitiesByProjectId] = useState<Record<string, ProjectActivity[]>>({});
@@ -255,6 +255,7 @@ export default function MapPage() {
                   <ProjectMarker
                     key={project.id}
                     project={project}
+                    viewerRole={user?.role}
                     latestActivity={latestActivityByProjectId[project.id] ?? null}
                     isMobile={mapInteraction.isMobile}
                     onFocusProject={(projectId) => setFocusedProjectId(projectId)}
@@ -265,6 +266,7 @@ export default function MapPage() {
               {mapInteraction.isMobile && mobileMapProject && (
                 <MapMobileProjectSheet
                   project={mobileMapProject}
+                  viewerRole={user?.role}
                   latestActivity={latestActivityByProjectId[mobileMapProject.id] ?? null}
                   stageMeta={{
                     tone: stageTone(mobileMapProject.stage),
@@ -301,7 +303,7 @@ export default function MapPage() {
                   <Badge tone={stageTone(focusedProject.stage)} className="!text-[10px]">
                     {stageLabel(focusedProject.stage)}
                   </Badge>
-                  <span className="text-xs font-semibold">{formatAED(focusedProject.valueAed, true)}</span>
+                  <span className="text-xs font-semibold">{formatProjectValue(focusedProject, user?.role, true)}</span>
                 </div>
               </div>
               <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
@@ -433,7 +435,7 @@ export default function MapPage() {
                           <p className="text-[11px] text-3 truncate">{project.city}, {project.country}</p>
                           <p className="text-[10px] text-3 mt-0.5">{stageLabel(project.stage)}</p>
                         </div>
-                        <span className="text-xs font-bold num-tabular shrink-0">{formatAED(project.valueAed, true)}</span>
+                        <span className="text-xs font-bold num-tabular shrink-0">{formatProjectValue(project, user?.role, true)}</span>
                       </div>
                     </Link>
                   </li>
@@ -457,12 +459,14 @@ function stageTone(stage: string): 'brand' | 'neutral' | 'success' | 'warning' |
 
 function ProjectMarker({
   project,
+  viewerRole,
   latestActivity,
   onFocusProject,
   isMobile,
   onMobileSelect,
 }: {
   project: ApiProject;
+  viewerRole?: string;
   latestActivity: ProjectActivity | null;
   onFocusProject: (projectId: string) => void;
   isMobile: boolean;
@@ -526,7 +530,7 @@ function ProjectMarker({
                 <Badge tone={stageTone(project.stage)} className="!text-[10px] !inline-flex !items-center !gap-1">
                   <StageIcon className="h-3 w-3" /> {stageLabel(project.stage)}
                 </Badge>
-                <span className="text-xs font-semibold num-tabular">{formatAED(project.valueAed, true)}</span>
+                <span className="text-xs font-semibold num-tabular">{formatProjectValue(project, viewerRole, true)}</span>
               </div>
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2">
                 <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Latest update</p>

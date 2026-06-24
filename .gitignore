@@ -4,6 +4,7 @@ node_modules/
 dist/
 build/
 backend/dist/
+backups/
 *.env
 *.env.local
 .DS_Store

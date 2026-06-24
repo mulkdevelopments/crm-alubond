@@ -10,7 +10,11 @@ export type ProjectRecord = {
   developer: string;
   businessDivision: string | null;
   stage: string;
+  valueLocal: number;
+  currencyCode: string;
   valueAed: number;
+  fxRateToAed: number;
+  fxRateAppliedAt: string;
   itemName: string;
   itemQuantity: number;
   specThickness: string;
@@ -28,6 +32,8 @@ export type ProjectRecord = {
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
+  createdById: string | null;
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -39,7 +45,11 @@ export type UpsertProjectInput = {
   developer: string;
   businessDivision: string | null;
   stage: string;
+  valueLocal: number;
+  currencyCode: string;
   valueAed: number;
+  fxRateToAed: number;
+  fxRateAppliedAt: Date;
   itemName: string;
   itemQuantity: number;
   specThickness: string;
@@ -59,6 +69,11 @@ export type UpsertProjectInput = {
   salesRepNames: string[];
 };
 
+export type CreateProjectInput = UpsertProjectInput & {
+  createdById?: string | null;
+  createdByName?: string | null;
+};
+
 function mapProject(record: {
   id: string;
   name: string;
@@ -67,7 +82,11 @@ function mapProject(record: {
   developer: string;
   businessDivision: string | null;
   stage: string;
+  valueLocal: number;
+  currencyCode: string;
   valueAed: number;
+  fxRateToAed: number;
+  fxRateAppliedAt: Date;
   itemName: string;
   itemQuantity: number;
   specThickness: string;
@@ -85,11 +104,14 @@ function mapProject(record: {
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
+  createdById: string | null;
+  createdByName: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): ProjectRecord {
   return {
     ...record,
+    fxRateAppliedAt: record.fxRateAppliedAt.toISOString(),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString()
   };
@@ -113,7 +135,7 @@ export async function getProjectById(projectId: string, scope?: Prisma.ProjectWh
   return record ? mapProject(record) : null;
 }
 
-export async function createProject(input: UpsertProjectInput): Promise<ProjectRecord> {
+export async function createProject(input: CreateProjectInput): Promise<ProjectRecord> {
   const record = await prisma.project.create({
     data: input
   });

@@ -1,5 +1,29 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4001/api/v1";
 
+type ApiErrorBody = {
+  message?: string;
+  issues?: {
+    formErrors?: string[];
+    fieldErrors?: Record<string, string[]>;
+  };
+};
+
+function getApiErrorMessage(body: ApiErrorBody, fallback: string): string {
+  const fieldMessages = body.issues?.fieldErrors
+    ? Object.entries(body.issues.fieldErrors).flatMap(([field, messages]) =>
+        messages.map((message) => `${field}: ${message}`)
+      )
+    : [];
+  const formMessages = body.issues?.formErrors ?? [];
+  const combined = [...formMessages, ...fieldMessages].filter(Boolean);
+
+  if (combined.length > 0) {
+    return combined.join("; ");
+  }
+
+  return body.message ?? fallback;
+}
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -40,7 +64,7 @@ export type UserListItem = {
   regionalManagerId: string | null;
   reportsToId: string | null;
   regions: string[];
-  operationLocation: string;
+  operationLocations: string[];
   yearlyTarget: number | null;
   isActive: boolean;
   canSetBusinessDivision: boolean;
@@ -274,7 +298,7 @@ export async function createUser(
   regionalManagerId?: string | null;
   reportsToId?: string | null;
   regions?: string[];
-    operationLocation: string;
+    operationLocations: string[];
     yearlyTarget?: number | null;
     canSetBusinessDivision?: boolean;
   }
@@ -289,8 +313,8 @@ export async function createUser(
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? "Failed to create user");
+    const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
+    throw new Error(getApiErrorMessage(body, "Failed to create user"));
   }
 }
 
@@ -306,7 +330,7 @@ export async function updateUser(
   regionalManagerId?: string | null;
   reportsToId?: string | null;
   regions?: string[];
-    operationLocation: string;
+    operationLocations: string[];
     yearlyTarget?: number | null;
     password?: string;
     isActive?: boolean;
@@ -323,17 +347,8 @@ export async function updateUser(
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as {
-      message?: string;
-      issues?: { fieldErrors?: Record<string, string[]> };
-    };
-    const fieldErrors = body.issues?.fieldErrors;
-    const details = fieldErrors
-      ? Object.entries(fieldErrors)
-          .flatMap(([field, messages]) => messages.map((message) => `${field}: ${message}`))
-          .join('; ')
-      : '';
-    throw new Error(details ? `${body.message ?? 'Failed to update user'} (${details})` : body.message ?? 'Failed to update user');
+    const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
+    throw new Error(getApiErrorMessage(body, "Failed to update user"));
   }
 }
 

@@ -27,7 +27,7 @@ model User {
   lastName     String
   passwordHash String
   role         UserRole
-  operationLocation String   @default("Not set")
+  operationLocations String[] @default([])
   regions      String[] @default([])
   yearlyTarget Float? @map("monthlyTarget")
   isActive     Boolean  @default(true)
@@ -65,7 +65,11 @@ model Project {
   developer    String
   businessDivision String?
   stage        String
+  valueLocal   Float    @default(0)
+  currencyCode String   @default("AED")
   valueAed     Float
+  fxRateToAed  Float    @default(1)
+  fxRateAppliedAt DateTime @default(now())
   itemName     String   @default("")
   itemQuantity Int      @default(0)
   specThickness String  @default("")
@@ -88,6 +92,8 @@ model Project {
 
   salesRepIds   String[]
   salesRepNames String[]
+  createdById   String?
+  createdByName String?
   activities    ProjectActivity[]
   stakeholders  ProjectStakeholder[]
   followUps     FollowUp[]
@@ -213,4 +219,29 @@ model AccessRequest {
 
   @@index([status, createdAt])
   @@index([email])
+}
+
+model MasterRegion {
+  id                  String   @id @default(cuid())
+  name                String   @unique
+  defaultCurrencyCode String   @default("AED")
+  sortOrder           Int      @default(0)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model MasterCurrency {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  rateToAed Float
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
 }

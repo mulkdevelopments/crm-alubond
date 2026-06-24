@@ -48,7 +48,9 @@ export default function TeamScreen() {
           <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
           <Text style={styles.role}>{item.role.replace("_", " ")}</Text>
           <Text style={styles.meta}>{item.email}</Text>
-          {item.operationLocation ? <Text style={styles.meta}>{item.operationLocation}</Text> : null}
+          {(item.operationLocations ?? []).length > 0 ? (
+            <Text style={styles.meta}>{item.operationLocations.join(", ")}</Text>
+          ) : null}
         </View>
       )}
     />

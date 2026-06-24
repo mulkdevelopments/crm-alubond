@@ -36,7 +36,8 @@ import {
   formatProjectSpecs,
   formatSpecsSummary,
 } from '@/lib/project-specs';
-import { cn, formatAED, relativeTime } from '@/lib/utils';
+import { cn, effectiveValueLocal, formatProjectValue, relativeTime } from '@/lib/utils';
+import { listActiveCurrencies, type ActiveCurrencyItem } from '@/lib/master-data-api';
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -181,7 +182,9 @@ export default function ProjectDetailPage() {
   const [sharingSiteLocation, setSharingSiteLocation] = useState(false);
   const [siteLocationShareMessage, setSiteLocationShareMessage] = useState<string | null>(null);
   const [editingCommercial, setEditingCommercial] = useState(false);
-  const [commercialValueAed, setCommercialValueAed] = useState('');
+  const [commercialValue, setCommercialValue] = useState('');
+  const [commercialCurrencyCode, setCommercialCurrencyCode] = useState('AED');
+  const [commercialCurrencies, setCommercialCurrencies] = useState<ActiveCurrencyItem[]>([]);
   const [commercialItemQuantity, setCommercialItemQuantity] = useState('');
   const [commercialSpecThickness, setCommercialSpecThickness] = useState('');
   const [commercialSpecCore, setCommercialSpecCore] = useState('');
@@ -241,6 +244,13 @@ export default function ProjectDetailPage() {
   }, [token, params?.id]);
 
   useEffect(() => {
+    if (!token) return;
+    void listActiveCurrencies(token)
+      .then(setCommercialCurrencies)
+      .catch(() => setCommercialCurrencies([{ code: 'AED', name: 'UAE Dirham', rateToAed: 1 }]));
+  }, [token]);
+
+  useEffect(() => {
     if (shouldOpenComposerFromQuery === '1') {
       setShowActivityComposer(true);
     }
@@ -272,7 +282,8 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (!project) return;
-    setCommercialValueAed(String(project.valueAed));
+    setCommercialValue(String(effectiveValueLocal(project)));
+    setCommercialCurrencyCode(project.currencyCode);
     setCommercialItemQuantity(String(project.itemQuantity ?? 0));
     setCommercialSpecThickness(project.specThickness ?? '');
     setCommercialSpecCore(project.specCore ?? '');
@@ -281,7 +292,8 @@ export default function ProjectDetailPage() {
     setEditingCommercial(false);
   }, [
     project?.id,
-    project?.valueAed,
+    project?.valueLocal,
+    project?.currencyCode,
     project?.itemQuantity,
     project?.specThickness,
     project?.specCore,
@@ -603,7 +615,7 @@ export default function ProjectDetailPage() {
   async function onSaveCommercialDetails(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || !project) return;
-    const nextValue = Number(commercialValueAed);
+    const nextValue = Number(commercialValue);
     const parsedQuantity = Number(commercialItemQuantity);
     const nextItemQuantity = Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? Math.round(parsedQuantity) : 0;
 
@@ -641,7 +653,8 @@ export default function ProjectDetailPage() {
         developer: project.developer,
         businessDivision: project.businessDivision,
         stage: project.stage,
-        valueAed: nextValue,
+        valueLocal: nextValue,
+        currencyCode: commercialCurrencyCode,
         itemName: nextItemName,
         itemQuantity: nextItemQuantity,
         specThickness: commercialSpecThickness,
@@ -1195,12 +1208,15 @@ export default function ProjectDetailPage() {
               <form className="mt-2 space-y-2" onSubmit={onSaveCommercialDetails}>
                 <ProjectCommercialFields
                   idPrefix="project-commercial"
-                  value={commercialValueAed}
+                  value={commercialValue}
+                  currencyCode={commercialCurrencyCode}
+                  currencies={commercialCurrencies}
                   itemQuantity={commercialItemQuantity}
                   specThickness={commercialSpecThickness}
                   specCore={commercialSpecCore}
                   specPaintType={commercialSpecPaintType}
-                  onValueChange={setCommercialValueAed}
+                  onValueChange={setCommercialValue}
+                  onCurrencyCodeChange={setCommercialCurrencyCode}
                   onItemQuantityChange={setCommercialItemQuantity}
                   onSpecThicknessChange={setCommercialSpecThickness}
                   onSpecCoreChange={setCommercialSpecCore}
@@ -1218,7 +1234,8 @@ export default function ProjectDetailPage() {
                     onClick={() => {
                       setEditingCommercial(false);
                       setCommercialError(null);
-                      setCommercialValueAed(String(project.valueAed));
+                      setCommercialValue(String(effectiveValueLocal(project)));
+                      setCommercialCurrencyCode(project.currencyCode);
                       setCommercialItemQuantity(String(project.itemQuantity ?? 0));
                       setCommercialSpecThickness(project.specThickness ?? '');
                       setCommercialSpecCore(project.specCore ?? '');
@@ -1237,7 +1254,7 @@ export default function ProjectDetailPage() {
                 <div>
                   <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Total value</p>
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    {formatAED(project.valueAed, true)}
+                    {formatProjectValue(project, user?.role, true)}
                   </p>
                 </div>
                 <div>
@@ -1260,7 +1277,7 @@ export default function ProjectDetailPage() {
       <section className="px-4 lg:px-8 grid grid-cols-1 lg:grid-cols-3 gap-4 pb-8">
         <Card className="p-4">
           <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Project value</p>
-          <p className="mt-1 text-xl font-bold tracking-tight">{formatAED(project.valueAed, true)}</p>
+          <p className="mt-1 text-xl font-bold tracking-tight">{formatProjectValue(project, user?.role, true)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-[10px] uppercase tracking-widest text-3 font-semibold">Win probability</p>
@@ -2073,6 +2090,7 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader title="Project metadata" />
             <div className="px-5 pb-5 space-y-2 text-sm">
+              <Row k="Created by" v={project.createdByName?.trim() || 'Not recorded'} />
               <Row k="Created" v={new Date(project.createdAt).toLocaleString('en-AE')} />
               <Row k="Updated" v={new Date(project.updatedAt).toLocaleString('en-AE')} />
               <Row k="Stage" v={project.stage} />

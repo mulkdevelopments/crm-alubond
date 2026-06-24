@@ -1,5 +1,8 @@
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+const require = createRequire(resolve("backend/package.json"));
 
 function loadEnv(filePath) {
   const env = {};
@@ -9,7 +12,15 @@ function loadEnv(filePath) {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const idx = trimmed.indexOf("=");
     if (idx === -1) continue;
-    env[trimmed.slice(0, idx)] = trimmed.slice(idx + 1);
+    const key = trimmed.slice(0, idx);
+    let value = trimmed.slice(idx + 1);
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
   }
   return env;
 }
@@ -38,7 +49,7 @@ async function sendViaResend({ from, to, subject, text, html }) {
 }
 
 async function sendViaSmtp({ from, to, subject, text, html }) {
-  const nodemailer = await import("nodemailer");
+  const nodemailer = require("nodemailer");
 
   const transporter = nodemailer.createTransport({
     host: env.SMTP_HOST,

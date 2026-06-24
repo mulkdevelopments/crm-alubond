@@ -65,7 +65,11 @@ export default function UsersScreen() {
             <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
             <Text style={styles.role}>{item.role.replace("_", " ")}</Text>
             <Text style={styles.meta}>{item.email}</Text>
-            <Text style={styles.meta}>{item.operationLocation || "Location not set"}</Text>
+            <Text style={styles.meta}>
+              {(item.operationLocations ?? []).length > 0
+                ? item.operationLocations.join(", ")
+                : "Location not set"}
+            </Text>
           </Pressable>
         )}
       />

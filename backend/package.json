@@ -4,16 +4,19 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "prisma generate && tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:migrate": "prisma migrate dev",
     "migrate:regional-hierarchy": "tsx prisma/migrate-regional-hierarchy.ts",
-    "migrate:yearly-targets": "tsx prisma/backfill-yearly-targets.ts",
+    "migrate:operation-locations": "tsx prisma/migrate-operation-locations.ts",
     "prisma:studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "seed:master-regions": "tsx prisma/seed-master-regions.ts",
+    "seed:master-currencies": "tsx prisma/seed-master-currencies.ts",
+    "migrate:project-currency": "tsx prisma/migrate-project-currency.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

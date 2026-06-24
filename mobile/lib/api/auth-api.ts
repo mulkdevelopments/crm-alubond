@@ -40,7 +40,7 @@ export type UserListItem = {
   regionalManagerId: string | null;
   reportsToId: string | null;
   regions: string[];
-  operationLocation: string;
+  operationLocations: string[];
   yearlyTarget: number | null;
   isActive: boolean;
   canSetBusinessDivision: boolean;
@@ -230,7 +230,7 @@ export async function createUser(
   regionalManagerId?: string | null;
   reportsToId?: string | null;
   regions?: string[];
-    operationLocation: string;
+    operationLocations: string[];
     yearlyTarget?: number | null;
     canSetBusinessDivision?: boolean;
   }
@@ -262,7 +262,7 @@ export async function updateUser(
   regionalManagerId?: string | null;
   reportsToId?: string | null;
   regions?: string[];
-    operationLocation: string;
+    operationLocations: string[];
     yearlyTarget?: number | null;
     password?: string;
     isActive?: boolean;

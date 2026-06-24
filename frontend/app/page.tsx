@@ -17,7 +17,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { STAGES } from '@/lib/data';
 import { listFollowUps, type ApiFollowUp } from '@/lib/followups-api';
 import { listUsers, type UserListItem } from '@/lib/auth-api';
-import { formatAED } from '@/lib/utils';
+import { formatAED, formatProjectValue } from '@/lib/utils';
 import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
 
 type ActivityFeedItem = {
@@ -169,7 +169,7 @@ export default function DashboardPage() {
                 <Link key={project.id} href={`/projects/${project.id}`} className="rounded-xl border border-[var(--border)] p-3 hover:bg-[var(--surface-2)] transition-colors">
                   <p className="text-sm font-semibold line-clamp-1">{project.name}</p>
                   <p className="text-[11px] text-3">{project.city}, {project.country} · {project.stage}</p>
-                  <p className="text-[11px] text-3">{formatAED(project.valueAed, true)} · {project.probability}% win</p>
+                  <p className="text-[11px] text-3">{formatProjectValue(project, user?.role, true)} · {project.probability}% win</p>
                 </Link>
               ))}
               {!loading && hotProjects.length === 0 && <p className="text-xs text-3">No active projects available.</p>}

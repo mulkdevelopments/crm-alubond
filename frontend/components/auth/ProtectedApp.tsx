@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, BookOpen, KanbanSquare, LayoutDashboard, LogOut, MapPin, MessageCircle, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
+import { Bell, BookOpen, Database, KanbanSquare, LayoutDashboard, LogOut, MapPin, MessageCircle, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
 
 import { AuthProvider } from "@/components/auth/AuthContext";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -95,6 +95,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
       ? [
           { href: "/access-requests", label: "Access requests", icon: UserPlus },
           { href: "/users", label: "Users", icon: UserCog },
+          { href: "/master-data", label: "Master Data", icon: Database },
         ]
       : []),
     { href: "/profile", label: "Profile", icon: UserCircle2 },

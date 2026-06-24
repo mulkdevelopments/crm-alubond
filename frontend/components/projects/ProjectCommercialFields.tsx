@@ -4,13 +4,21 @@ import {
   SPEC_THICKNESS_OPTIONS,
 } from '@/lib/project-specs';
 
+type CurrencyOption = {
+  code: string;
+  name: string;
+};
+
 type ProjectCommercialFieldsProps = {
   value: string;
+  currencyCode: string;
+  currencies: CurrencyOption[];
   itemQuantity: string;
   specThickness: string;
   specCore: string;
   specPaintType: string;
   onValueChange: (value: string) => void;
+  onCurrencyCodeChange: (currencyCode: string) => void;
   onItemQuantityChange: (value: string) => void;
   onSpecThicknessChange: (value: string) => void;
   onSpecCoreChange: (value: string) => void;
@@ -27,11 +35,14 @@ const inputClassName = selectClassName;
 
 export function ProjectCommercialFields({
   value,
+  currencyCode,
+  currencies,
   itemQuantity,
   specThickness,
   specCore,
   specPaintType,
   onValueChange,
+  onCurrencyCodeChange,
   onItemQuantityChange,
   onSpecThicknessChange,
   onSpecCoreChange,
@@ -44,18 +55,34 @@ export function ProjectCommercialFields({
     <div className="space-y-3">
       <div>
         <label htmlFor={`${idPrefix}-value`} className="text-xs font-medium text-2">
-          Total Project Value (AED)
+          Total project value
         </label>
-        <input
-          id={`${idPrefix}-value`}
-          type="number"
-          min={1}
-          value={value}
-          onChange={(e) => onValueChange(e.target.value)}
-          placeholder="Total Project Value (AED)"
-          required={required}
-          className={`mt-1 ${inputClassName}`}
-        />
+        <div className="mt-1 grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+          <input
+            id={`${idPrefix}-value`}
+            type="number"
+            min={1}
+            value={value}
+            onChange={(e) => onValueChange(e.target.value)}
+            placeholder="Amount"
+            required={required}
+            className={inputClassName}
+          />
+          <select
+            id={`${idPrefix}-currency`}
+            value={currencyCode}
+            onChange={(e) => onCurrencyCodeChange(e.target.value)}
+            required={required}
+            className={selectClassName}
+          >
+            {currencies.length === 0 ? <option value="AED">AED</option> : null}
+            {currencies.map((currency) => (
+              <option key={currency.code} value={currency.code}>
+                {currency.code}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       <div>
         <label htmlFor={`${idPrefix}-quantity`} className="text-xs font-medium text-2">

@@ -233,6 +233,7 @@ export default function ProjectDetailScreen() {
           ) : null}
           <Text style={styles.meta}>Manager: {project.managerName || "—"}</Text>
           <Text style={styles.meta}>Reps: {project.salesRepNames.join(", ") || "—"}</Text>
+          <Text style={styles.meta}>Created by: {project.createdByName?.trim() || "Not recorded"}</Text>
         </View>
 
         <Text style={styles.section}>Log activity</Text>

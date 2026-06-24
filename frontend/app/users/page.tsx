@@ -23,6 +23,7 @@ import {
   type UserLocationAttendanceDay,
   type UserLocationRoute
 } from '@/lib/auth-api';
+import { listMasterRegions, type MasterRegionItem } from '@/lib/master-data-api';
 import { cn } from '@/lib/utils';
 
 type Role = 'SALES_REP' | 'MANAGER' | 'REGIONAL_MANAGER' | 'CEO' | 'ADMIN';
@@ -38,6 +39,77 @@ const ROLE_SORT_ORDER: Record<Role, number> = {
   SALES_REP: 4,
 };
 
+function formatOperationLocations(locations: string[]) {
+  return locations.length > 0 ? locations.join(', ') : 'Not set';
+}
+
+function RegionCheckboxPicker({
+  label,
+  description,
+  activeRegions,
+  selected,
+  onToggle,
+  legacyValues = [],
+}: {
+  label: string;
+  description?: string;
+  activeRegions: MasterRegionItem[];
+  selected: string[];
+  onToggle: (regionName: string) => void;
+  legacyValues?: string[];
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3">
+      <div>
+        <p className="text-xs font-medium text-[var(--text)]">{label}</p>
+        {description ? <p className="mt-1 text-xs text-3">{description}</p> : null}
+      </div>
+      {activeRegions.length === 0 && legacyValues.length === 0 ? (
+        <p className="text-xs text-3">Add active regions in Master Data first.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {activeRegions.map((region) => {
+            const checked = selected.includes(region.name);
+            return (
+              <label
+                key={region.id}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer',
+                  checked
+                    ? 'border-brand-600/30 bg-brand-600/10 text-brand-700 dark:text-brand-300'
+                    : 'border-[var(--border)] bg-[var(--surface)] text-2',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggle(region.name)}
+                  className="rounded"
+                />
+                {region.name}
+              </label>
+            );
+          })}
+          {legacyValues.map((legacyValue) => (
+            <label
+              key={legacyValue}
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-300 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(legacyValue)}
+                onChange={() => onToggle(legacyValue)}
+                className="rounded"
+              />
+              {legacyValue} (legacy)
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UsersPage() {
   const { user, token } = useAuth();
   const router = useRouter();
@@ -46,9 +118,11 @@ export default function UsersPage() {
   const [managers, setManagers] = useState<UserListItem[]>([]);
   const [regionalManagers, setRegionalManagers] = useState<ManagerOption[]>([]);
   const [ceos, setCeos] = useState<ManagerOption[]>([]);
+  const [masterRegions, setMasterRegions] = useState<MasterRegionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [attendanceUser, setAttendanceUser] = useState<UserListItem | null>(null);
@@ -71,11 +145,11 @@ export default function UsersPage() {
   const [managerId, setManagerId] = useState('');
   const [regionalManagerId, setRegionalManagerId] = useState('');
   const [reportsToId, setReportsToId] = useState('');
-  const [regionsInput, setRegionsInput] = useState('');
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [operationLocation, setOperationLocation] = useState('');
+  const [selectedOperationLocations, setSelectedOperationLocations] = useState<string[]>([]);
   const [yearlyTarget, setYearlyTarget] = useState('');
   const [password, setPassword] = useState('');
   const [canSetBusinessDivision, setCanSetBusinessDivision] = useState(false);
@@ -87,6 +161,33 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
 
   const isAdmin = user?.role === 'ADMIN';
+  const activeMasterRegions = useMemo(
+    () => masterRegions.filter((entry) => entry.isActive),
+    [masterRegions],
+  );
+  const legacyOperationLocations = useMemo(
+    () =>
+      selectedOperationLocations.filter(
+        (entry) => !activeMasterRegions.some((region) => region.name === entry),
+      ),
+    [selectedOperationLocations, activeMasterRegions],
+  );
+
+  function toggleOperationLocation(regionName: string) {
+    setSelectedOperationLocations((current) =>
+      current.includes(regionName)
+        ? current.filter((entry) => entry !== regionName)
+        : [...current, regionName],
+    );
+  }
+
+  function toggleSelectedRegion(regionName: string) {
+    setSelectedRegions((current) =>
+      current.includes(regionName)
+        ? current.filter((entry) => entry !== regionName)
+        : [...current, regionName],
+    );
+  }
 
   async function loadData() {
     if (!token || !isAdmin) {
@@ -95,15 +196,17 @@ export default function UsersPage() {
     }
     setLoading(true);
     try {
-      const [usersData, regionalManagersData, ceosData] = await Promise.all([
+      const [usersData, regionalManagersData, ceosData, masterRegionsData] = await Promise.all([
         listUsers(token),
         listRegionalManagers(token),
         listCeos(token),
+        listMasterRegions(token),
       ]);
       setItems(usersData);
       setManagers(usersData.filter((entry) => entry.role === 'MANAGER'));
       setRegionalManagers(regionalManagersData);
       setCeos(ceosData);
+      setMasterRegions(masterRegionsData);
     } catch {
       setMessage('Failed to load users.');
     } finally {
@@ -124,11 +227,12 @@ export default function UsersPage() {
     setManagerId('');
     setRegionalManagerId('');
     setReportsToId('');
-    setRegionsInput('');
+    setSelectedRegions([]);
+    setSelectedOperationLocations([]);
     setFirstName(searchParams.get('firstName') ?? '');
     setLastName(searchParams.get('lastName') ?? '');
     setEmail(searchParams.get('email') ?? '');
-    setOperationLocation('');
+    setSelectedOperationLocations([]);
     setYearlyTarget('');
     setPassword('');
     setCanSetBusinessDivision(false);
@@ -228,22 +332,37 @@ export default function UsersPage() {
     if (!token || !isAdmin) {
       return;
     }
+    const wasEditing = Boolean(editingUserId);
     setSaving(true);
     setMessage(null);
+    setFormError(null);
     try {
+      if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+        throw new Error('First name, last name, and email are required.');
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        throw new Error('Enter a valid email address.');
+      }
+      if (!wasEditing && password.trim().length < 8) {
+        throw new Error('Password must be at least 8 characters.');
+      }
+
       const parsedYearlyTarget = yearlyTarget.trim() ? Number(yearlyTarget) : null;
-      const parsedRegions = regionsInput
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean);
+      const parsedRegions = selectedRegions;
+      const parsedOperationLocations = selectedOperationLocations.filter((entry) =>
+        activeMasterRegions.some((region) => region.name === entry),
+      );
+      if (parsedOperationLocations.length === 0) {
+        throw new Error('Select at least one operating location from Master Data.');
+      }
       if (role !== 'ADMIN' && (!parsedYearlyTarget || parsedYearlyTarget <= 0 || Number.isNaN(parsedYearlyTarget))) {
         throw new Error('Yearly sales target is required for all non-admin users.');
       }
       if (role === 'MANAGER' && !regionalManagerId) {
         throw new Error('Manager must be assigned under a regional manager.');
       }
-      if (role === 'SALES_REP' && managerId !== DIRECT_REGIONAL_MANAGER && !managerId && !regionalManagerId) {
-        throw new Error('Sales rep must be assigned under a manager or regional manager.');
+      if (role === 'SALES_REP' && !managerId) {
+        throw new Error('Assign a manager or choose direct regional manager reporting.');
       }
       if (role === 'SALES_REP' && managerId === DIRECT_REGIONAL_MANAGER && !regionalManagerId) {
         throw new Error('Select a regional manager for direct reporting.');
@@ -254,8 +373,8 @@ export default function UsersPage() {
       if (role === 'REGIONAL_MANAGER' && !reportsToId) {
         throw new Error('Regional manager must be assigned under CEO.');
       }
-      if (editingUserId) {
-        await updateUser(token, editingUserId, {
+      if (wasEditing) {
+        await updateUser(token, editingUserId!, {
           firstName,
           lastName,
           email,
@@ -270,7 +389,7 @@ export default function UsersPage() {
             role === 'MANAGER' || role === 'SALES_REP' ? normalizeOptionalId(regionalManagerId) : null,
           reportsToId: role === 'REGIONAL_MANAGER' ? normalizeOptionalId(reportsToId) : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
-          operationLocation,
+          operationLocations: parsedOperationLocations,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
           canSetBusinessDivision: role === 'REGIONAL_MANAGER' ? canSetBusinessDivision : false,
           password: password.trim() ? password : undefined,
@@ -292,7 +411,7 @@ export default function UsersPage() {
             role === 'MANAGER' || role === 'SALES_REP' ? normalizeOptionalId(regionalManagerId) : null,
           reportsToId: role === 'REGIONAL_MANAGER' ? normalizeOptionalId(reportsToId) : null,
           regions: role === 'REGIONAL_MANAGER' ? parsedRegions : [],
-          operationLocation,
+          operationLocations: parsedOperationLocations,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
           canSetBusinessDivision: role === 'REGIONAL_MANAGER' ? canSetBusinessDivision : false,
       });
@@ -300,20 +419,34 @@ export default function UsersPage() {
       setFirstName('');
       setLastName('');
       setEmail('');
-      setOperationLocation('');
+      setSelectedOperationLocations([]);
       setYearlyTarget('');
       setPassword('');
       setCanSetBusinessDivision(false);
       setManagerId('');
       setRegionalManagerId('');
       setReportsToId('');
-      setRegionsInput('');
+      setSelectedRegions([]);
+    setSelectedOperationLocations([]);
       setEditingUserId(null);
       setUserDialogOpen(false);
-      await loadData();
-      setMessage(editingUserId ? 'User updated successfully.' : 'User created successfully.');
+      let refreshFailed = false;
+      try {
+        await loadData();
+      } catch {
+        refreshFailed = true;
+      }
+      setMessage(
+        refreshFailed
+          ? 'User saved, but the list failed to refresh. Reload the page.'
+          : wasEditing
+            ? 'User updated successfully.'
+            : 'User created successfully.',
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : (editingUserId ? 'Failed to update user.' : 'Failed to create user.'));
+      const errorMessage =
+        error instanceof Error ? error.message : wasEditing ? 'Failed to update user.' : 'Failed to create user.';
+      setFormError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -325,16 +458,17 @@ export default function UsersPage() {
     setManagerId('');
     setRegionalManagerId('');
     setReportsToId('');
-    setRegionsInput('');
+    setSelectedRegions([]);
+    setSelectedOperationLocations([]);
     setFirstName(prefill?.firstName ?? '');
     setLastName(prefill?.lastName ?? '');
     setEmail(prefill?.email ?? '');
-    setOperationLocation('');
     setYearlyTarget('');
     setPassword('');
     setCanSetBusinessDivision(false);
     setUserDialogOpen(true);
     setMessage(null);
+    setFormError(null);
   }
 
   function openEditUserDialog(entry: UserListItem) {
@@ -357,16 +491,17 @@ export default function UsersPage() {
       setRegionalManagerId(entry.role === 'MANAGER' ? entry.regionalManagerId ?? '' : '');
     }
     setReportsToId(entry.role === 'REGIONAL_MANAGER' ? entry.reportsToId ?? '' : '');
-    setRegionsInput(entry.role === 'REGIONAL_MANAGER' ? entry.regions.join(', ') : '');
+    setSelectedRegions(entry.role === 'REGIONAL_MANAGER' ? entry.regions : []);
+    setSelectedOperationLocations(entry.operationLocations ?? []);
     setFirstName(entry.firstName);
     setLastName(entry.lastName);
     setEmail(entry.email);
-    setOperationLocation(entry.operationLocation);
     setYearlyTarget(entry.yearlyTarget != null ? String(entry.yearlyTarget) : '');
     setCanSetBusinessDivision(entry.role === 'REGIONAL_MANAGER' ? entry.canSetBusinessDivision : false);
     setPassword('');
     setUserDialogOpen(true);
     setMessage(null);
+    setFormError(null);
   }
 
   async function openAttendance(entry: UserListItem) {
@@ -588,9 +723,7 @@ export default function UsersPage() {
                                 </td>
                                 <td className="px-4 py-3 text-xs text-2 max-w-[180px]">{getReportsToLabel(entry)}</td>
                                 <td className="px-4 py-3 text-xs text-2 max-w-[180px]">
-                                  {entry.role === 'REGIONAL_MANAGER' && entry.regions.length > 0
-                                    ? entry.regions.join(', ')
-                                    : entry.operationLocation || 'Not set'}
+                                  {formatOperationLocations(entry.operationLocations ?? [])}
                                 </td>
                                 <td className="px-4 py-3 text-xs num-tabular">
                                   {entry.yearlyTarget != null ? `AED ${formatAed(entry.yearlyTarget)}` : '—'}
@@ -730,21 +863,19 @@ export default function UsersPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <form className="p-4 space-y-3" onSubmit={onSubmitUser}>
+            <form className="p-4 space-y-3" onSubmit={onSubmitUser} noValidate>
             <div className="grid grid-cols-2 gap-2">
               <input
                 placeholder="First name"
                 value={firstName}
                 onChange={(event) => setFirstName(event.target.value)}
                 className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                required
               />
               <input
                 placeholder="Last name"
                 value={lastName}
                 onChange={(event) => setLastName(event.target.value)}
                 className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                required
               />
             </div>
             <input
@@ -753,16 +884,15 @@ export default function UsersPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-              required
             />
-              <input
-                type="text"
-                placeholder="Location of operation"
-                value={operationLocation}
-                onChange={(event) => setOperationLocation(event.target.value)}
-              className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-              required
-            />
+              <RegionCheckboxPicker
+                label="Operating locations"
+                description="Select one or more regions from Master Data."
+                activeRegions={activeMasterRegions}
+                selected={selectedOperationLocations}
+                onToggle={toggleOperationLocation}
+                legacyValues={legacyOperationLocations}
+              />
             <input
               type="password"
                 placeholder={editingUserId ? "New password (optional)" : "Password"}
@@ -770,7 +900,6 @@ export default function UsersPage() {
               onChange={(event) => setPassword(event.target.value)}
               className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
                 minLength={password.trim() ? 8 : undefined}
-                required={!editingUserId}
             />
             <select
               value={role}
@@ -794,7 +923,6 @@ export default function UsersPage() {
                 value={regionalManagerId}
                 onChange={(event) => setRegionalManagerId(event.target.value)}
                 className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                required
               >
                 <option value="">Assign regional manager</option>
                 {regionalManagers.map((regionalManager) => (
@@ -810,7 +938,6 @@ export default function UsersPage() {
                   value={reportsToId}
                   onChange={(event) => setReportsToId(event.target.value)}
                   className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                  required
                 >
                   <option value="">Assign CEO</option>
                   {ceos.map((ceo) => (
@@ -819,13 +946,12 @@ export default function UsersPage() {
                     </option>
                   ))}
                 </select>
-                <input
-                  type="text"
-                  placeholder="Regions (comma separated)"
-                  value={regionsInput}
-                  onChange={(event) => setRegionsInput(event.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                  required
+                <RegionCheckboxPicker
+                  label="Assigned regions"
+                  description="Regions this regional manager oversees."
+                  activeRegions={activeMasterRegions}
+                  selected={selectedRegions}
+                  onToggle={toggleSelectedRegion}
                 />
                 <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 text-sm">
                   <input
@@ -865,7 +991,6 @@ export default function UsersPage() {
                     }
                   }}
                   className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                  required
                 >
                   <option value="">Assign regional manager</option>
                   {regionalManagers.map((regionalManager) => (
@@ -882,7 +1007,6 @@ export default function UsersPage() {
                     'w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm',
                     !regionalManagerId && 'opacity-70 cursor-not-allowed'
                   )}
-                  required
                 >
                   <option value="">
                     {regionalManagerId ? 'Assign manager' : 'Select regional manager first'}
@@ -908,9 +1032,13 @@ export default function UsersPage() {
                 value={yearlyTarget}
                 onChange={(event) => setYearlyTarget(event.target.value)}
                 className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
-                required
               />
             )}
+              {formError ? (
+                <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
+                  {formError}
+                </p>
+              ) : null}
               <div className="pt-1 flex items-center justify-end gap-2">
                 <Button
                   type="button"

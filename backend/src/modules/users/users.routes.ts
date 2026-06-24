@@ -4,6 +4,8 @@ import { Prisma, UserRole } from "@prisma/client";
 import { z } from "zod";
 
 import { prisma } from "../../lib/prisma";
+import { validateMasterRegionValues } from "../../lib/master-regions";
+import { normalizeUserRegionPayload, zodValidationResponse } from "../../lib/zod-errors";
 import { authenticate, authorize } from "../../middleware/auth";
 import { toAuthUser } from "../auth/auth.service";
 
@@ -13,7 +15,7 @@ const optionalEntityIdSchema = z.preprocess(
   entityIdSchema.nullable().optional()
 );
 
-const createUserSchema = z.object({
+const createUserBodySchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -23,12 +25,12 @@ const createUserSchema = z.object({
   regionalManagerId: optionalEntityIdSchema,
   reportsToId: optionalEntityIdSchema,
   regions: z.array(z.string().min(1)).optional().default([]),
-  operationLocation: z.string().min(1),
+  operationLocations: z.array(z.string().min(1)).optional().default([]),
   yearlyTarget: z.number().positive().optional().nullable(),
   canSetBusinessDivision: z.boolean().optional().default(false)
 });
 
-const updateUserSchema = z.object({
+const updateUserBodySchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -37,12 +39,15 @@ const updateUserSchema = z.object({
   regionalManagerId: optionalEntityIdSchema,
   reportsToId: optionalEntityIdSchema,
   regions: z.array(z.string().min(1)).optional().default([]),
-  operationLocation: z.string().min(1),
+  operationLocations: z.array(z.string().min(1)).optional().default([]),
   yearlyTarget: z.number().positive().optional().nullable(),
   password: z.string().min(8).optional(),
   isActive: z.boolean().optional(),
   canSetBusinessDivision: z.boolean().optional()
 });
+
+const createUserSchema = z.preprocess(normalizeUserRegionPayload, createUserBodySchema);
+const updateUserSchema = z.preprocess(normalizeUserRegionPayload, updateUserBodySchema);
 
 const updateProfileSchema = z.object({
   firstName: z.string().min(1),
@@ -166,12 +171,17 @@ async function canAccessUser(requesterId: string, requesterRole: UserRole, targe
 usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ message: "Invalid payload", issues: parsed.error.flatten() });
+    res.status(400).json(zodValidationResponse(parsed.error));
     return;
   }
 
   const payload = parsed.data;
   const email = payload.email.toLowerCase();
+
+  if (payload.operationLocations.length === 0) {
+    res.status(400).json({ message: "At least one operating location is required." });
+    return;
+  }
 
   if (payload.role === UserRole.SALES_REP && !payload.managerId && !payload.regionalManagerId) {
     res.status(400).json({ message: "Sales rep must be assigned under a manager or regional manager" });
@@ -191,6 +201,15 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
   }
   if (payload.role !== UserRole.ADMIN && !payload.yearlyTarget) {
     res.status(400).json({ message: "Yearly sales target is required for all non-admin users" });
+    return;
+  }
+
+  const regionValidation = await validateMasterRegionValues({
+    operationLocations: payload.operationLocations,
+    regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
+  });
+  if (!regionValidation.ok) {
+    res.status(400).json({ message: regionValidation.message });
     return;
   }
 
@@ -260,7 +279,7 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
             : null,
       reportsToId: payload.role === UserRole.REGIONAL_MANAGER ? payload.reportsToId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
-      operationLocation: payload.operationLocation,
+      operationLocations: payload.operationLocations,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
       canSetBusinessDivision:
         payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false
@@ -275,12 +294,17 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
 usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ message: "Invalid payload", issues: parsed.error.flatten() });
+    res.status(400).json(zodValidationResponse(parsed.error));
     return;
   }
 
   const payload = parsed.data;
   const email = payload.email.toLowerCase();
+
+  if (payload.operationLocations.length === 0) {
+    res.status(400).json({ message: "At least one operating location is required." });
+    return;
+  }
 
   const existing = await prisma.user.findUnique({
     where: { id: req.params.userId as string },
@@ -309,6 +333,15 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
   }
   if (payload.role !== UserRole.ADMIN && !payload.yearlyTarget) {
     res.status(400).json({ message: "Yearly sales target is required for all non-admin users" });
+    return;
+  }
+
+  const regionValidation = await validateMasterRegionValues({
+    operationLocations: payload.operationLocations,
+    regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
+  });
+  if (!regionValidation.ok) {
+    res.status(400).json({ message: regionValidation.message });
     return;
   }
 
@@ -379,7 +412,7 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
             : null,
       reportsToId: payload.role === UserRole.REGIONAL_MANAGER ? payload.reportsToId ?? null : null,
       regions: payload.role === UserRole.REGIONAL_MANAGER ? payload.regions : [],
-      operationLocation: payload.operationLocation,
+      operationLocations: payload.operationLocations,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
       passwordHash,
       isActive: payload.isActive ?? undefined,
@@ -465,7 +498,7 @@ usersRouter.get("/", async (req, res) => {
       regionalManagerId: true,
       reportsToId: true,
       regions: true,
-      operationLocation: true,
+      operationLocations: true,
       yearlyTarget: true,
       isActive: true,
       canSetBusinessDivision: true,
@@ -513,7 +546,7 @@ usersRouter.get("/", async (req, res) => {
     regionalManagerId: user.regionalManagerId,
     reportsToId: user.reportsToId,
     regions: user.regions,
-    operationLocation: user.operationLocation,
+    operationLocations: user.operationLocations,
     yearlyTarget: user.yearlyTarget,
     isActive: user.isActive,
     canSetBusinessDivision: user.canSetBusinessDivision,

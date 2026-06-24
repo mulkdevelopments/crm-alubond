@@ -45,7 +45,7 @@ export default function UserFormScreen() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [operationLocation, setOperationLocation] = useState("");
+  const [operationLocationsInput, setOperationLocationsInput] = useState("");
   const [yearlyTarget, setYearlyTarget] = useState("");
   const [password, setPassword] = useState("");
   const [managerId, setManagerId] = useState("");
@@ -72,7 +72,7 @@ export default function UserFormScreen() {
         setFirstName(existing.firstName);
         setLastName(existing.lastName);
         setEmail(existing.email);
-        setOperationLocation(existing.operationLocation);
+        setOperationLocationsInput((existing.operationLocations ?? []).join(", "));
         setYearlyTarget(existing.yearlyTarget ? String(existing.yearlyTarget) : "");
         setRegionalManagerId(existing.regionalManagerId ?? "");
         setReportsToId(existing.reportsToId ?? "");
@@ -142,6 +142,14 @@ export default function UserFormScreen() {
         throw new Error("Password is required for new users.");
       }
 
+      const parsedOperationLocations = operationLocationsInput
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      if (parsedOperationLocations.length === 0) {
+        throw new Error("At least one operation location is required.");
+      }
+
       const payload = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -157,7 +165,7 @@ export default function UserFormScreen() {
           role === "MANAGER" || role === "SALES_REP" ? normalizeOptionalId(regionalManagerId) : null,
         reportsToId: role === "REGIONAL_MANAGER" ? normalizeOptionalId(reportsToId) : null,
         regions: role === "REGIONAL_MANAGER" ? parsedRegions : [],
-        operationLocation: operationLocation.trim(),
+        operationLocations: parsedOperationLocations,
         yearlyTarget: role !== "ADMIN" ? parsedYearlyTarget : null,
         canSetBusinessDivision: role === "REGIONAL_MANAGER" ? canSetBusinessDivision : false,
       };
@@ -204,7 +212,11 @@ export default function UserFormScreen() {
         <Field label="First name" value={firstName} onChangeText={setFirstName} />
         <Field label="Last name" value={lastName} onChangeText={setLastName} />
         <Field label="Email" value={email} onChangeText={setEmail} />
-        <Field label="Operation location" value={operationLocation} onChangeText={setOperationLocation} />
+        <Field
+          label="Operation locations (comma separated)"
+          value={operationLocationsInput}
+          onChangeText={setOperationLocationsInput}
+        />
         {role !== "ADMIN" ? (
           <Field label="Yearly target (AED)" value={yearlyTarget} onChangeText={setYearlyTarget} keyboardType="numeric" />
         ) : null}

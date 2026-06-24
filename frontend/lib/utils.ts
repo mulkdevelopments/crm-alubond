@@ -17,6 +17,48 @@ export function formatAED(value: number, compact = false) {
   }).format(value);
 }
 
+export function formatCurrency(value: number, currencyCode: string, compact = false) {
+  if (currencyCode === 'AED') {
+    return formatAED(value, compact);
+  }
+  if (compact) {
+    if (value >= 1_000_000) return `${currencyCode} ${(value / 1_000_000).toFixed(value >= 10_000_000 ? 1 : 2)}M`;
+    if (value >= 1_000) return `${currencyCode} ${(value / 1_000).toFixed(0)}K`;
+  }
+  try {
+    return new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency: currencyCode,
+      maximumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `${currencyCode} ${formatNumber(value)}`;
+  }
+}
+
+export type ProjectMoney = {
+  valueLocal: number;
+  currencyCode: string;
+  valueAed: number;
+};
+
+/** Legacy rows may have valueAed set while valueLocal stayed 0 after schema push. */
+export function effectiveValueLocal(project: ProjectMoney) {
+  if (project.valueLocal > 0) return project.valueLocal;
+  if (project.valueAed > 0) return project.valueAed;
+  return 0;
+}
+
+export function formatProjectValue(project: ProjectMoney, viewerRole?: string, compact = false) {
+  const localAmount = effectiveValueLocal(project);
+  const local = formatCurrency(localAmount, project.currencyCode || 'AED', compact);
+  if (viewerRole === 'CEO' || viewerRole === 'ADMIN') {
+    if (project.currencyCode === 'AED' || !project.currencyCode) return local;
+    return `${formatAED(project.valueAed, compact)} (${local})`;
+  }
+  return local;
+}
+
 export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-AE').format(value);
 }
