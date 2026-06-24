@@ -97,37 +97,52 @@ Default seeded admin (dev):
 - Email: `admin@alubondcrm.local`
 - Password: `Admin@12345`
 
-## Email notifications (Resend)
+## Email notifications
 
-Follow-up create/update emails are sent via the **Resend HTTP API** from `no-reply@crm.alubond.com`.
+CRM emails (password reset, access requests, follow-up notifications) can be sent via:
+
+1. **Company mailbox SMTP** (recommended when IT provides `crm@alubond.com`) — mail comes from your real `@alubond.com` domain and is more likely to reach company inboxes.
+2. **Resend API** (fallback) — sends from `no-reply@crm.alubond.com`.
+
+SMTP is used when `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASS` are all set. Otherwise the app falls back to `RESEND_API_KEY`.
+
+> **Render free tier:** outbound SMTP ports (587/465) may be blocked. Use a **Starter** plan or Resend if SMTP fails.
+
+### Option A — Company mailbox (`crm@alubond.com`)
+
+Ask IT to confirm the SMTP server. Microsoft 365 is usually:
+
+| Variable | Value |
+|----------|-------|
+| `SMTP_HOST` | `smtp.office365.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_SECURE` | `false` |
+| `SMTP_USER` | `crm@alubond.com` |
+| `SMTP_PASS` | password from IT |
+| `EMAIL_FROM` | `Alubond CRM <crm@alubond.com>` |
+
+On **Render** (`alubond-crm-api` service), set those env vars as secrets, redeploy, then test:
+
+```bash
+node scripts/test-email.mjs sarath@mulkholdings.com
+```
+
+### Option B — Resend API
 
 Verified domain in Resend: `crm.alubond.com`
 
-> **Render free tier:** outbound SMTP ports (587/465) are blocked. Use `RESEND_API_KEY` (or `SMTP_PASS` as a legacy alias), not SMTP.
+| Variable | Value |
+|----------|-------|
+| `RESEND_API_KEY` | your Resend API key |
+| `EMAIL_FROM` | `Alubond CRM <no-reply@crm.alubond.com>` |
 
-### Local setup
-
-1. Copy `backend/.env.example` → `backend/.env` if needed.
-2. Set `RESEND_API_KEY` (or `SMTP_PASS`) to a Resend API key with **sending access** for `crm.alubond.com`.
-3. Restart the backend, then test:
+### Local test
 
 ```bash
 node scripts/test-email.mjs your-email@example.com
 ```
 
-### Render production
-
-In the **alubond-crm-api** service on Render, set:
-
-| Variable | Value |
-|----------|-------|
-| `RESEND_API_KEY` | your Resend API key (Secret) |
-| `EMAIL_FROM` | `Alubond CRM <no-reply@crm.alubond.com>` |
-| `APP_BASE_URL` | `https://crm.alubond.com` |
-
-`SMTP_PASS` also works as a fallback name for the same Resend API key.
-
-`render.yaml` declares `RESEND_API_KEY` with `sync: false` — add the key manually in the Render dashboard.
+`render.yaml` declares email env vars with `sync: false` — add secrets manually in the Render dashboard.
 
 Emails are triggered when follow-ups are created or updated (including from project activity and the AI assistant).
 

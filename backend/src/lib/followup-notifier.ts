@@ -1,18 +1,11 @@
-import { Resend } from "resend";
-
 import { env } from "../config/env";
 import { emailButtonStyle, wrapEmailHtml } from "./email-layout";
+import { isEmailConfigured, sendEmail } from "./mailer";
 import { prisma } from "./prisma";
 
 type FollowUpNotificationAction = "created" | "updated";
 
 const CALENDAR_DURATION_MS = 30 * 60 * 1000;
-
-let resendClient: Resend | null | undefined;
-
-function getResendApiKey() {
-  return env.RESEND_API_KEY || env.SMTP_PASS;
-}
 
 function escapeHtml(value: string) {
   return value
@@ -96,22 +89,7 @@ function buildFollowUpCalendarEvent(input: {
   return { ics, googleUrl, outlookUrl, summary, start, end };
 }
 
-export function isEmailConfigured() {
-  return Boolean(getResendApiKey());
-}
-
-function getResendClient(): Resend | null {
-  if (resendClient !== undefined) return resendClient;
-
-  const apiKey = getResendApiKey();
-  if (!apiKey) {
-    resendClient = null;
-    return resendClient;
-  }
-
-  resendClient = new Resend(apiKey);
-  return resendClient;
-}
+export { isEmailConfigured };
 
 function buildFollowUpEmail(input: {
   recipientName: string;
@@ -184,10 +162,9 @@ export async function sendFollowUpNotificationById(input: {
   action: FollowUpNotificationAction;
   actorName?: string | null;
 }): Promise<void> {
-  const resend = getResendClient();
-  if (!resend) {
+  if (!isEmailConfigured()) {
     if (env.NODE_ENV !== "test") {
-      console.warn("[email] Resend API key not configured; skipping follow-up notification.");
+      console.warn("[email] Email is not configured; skipping follow-up notification.");
     }
     return;
   }
@@ -258,8 +235,7 @@ export async function sendFollowUpNotificationById(input: {
   });
 
   try {
-    const { error } = await resend.emails.send({
-      from: env.EMAIL_FROM || "Alubond CRM <no-reply@crm.alubond.com>",
+    await sendEmail({
       to: [followUp.owner.email],
       subject,
       text,
@@ -267,15 +243,11 @@ export async function sendFollowUpNotificationById(input: {
       attachments: [
         {
           filename: "follow-up.ics",
-          content: Buffer.from(calendar.ics, "utf8").toString("base64"),
+          content: Buffer.from(calendar.ics, "utf8"),
           contentType: "text/calendar; charset=utf-8; method=PUBLISH",
         },
       ],
     });
-
-    if (error) {
-      throw new Error(error.message);
-    }
   } catch (error) {
     console.error("[email] Failed to send follow-up notification:", error);
     throw error;

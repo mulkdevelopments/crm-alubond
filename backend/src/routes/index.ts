@@ -108,7 +108,8 @@ function canManageProjects(role: UserRole) {
     role === UserRole.ADMIN ||
     role === UserRole.CEO ||
     role === UserRole.MANAGER ||
-    role === UserRole.REGIONAL_MANAGER
+    role === UserRole.REGIONAL_MANAGER ||
+    role === UserRole.SALES_REP
   );
 }
 
@@ -691,7 +692,7 @@ async function resolveProjectAssignees(payload: z.infer<typeof projectPayloadSch
 }
 
 async function assertProjectAssignmentAllowed(
-  user: { id: string; role: UserRole; regionalManagerId?: string | null },
+  user: { id: string; role: UserRole; regionalManagerId?: string | null; managerId?: string | null },
   payload: z.infer<typeof projectPayloadSchema>
 ) {
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
@@ -730,11 +731,21 @@ async function assertProjectAssignmentAllowed(
     return null;
   }
 
+  if (user.role === UserRole.SALES_REP) {
+    if (payload.managerId && user.managerId && payload.managerId !== user.managerId) {
+      return "Sales reps can only assign their own manager";
+    }
+    if (payload.salesRepIds.some((salesRepId) => salesRepId !== user.id)) {
+      return "Sales reps can only assign themselves";
+    }
+    return null;
+  }
+
   return "Forbidden for your role";
 }
 
 function applyCreatorProjectDefaults(
-  user: { id: string; role: UserRole; regionalManagerId?: string | null },
+  user: { id: string; role: UserRole; regionalManagerId?: string | null; managerId?: string | null },
   payload: z.infer<typeof projectPayloadSchema>
 ): z.infer<typeof projectPayloadSchema> {
   if (user.role === UserRole.MANAGER && !payload.managerId) {
@@ -743,12 +754,19 @@ function applyCreatorProjectDefaults(
   if (user.role === UserRole.REGIONAL_MANAGER && !payload.regionalManagerId && !payload.managerId) {
     return { ...payload, regionalManagerId: user.id };
   }
+  if (user.role === UserRole.SALES_REP) {
+    return {
+      ...payload,
+      managerId: payload.managerId ?? user.managerId ?? null,
+      salesRepIds: payload.salesRepIds.length > 0 ? payload.salesRepIds : [user.id],
+    };
+  }
   return payload;
 }
 
 apiRouter.post("/projects", authenticate, async (req, res) => {
   if (!req.user || !canManageProjects(req.user.role)) {
-    res.status(403).json({ message: "Only admins, CEOs, managers, and regional managers can create projects" });
+    res.status(403).json({ message: "You do not have permission to create projects" });
     return;
   }
 
@@ -810,7 +828,7 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
 
 apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   if (!req.user || !canManageProjects(req.user.role)) {
-    res.status(403).json({ message: "Only admins, CEOs, managers, and regional managers can update projects" });
+    res.status(403).json({ message: "You do not have permission to update projects" });
     return;
   }
   if (!(await canAccessProjectById(req.user, req.params.projectId as string))) {

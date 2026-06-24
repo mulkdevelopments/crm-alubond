@@ -642,7 +642,64 @@ usersRouter.patch("/me/password", async (req, res) => {
   res.status(200).json({ message: "Password updated successfully" });
 });
 
-usersRouter.get("/my-team", authorize(UserRole.MANAGER, UserRole.REGIONAL_MANAGER, UserRole.ADMIN), async (req, res) => {
+usersRouter.get("/my-team", authorize(UserRole.MANAGER, UserRole.REGIONAL_MANAGER, UserRole.ADMIN, UserRole.SALES_REP), async (req, res) => {
+  if (req.user!.role === UserRole.SALES_REP) {
+    const rep = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        managerId: true,
+        manager: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+            managerId: true,
+          },
+        },
+      },
+    });
+
+    if (!rep) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    const items = [
+      {
+        id: rep.id,
+        firstName: rep.firstName,
+        lastName: rep.lastName,
+        email: rep.email,
+        role: rep.role,
+        managerId: rep.managerId,
+      },
+    ];
+
+    if (rep.manager) {
+      items.unshift({
+        id: rep.manager.id,
+        firstName: rep.manager.firstName,
+        lastName: rep.manager.lastName,
+        email: rep.manager.email,
+        role: rep.manager.role,
+        managerId: rep.manager.managerId,
+      });
+    }
+
+    res.status(200).json({
+      managerScope: req.user!.role,
+      items,
+    });
+    return;
+  }
+
   const where =
     req.user!.role === UserRole.ADMIN
       ? { role: UserRole.SALES_REP }

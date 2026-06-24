@@ -52,9 +52,17 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
       - key: SMTP_PASS
         sync: false
       - key: EMAIL_FROM
-        value: Alubond CRM <no-reply@crm.alubond.com>
+        value: Alubond CRM <crm@alubond.com>
       - key: APP_BASE_URL
         value: https://crm.alubond.com

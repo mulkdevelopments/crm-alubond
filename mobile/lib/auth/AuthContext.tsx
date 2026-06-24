@@ -41,7 +41,13 @@ export function canAccessTeam(role: AuthUser["role"] | undefined) {
 }
 
 export function canManageProjects(role: AuthUser["role"] | undefined) {
-  return role === "ADMIN" || role === "CEO" || role === "MANAGER" || role === "REGIONAL_MANAGER";
+  return (
+    role === "ADMIN" ||
+    role === "CEO" ||
+    role === "MANAGER" ||
+    role === "REGIONAL_MANAGER" ||
+    role === "SALES_REP"
+  );
 }
 
 export function canSetBusinessDivision(user: AuthUser | null | undefined) {

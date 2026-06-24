@@ -85,10 +85,17 @@ export default function ProjectFormScreen() {
       setManagerId(user.id);
       const team = await listMyTeam(token);
       setSalesReps(team.filter((member) => member.role === "SALES_REP"));
+    } else if (user?.role === "SALES_REP") {
+      const userData = await listUsers(token);
+      setManagers(userData.filter((entry) => entry.role === "MANAGER"));
+      setRegionalManagers(userData.filter((entry) => entry.role === "REGIONAL_MANAGER"));
+      setSalesReps(userData.filter((entry) => entry.role === "SALES_REP"));
+      setManagerId(user.managerId ?? "");
+      setSalesRepIds([user.id]);
     } else {
       setSalesReps(usersData.filter((entry) => entry.role === "SALES_REP"));
     }
-  }, [token, user?.role, user?.id]);
+  }, [token, user?.role, user?.id, user?.managerId]);
 
   useEffect(() => {
     if (!canManage) {
@@ -103,6 +110,9 @@ export default function ProjectFormScreen() {
           fillFromProject(project);
         } else if (user?.role === "MANAGER") {
           setManagerId(user.id);
+        } else if (user?.role === "SALES_REP" && user.id) {
+          setManagerId(user.managerId ?? "");
+          setSalesRepIds([user.id]);
         }
       } catch {
         setError("Failed to load project.");
@@ -212,8 +222,16 @@ export default function ProjectFormScreen() {
         daysInStage: 0,
         competitor: competitor.trim() || null,
         regionalManagerId: normalizeOptionalId(regionalManagerId),
-        managerId: normalizeOptionalId(managerId),
-        salesRepIds,
+        managerId:
+          user?.role === "SALES_REP"
+            ? normalizeOptionalId(user.managerId ?? managerId)
+            : normalizeOptionalId(managerId),
+        salesRepIds:
+          user?.role === "SALES_REP" && user.id
+            ? salesRepIds.length > 0
+              ? salesRepIds
+              : [user.id]
+            : salesRepIds,
       };
 
       const saved = editing && id

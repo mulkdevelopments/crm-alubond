@@ -178,7 +178,8 @@ export default function PipelinePage() {
   const isAdmin = user?.role === 'ADMIN';
   const isManager = user?.role === 'MANAGER';
   const isRegionalManager = user?.role === 'REGIONAL_MANAGER';
-  const canCreateProject = isAdmin || isManager || isRegionalManager || user?.role === 'CEO';
+  const isSalesRep = user?.role === 'SALES_REP';
+  const canCreateProject = Boolean(user);
   const canSetDivision = canSetBusinessDivision(user);
   const editingProject = editingId ? items.find((p) => p.id === editingId) ?? null : null;
   const regionalManagerForForm =
@@ -426,6 +427,21 @@ export default function PipelinePage() {
           return;
         }
 
+        if (isSalesRep && user) {
+          const userData = await listUsers(token);
+          setManagers(userData.filter((entry) => entry.role === 'MANAGER'));
+          setRegionalManagers(userData.filter((entry) => entry.role === 'REGIONAL_MANAGER'));
+          setSalesReps(userData.filter((entry) => entry.role === 'SALES_REP'));
+          return;
+        }
+
+        if (!isManager || !user) {
+          setManagers([]);
+          setRegionalManagers([]);
+          setSalesReps([]);
+          return;
+        }
+
         const teamData: TeamMember[] = await listMyTeam(token);
         setRegionalManagers(
           user?.regionalManagerId
@@ -507,7 +523,7 @@ export default function PipelinePage() {
     }
 
     loadPeople();
-  }, [token, canCreateProject, isAdmin, isManager, isRegionalManager, user]);
+  }, [token, canCreateProject, isAdmin, isManager, isRegionalManager, isSalesRep, user]);
 
   useEffect(() => {
     if (!token) {
@@ -599,14 +615,31 @@ function normalizeOptionalId(value: string): string | null {
   return value.trim() ? value : null;
 }
 
-function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolean, isRegionalManager: boolean, userId?: string) {
+function buildProjectAssignmentPayload(
+  form: ProjectFormState,
+  isManager: boolean,
+  isRegionalManager: boolean,
+  isSalesRep: boolean,
+  userId?: string,
+  userManagerId?: string | null,
+) {
   return {
     regionalManagerId:
       isRegionalManager && userId
         ? userId
         : normalizeOptionalId(form.regionalManagerId),
-    managerId: isManager && userId ? userId : normalizeOptionalId(form.managerId),
-    salesRepIds: form.salesRepIds,
+    managerId:
+      isManager && userId
+        ? userId
+        : isSalesRep
+          ? normalizeOptionalId(userManagerId ?? form.managerId)
+          : normalizeOptionalId(form.managerId),
+    salesRepIds:
+      isSalesRep && userId
+        ? form.salesRepIds.length > 0
+          ? form.salesRepIds
+          : [userId]
+        : form.salesRepIds,
   };
 }
 
@@ -619,7 +652,8 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     setForm({
       ...EMPTY_FORM,
       regionalManagerId: isRegionalManager && user?.id ? user.id : '',
-      managerId: isManager && user?.id ? user.id : '',
+      managerId: isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : '',
+      salesRepIds: isSalesRep && user?.id ? [user.id] : [],
     });
     setIsFormOpen(true);
   }
@@ -648,8 +682,8 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
       probability: String(project.probability),
       competitor: project.competitor ?? '',
       regionalManagerId: existing?.regionalManagerId ?? (isRegionalManager && user?.id ? user.id : ''),
-      managerId: existing?.managerId ?? (isManager && user?.id ? user.id : ''),
-      salesRepIds: existing?.salesRepIds ?? [],
+      managerId: existing?.managerId ?? (isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : ''),
+      salesRepIds: existing?.salesRepIds ?? (isSalesRep && user?.id ? [user.id] : []),
     });
     setIsFormOpen(true);
   }
@@ -663,7 +697,8 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
     setForm({
       ...EMPTY_FORM,
       regionalManagerId: isRegionalManager && user?.id ? user.id : '',
-      managerId: isManager && user?.id ? user.id : '',
+      managerId: isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : '',
+      salesRepIds: isSalesRep && user?.id ? [user.id] : [],
     });
   }
 
@@ -795,7 +830,14 @@ function buildProjectAssignmentPayload(form: ProjectFormState, isManager: boolea
         )
       : '';
     const selectedReps = repsForSelectedManager.filter((rep) => form.salesRepIds.includes(rep.id));
-    const assignmentPayload = buildProjectAssignmentPayload(form, isManager, isRegionalManager, user?.id);
+    const assignmentPayload = buildProjectAssignmentPayload(
+      form,
+      isManager,
+      isRegionalManager,
+      isSalesRep,
+      user?.id,
+      user?.managerId,
+    );
 
     if (!name || !city) {
       setFormError('Fill project name and city.');

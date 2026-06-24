@@ -1,32 +1,10 @@
 import crypto from "crypto";
 
-import { Resend } from "resend";
-
 import { env } from "../config/env";
 import { emailButtonStyle, wrapEmailHtml } from "./email-layout";
+import { isEmailConfigured, sendEmail } from "./mailer";
 
-let resendClient: Resend | null | undefined;
-
-function getResendApiKey() {
-  return env.RESEND_API_KEY || env.SMTP_PASS;
-}
-
-export function isAuthEmailConfigured() {
-  return Boolean(getResendApiKey());
-}
-
-function getResendClient(): Resend | null {
-  if (resendClient !== undefined) return resendClient;
-
-  const apiKey = getResendApiKey();
-  if (!apiKey) {
-    resendClient = null;
-    return resendClient;
-  }
-
-  resendClient = new Resend(apiKey);
-  return resendClient;
-}
+export { isEmailConfigured as isAuthEmailConfigured };
 
 function escapeHtml(value: string) {
   return value
@@ -34,25 +12,6 @@ function escapeHtml(value: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-async function sendEmail(input: { to: string[]; subject: string; text: string; html: string }) {
-  const resend = getResendClient();
-  if (!resend) {
-    throw new Error("Email is not configured");
-  }
-
-  const { error } = await resend.emails.send({
-    from: env.EMAIL_FROM || "Alubond CRM <no-reply@crm.alubond.com>",
-    to: input.to,
-    subject: input.subject,
-    text: input.text,
-    html: input.html,
-  });
-
-  if (error) {
-    throw new Error(error.message);
-  }
 }
 
 export function createPasswordResetTokenValue() {
