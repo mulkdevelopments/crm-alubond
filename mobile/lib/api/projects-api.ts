@@ -8,7 +8,11 @@ export type ApiProject = {
   developer: string;
   businessDivision: "alubond architecture" | "alubond transport" | "uniqube" | null;
   stage: string;
+  valueLocal: number;
+  currencyCode: string;
   valueAed: number;
+  fxRateToAed: number;
+  fxRateAppliedAt: string;
   itemName: string;
   itemQuantity: number;
   specThickness: string;
@@ -76,7 +80,8 @@ export type ProjectUpsertPayload = {
   developer: string;
   businessDivision: "alubond architecture" | "alubond transport" | "uniqube" | null;
   stage: string;
-  valueAed: number;
+  valueLocal: number;
+  currencyCode: string;
   itemName: string;
   itemQuantity: number;
   specThickness: string;

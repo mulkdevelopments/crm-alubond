@@ -71,7 +71,7 @@ model Project {
   fxRateToAed  Float    @default(1)
   fxRateAppliedAt DateTime @default(now())
   itemName     String   @default("")
-  itemQuantity Int      @default(0)
+  itemQuantity Float    @default(0)
   specThickness String  @default("")
   specCore      String  @default("")
   specPaintType String  @default("")

@@ -10,6 +10,7 @@
     "start:frontend": "npm run start --prefix frontend",
     "start:backend": "npm run start --prefix backend",
     "lint:frontend": "npm run lint --prefix frontend",
-    "dev:mobile": "npm run start --prefix mobile"
+    "dev:mobile": "npm run start --prefix mobile",
+    "backup:db": "bash ./scripts/backup-prod-db.sh"
   }
 }

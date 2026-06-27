@@ -27,9 +27,18 @@ import {
   getProject,
   updateProject,
   type ApiProject,
+  type ProjectUpsertPayload,
 } from "@/lib/api/projects-api";
+import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem } from "@/lib/api/master-data-api";
 import { useAuth, canManageProjects, canSetBusinessDivision } from "@/lib/auth/AuthContext";
-import { normalizeOptionalId } from "@/lib/utils";
+import { suggestCurrencyCode } from "@/lib/currency-defaults";
+import {
+  effectiveValueLocal,
+  formatNumberForInput,
+  normalizeOptionalId,
+  parseFormattedNumber,
+  sanitizeFormattedNumberInput,
+} from "@/lib/utils";
 import {
   SPEC_CORE_OPTIONS,
   SPEC_PAINT_TYPE_OPTIONS,
@@ -62,6 +71,9 @@ export default function ProjectFormScreen() {
   const [savedBusinessDivision, setSavedBusinessDivision] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("Lead Identified");
   const [value, setValue] = useState("");
+  const [currencyCode, setCurrencyCode] = useState("AED");
+  const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
+  const [regionDefaults, setRegionDefaults] = useState<Record<string, string>>({});
   const [itemQuantity, setItemQuantity] = useState("");
   const [specThickness, setSpecThickness] = useState("");
   const [specCore, setSpecCore] = useState("");
@@ -105,6 +117,18 @@ export default function ProjectFormScreen() {
     void (async () => {
       try {
         await loadPeople();
+        if (token) {
+          try {
+            const [currencyRows, regionRows] = await Promise.all([
+              listActiveCurrencies(token),
+              listActiveRegionDefaults(token),
+            ]);
+            setCurrencies(currencyRows);
+            setRegionDefaults(Object.fromEntries(regionRows.map((row) => [row.name, row.defaultCurrencyCode])));
+          } catch {
+            setCurrencies([{ code: "AED", name: "UAE Dirham", rateToAed: 1 }]);
+          }
+        }
         if (id && token) {
           const project = await getProject(token, id);
           fillFromProject(project);
@@ -120,7 +144,15 @@ export default function ProjectFormScreen() {
         setLoading(false);
       }
     })();
-  }, [canManage, id, loadPeople, router, token, user?.id, user?.role]);
+  }, [canManage, id, loadPeople, router, token, user?.id, user?.managerId, user?.role]);
+
+  function defaultCurrencyForCountry(nextCountry: string) {
+    return suggestCurrencyCode({
+      country: nextCountry,
+      operationLocations: user?.regions,
+      regionDefaults,
+    });
+  }
 
   function fillFromProject(project: ApiProject) {
     setName(project.name);
@@ -130,8 +162,9 @@ export default function ProjectFormScreen() {
     setBusinessDivision(project.businessDivision ?? "");
     setSavedBusinessDivision(project.businessDivision);
     setStage(project.stage);
-    setValue(String(project.valueAed));
-    setItemQuantity(String(project.itemQuantity));
+    setValue(formatNumberForInput(effectiveValueLocal(project)));
+    setCurrencyCode(project.currencyCode || "AED");
+    setItemQuantity(formatNumberForInput(project.itemQuantity));
     setSpecThickness(project.specThickness ?? "");
     setSpecCore(project.specCore ?? "");
     setSpecPaintType(project.specPaintType ?? "");
@@ -149,9 +182,17 @@ export default function ProjectFormScreen() {
   }, [managers, regionalManagerId]);
 
   const repsUnderManager = useMemo(() => {
-    if (!managerId) return salesReps;
-    return salesReps.filter((rep) => rep.managerId === managerId);
-  }, [managerId, salesReps]);
+    if (managerId) {
+      return salesReps.filter((rep) => rep.managerId === managerId);
+    }
+    if (regionalManagerId) {
+      return salesReps.filter((rep) => {
+        if (rep.managerId !== null) return false;
+        return "regionalManagerId" in rep && rep.regionalManagerId === regionalManagerId;
+      });
+    }
+    return salesReps;
+  }, [managerId, regionalManagerId, salesReps]);
 
   async function useCurrentLocation() {
     const permission = await Location.requestForegroundPermissionsAsync();
@@ -175,8 +216,8 @@ export default function ProjectFormScreen() {
     setSaving(true);
     setError(null);
     try {
-      const parsedValue = Number(value);
-      const parsedQty = Number(itemQuantity);
+      const parsedValue = parseFormattedNumber(value);
+      const parsedQty = parseFormattedNumber(itemQuantity);
       const parsedLat = Number(lat);
       const parsedLng = Number(lng);
       if (!name.trim() || !city.trim() || !country.trim()) {
@@ -203,16 +244,17 @@ export default function ProjectFormScreen() {
         ? formatProjectSpecs(specThickness, specCore, specPaintType)
         : "";
 
-      const payload = {
+      const payload: ProjectUpsertPayload = {
         name: name.trim(),
         city: city.trim(),
         country: country.trim(),
         developer: developer.trim(),
-        businessDivision: canSetDivision ? businessDivision || null : savedBusinessDivision,
+        businessDivision: (canSetDivision ? businessDivision || null : savedBusinessDivision) as ProjectUpsertPayload["businessDivision"],
         stage,
-        valueAed: Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0,
+        valueLocal: Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : 0,
+        currencyCode,
         itemName,
-        itemQuantity: Number.isFinite(parsedQty) && parsedQty > 0 ? Math.round(parsedQty) : 0,
+        itemQuantity: Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 0,
         specThickness,
         specCore,
         specPaintType,
@@ -253,14 +295,47 @@ export default function ProjectFormScreen() {
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Field label="Project name" value={name} onChangeText={setName} />
         <Field label="City" value={city} onChangeText={setCity} />
-        <Field label="Country" value={country} onChangeText={setCountry} />
+        <Field
+          label="Country"
+          value={country}
+          onChangeText={(nextCountry) => {
+            setCountry(nextCountry);
+            if (!editing) {
+              setCurrencyCode(defaultCurrencyForCountry(nextCountry));
+            }
+          }}
+        />
         <Field label="Customer" value={developer} onChangeText={setDeveloper} />
-        <Field label="Total project value (AED)" value={value} onChangeText={setValue} keyboardType="numeric" />
+        <Field
+          label="Total project value"
+          value={value}
+          onChangeText={(next) => setValue(sanitizeFormattedNumberInput(next))}
+          onBlur={() => {
+            const parsed = parseFormattedNumber(value);
+            if (Number.isFinite(parsed) && parsed > 0) setValue(formatNumberForInput(parsed));
+          }}
+          keyboardType="decimal-pad"
+        />
+        <Text style={styles.label}>Currency</Text>
+        <View style={styles.chips}>
+          {(currencies.length > 0 ? currencies : [{ code: "AED", name: "UAE Dirham", rateToAed: 1 }]).map((entry) => (
+            <Chip
+              key={entry.code}
+              label={entry.code}
+              active={currencyCode === entry.code}
+              onPress={() => setCurrencyCode(entry.code)}
+            />
+          ))}
+        </View>
         <Field
           label="Total project quantity (m²)"
           value={itemQuantity}
-          onChangeText={setItemQuantity}
-          keyboardType="numeric"
+          onChangeText={(next) => setItemQuantity(sanitizeFormattedNumberInput(next))}
+          onBlur={() => {
+            const parsed = parseFormattedNumber(itemQuantity);
+            if (Number.isFinite(parsed) && parsed > 0) setItemQuantity(formatNumberForInput(parsed));
+          }}
+          keyboardType="decimal-pad"
         />
 
         {requiresCommercialDetails(stage) ? (
@@ -392,13 +467,15 @@ function Field({
   label,
   value,
   onChangeText,
+  onBlur,
   keyboardType,
   compact,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
-  keyboardType?: "numeric" | "default";
+  onBlur?: () => void;
+  keyboardType?: "numeric" | "decimal-pad" | "default";
   compact?: boolean;
 }) {
   return (
@@ -408,6 +485,7 @@ function Field({
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
+        onBlur={onBlur}
         keyboardType={keyboardType}
       />
     </View>

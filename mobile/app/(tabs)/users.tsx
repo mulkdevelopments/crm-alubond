@@ -1,15 +1,24 @@
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { EmptyState, ScreenLoader } from "@/components/ScreenLoader";
 import { colors } from "@/constants/theme";
-import { listUsers, type UserListItem } from "@/lib/api/auth-api";
+import { deleteUser, listUsers, type UserListItem } from "@/lib/api/auth-api";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function UsersScreen() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const router = useRouter();
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [query, setQuery] = useState("");
@@ -33,6 +42,30 @@ export default function UsersScreen() {
     if (!q) return users;
     return users.filter((u) => `${u.firstName} ${u.lastName} ${u.email} ${u.role}`.toLowerCase().includes(q));
   }, [users, query]);
+
+  function confirmDelete(entry: UserListItem) {
+    if (!token || entry.id === user?.id) return;
+    Alert.alert(
+      "Delete user",
+      `Delete ${entry.firstName} ${entry.lastName}? This permanently removes their account.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () =>
+            void (async () => {
+              try {
+                await deleteUser(token, entry.id);
+                await load();
+              } catch (error) {
+                Alert.alert("Delete failed", error instanceof Error ? error.message : "Failed to delete user.");
+              }
+            })(),
+        },
+      ]
+    );
+  }
 
   if (loading) return <ScreenLoader label="Loading users..." />;
 
@@ -61,16 +94,23 @@ export default function UsersScreen() {
         }
         ListEmptyComponent={<EmptyState title="No users found" />}
         renderItem={({ item }) => (
-          <Pressable style={styles.card} onPress={() => router.push({ pathname: "/users/form", params: { id: item.id } })}>
-            <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
-            <Text style={styles.role}>{item.role.replace("_", " ")}</Text>
-            <Text style={styles.meta}>{item.email}</Text>
-            <Text style={styles.meta}>
-              {(item.operationLocations ?? []).length > 0
-                ? item.operationLocations.join(", ")
-                : "Location not set"}
-            </Text>
-          </Pressable>
+          <View style={styles.card}>
+            <Pressable style={styles.cardBody} onPress={() => router.push({ pathname: "/users/form", params: { id: item.id } })}>
+              <Text style={styles.name}>{item.firstName} {item.lastName}</Text>
+              <Text style={styles.role}>{item.role.replace("_", " ")}</Text>
+              <Text style={styles.meta}>{item.email}</Text>
+              <Text style={styles.meta}>
+                {(item.operationLocations ?? []).length > 0
+                  ? item.operationLocations.join(", ")
+                  : "Location not set"}
+              </Text>
+            </Pressable>
+            {item.id !== user?.id ? (
+              <Pressable style={styles.deleteButton} onPress={() => confirmDelete(item)}>
+                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+              </Pressable>
+            ) : null}
+          </View>
         )}
       />
     </View>
@@ -104,6 +144,20 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 14,
     marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  cardBody: { flex: 1 },
+  deleteButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
   },
   name: { fontSize: 16, fontWeight: "700", color: colors.text },
   role: { marginTop: 4, fontSize: 12, color: colors.brand, fontWeight: "600" },

@@ -36,7 +36,7 @@ import {
   formatProjectSpecs,
   formatSpecsSummary,
 } from '@/lib/project-specs';
-import { cn, effectiveValueLocal, formatProjectValue, relativeTime } from '@/lib/utils';
+import { cn, effectiveValueLocal, formatNumber, formatNumberForInput, formatProjectValue, parseFormattedNumber, relativeTime } from '@/lib/utils';
 import { listActiveCurrencies, type ActiveCurrencyItem } from '@/lib/master-data-api';
 
 type SpeechRecognitionLike = {
@@ -282,9 +282,9 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (!project) return;
-    setCommercialValue(String(effectiveValueLocal(project)));
+    setCommercialValue(formatNumberForInput(effectiveValueLocal(project)));
     setCommercialCurrencyCode(project.currencyCode);
-    setCommercialItemQuantity(String(project.itemQuantity ?? 0));
+    setCommercialItemQuantity(formatNumberForInput(project.itemQuantity ?? 0));
     setCommercialSpecThickness(project.specThickness ?? '');
     setCommercialSpecCore(project.specCore ?? '');
     setCommercialSpecPaintType(project.specPaintType ?? '');
@@ -615,9 +615,9 @@ export default function ProjectDetailPage() {
   async function onSaveCommercialDetails(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || !project) return;
-    const nextValue = Number(commercialValue);
-    const parsedQuantity = Number(commercialItemQuantity);
-    const nextItemQuantity = Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? Math.round(parsedQuantity) : 0;
+    const nextValue = parseFormattedNumber(commercialValue);
+    const parsedQuantity = parseFormattedNumber(commercialItemQuantity);
+    const nextItemQuantity = Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 0;
 
     if (!Number.isFinite(nextValue) || nextValue <= 0) {
       setCommercialError('Total project value must be greater than 0.');
@@ -1234,9 +1234,9 @@ export default function ProjectDetailPage() {
                     onClick={() => {
                       setEditingCommercial(false);
                       setCommercialError(null);
-                      setCommercialValue(String(effectiveValueLocal(project)));
+                      setCommercialValue(formatNumberForInput(effectiveValueLocal(project)));
                       setCommercialCurrencyCode(project.currencyCode);
-                      setCommercialItemQuantity(String(project.itemQuantity ?? 0));
+                      setCommercialItemQuantity(formatNumberForInput(project.itemQuantity ?? 0));
                       setCommercialSpecThickness(project.specThickness ?? '');
                       setCommercialSpecCore(project.specCore ?? '');
                       setCommercialSpecPaintType(project.specPaintType ?? '');
@@ -1260,7 +1260,7 @@ export default function ProjectDetailPage() {
                 <div>
                   <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80">Total quantity</p>
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    {project.itemQuantity > 0 ? `${project.itemQuantity} m²` : 'Not provided'}
+                    {project.itemQuantity > 0 ? `${formatNumber(project.itemQuantity, 2)} m²` : 'Not provided'}
                   </p>
                 </div>
                 <div className="sm:col-span-2">
@@ -2099,7 +2099,7 @@ export default function ProjectDetailPage() {
               <Row k="Customer" v={project.developer} />
               <Row k="Business division" v={project.businessDivision?.trim() || 'Not provided'} />
               <Row k="Specifications" v={formatSpecsSummary(project) || 'Not provided'} />
-              <Row k="Total quantity (m²)" v={project.itemQuantity > 0 ? `${project.itemQuantity}` : 'Not provided'} />
+              <Row k="Total quantity (m²)" v={project.itemQuantity > 0 ? formatNumber(project.itemQuantity, 2) : 'Not provided'} />
             </div>
           </Card>
         </div>

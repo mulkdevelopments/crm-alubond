@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CalendarDays, ChevronDown, ChevronRight, Pencil, Search, ShieldAlert, User, UserPlus, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, Pencil, Search, ShieldAlert, Trash2, User, UserPlus, X } from 'lucide-react';
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
 
 import { useAuth } from '@/components/auth/AuthContext';
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import {
   createUser,
+  deleteUser,
   getUserLocationAttendance,
   getUserLocationRoute,
   listRegionalManagers,
@@ -159,6 +160,8 @@ export default function UsersPage() {
   const [managerFilter, setManagerFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'live' | 'offline'>('ALL');
   const [page, setPage] = useState(1);
+  const [deleteTarget, setDeleteTarget] = useState<UserListItem | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
 
   const isAdmin = user?.role === 'ADMIN';
   const activeMasterRegions = useMemo(
@@ -504,6 +507,29 @@ export default function UsersPage() {
     setFormError(null);
   }
 
+  async function confirmDeleteUser() {
+    if (!token || !deleteTarget) return;
+    setDeletingUser(true);
+    setMessage(null);
+    try {
+      await deleteUser(token, deleteTarget.id);
+      if (editingUserId === deleteTarget.id) {
+        setUserDialogOpen(false);
+        setEditingUserId(null);
+      }
+      if (attendanceUser?.id === deleteTarget.id) {
+        setAttendanceUser(null);
+      }
+      setDeleteTarget(null);
+      await loadData();
+      setMessage(`${deleteTarget.firstName} ${deleteTarget.lastName} deleted.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Failed to delete user.');
+    } finally {
+      setDeletingUser(false);
+    }
+  }
+
   async function openAttendance(entry: UserListItem) {
     if (!token) return;
     setAttendanceUser(entry);
@@ -757,6 +783,17 @@ export default function UsersPage() {
                                     >
                                       Edit
                                     </Button>
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      size="sm"
+                                      icon={<Trash2 className="h-3.5 w-3.5" />}
+                                      disabled={entry.id === user?.id}
+                                      onClick={() => setDeleteTarget(entry)}
+                                      title={entry.id === user?.id ? 'You cannot delete your own account' : 'Delete user'}
+                                    >
+                                      Delete
+                                    </Button>
                                   </div>
                                 </td>
                               </tr>
@@ -800,6 +837,15 @@ export default function UsersPage() {
                                 </Button>
                                 <Button type="button" variant="secondary" size="sm" onClick={() => openEditUserDialog(entry)}>
                                   Edit
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={entry.id === user?.id}
+                                  onClick={() => setDeleteTarget(entry)}
+                                >
+                                  Delete
                                 </Button>
                               </div>
                             </div>
@@ -1056,6 +1102,38 @@ export default function UsersPage() {
             </Button>
               </div>
           </form>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="max-w-md mx-auto mt-24 surface border border-[var(--border)] rounded-2xl shadow-card">
+            <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
+              <h3 className="text-sm font-semibold tracking-tight">Delete user</h3>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="h-8 w-8 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                aria-label="Close delete dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-2">
+                Delete <span className="font-semibold text-[var(--text)]">{deleteTarget.firstName} {deleteTarget.lastName}</span> ({deleteTarget.email})?
+                This permanently removes their account and location history. Project assignments under their name will be cleared.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deletingUser}>
+                  Cancel
+                </Button>
+                <Button type="button" variant="primary" onClick={() => void confirmDeleteUser()} disabled={deletingUser}>
+                  {deletingUser ? 'Deleting...' : 'Delete user'}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

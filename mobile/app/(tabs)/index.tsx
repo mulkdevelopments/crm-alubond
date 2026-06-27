@@ -5,7 +5,7 @@ import { EmptyState, ScreenLoader } from "@/components/ScreenLoader";
 import { colors } from "@/constants/theme";
 import { listProjects, type ApiProject } from "@/lib/api/projects-api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatAed } from "@/lib/utils";
+import { formatAed, formatProjectValue } from "@/lib/utils";
 
 export default function HomeScreen() {
   const { token, user } = useAuth();
@@ -65,7 +65,7 @@ export default function HomeScreen() {
       {projects.slice(0, 5).map((project) => (
         <View key={project.id} style={styles.row}>
           <Text style={styles.rowTitle}>{project.name}</Text>
-          <Text style={styles.rowMeta}>{project.stage} · {formatAed(project.valueAed, true)}</Text>
+          <Text style={styles.rowMeta}>{project.stage} · {formatProjectValue(project, user?.role, true)}</Text>
         </View>
       ))}
       {projects.length === 0 ? <EmptyState title="No projects yet" subtitle="Assigned projects will appear here." /> : null}

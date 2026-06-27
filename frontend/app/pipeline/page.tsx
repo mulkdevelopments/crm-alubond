@@ -17,7 +17,7 @@ import {
   updateProject as updateProjectApi,
   type ApiProject,
 } from '@/lib/projects-api';
-import { cn, formatAED, formatProjectValue } from '@/lib/utils';
+import { cn, formatAED, formatNumber, formatNumberForInput, formatProjectValue, parseFormattedNumber } from '@/lib/utils';
 import { suggestCurrencyCode } from '@/lib/currency-defaults';
 import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem } from '@/lib/master-data-api';
 import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
@@ -282,8 +282,8 @@ export default function PipelinePage() {
     specCore: string;
     specPaintType: string;
   }): string | null {
-    const nextValue = Number(input.value);
-    const nextItemQuantity = Number(input.itemQuantity);
+    const nextValue = parseFormattedNumber(input.value);
+    const nextItemQuantity = parseFormattedNumber(input.itemQuantity);
     if (!Number.isFinite(nextValue) || nextValue <= 0) {
       return 'Total project value must be greater than 0.';
     }
@@ -588,9 +588,9 @@ export default function PipelinePage() {
       setCommercialPrompt({
         projectId: project.id,
         targetStage: stage,
-        value: String(project.valueLocal > 0 ? project.valueLocal : project.valueAed > 0 ? project.valueAed : ''),
+        value: formatNumberForInput(project.valueLocal > 0 ? project.valueLocal : project.valueAed > 0 ? project.valueAed : 0),
         currencyCode: project.currencyCode,
-        itemQuantity: String(project.itemQuantity > 0 ? project.itemQuantity : ''),
+        itemQuantity: formatNumberForInput(project.itemQuantity),
         specThickness: project.specThickness ?? '',
         specCore: project.specCore ?? '',
         specPaintType: project.specPaintType ?? '',
@@ -630,8 +630,8 @@ export default function PipelinePage() {
       return;
     }
 
-    const nextValue = Number(commercialPrompt.value);
-    const nextItemQuantity = Math.round(Number(commercialPrompt.itemQuantity));
+    const nextValue = parseFormattedNumber(commercialPrompt.value);
+    const nextItemQuantity = parseFormattedNumber(commercialPrompt.itemQuantity);
 
     setCommercialPrompt((prev) => (prev ? { ...prev, error: null, saving: true } : prev));
     try {
@@ -711,9 +711,9 @@ function buildProjectAssignmentPayload(
       country: project.country,
       developer: project.developer,
       businessDivision: project.businessDivision ?? '',
-      value: String(project.valueLocal > 0 ? project.valueLocal : project.valueAed),
+      value: formatNumberForInput(project.valueLocal > 0 ? project.valueLocal : project.valueAed),
       currencyCode: project.currencyCode,
-      itemQuantity: String(project.itemQuantity),
+      itemQuantity: formatNumberForInput(project.itemQuantity),
       specThickness: project.specThickness ?? '',
       specCore: project.specCore ?? '',
       specPaintType: project.specPaintType ?? '',
@@ -844,8 +844,8 @@ function buildProjectAssignmentPayload(
     const city = form.city.trim();
     const country = form.country.trim();
     const developer = form.developer.trim();
-    const value = Number(form.value);
-    const itemQuantity = Number(form.itemQuantity);
+    const value = parseFormattedNumber(form.value);
+    const itemQuantity = parseFormattedNumber(form.itemQuantity);
     const lat = Number(form.lat);
     const lng = Number(form.lng);
     const probability = Math.max(0, Math.min(100, Number(form.probability)));
@@ -853,7 +853,7 @@ function buildProjectAssignmentPayload(
       ? form.businessDivision || null
       : editingProject?.businessDivision ?? null;
     const normalizedValue = Number.isFinite(value) && value >= 0 ? value : 0;
-    const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? Math.round(itemQuantity) : 0;
+    const normalizedItemQuantity = Number.isFinite(itemQuantity) && itemQuantity > 0 ? itemQuantity : 0;
     const normalizedSpecs = {
       specThickness: form.specThickness,
       specCore: form.specCore,
@@ -1256,7 +1256,7 @@ function buildProjectAssignmentPayload(
                                 <span className="text-[10px] text-3 truncate max-w-[110px]">
                                   {(() => {
                                     const specs = formatSpecsSummary(p);
-                                    const quantity = p.itemQuantity > 0 ? `${p.itemQuantity} m²` : '';
+                                    const quantity = p.itemQuantity > 0 ? `${formatNumber(p.itemQuantity, 2)} m²` : '';
                                     return [specs, quantity].filter(Boolean).join(' · ');
                                   })()}
                                 </span>

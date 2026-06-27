@@ -1,8 +1,9 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { colors } from "@/constants/theme";
-import { formatAed, formatStage, stageColor } from "@/lib/utils";
 import type { ApiProject } from "@/lib/api/projects-api";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { formatProjectValue, formatStage, stageColor } from "@/lib/utils";
 
 export function ProjectCard({
   project,
@@ -13,6 +14,8 @@ export function ProjectCard({
   onPress?: () => void;
   trailing?: React.ReactNode;
 }) {
+  const { user } = useAuth();
+
   return (
     <View style={styles.card}>
       <View style={styles.header}>
@@ -30,7 +33,7 @@ export function ProjectCard({
         <View style={[styles.badge, { backgroundColor: stageColor(project.stage) }]}>
           <Text style={styles.badgeText}>{formatStage(project.stage)}</Text>
         </View>
-        <Text style={styles.value}>{formatAed(project.valueAed, true)}</Text>
+        <Text style={styles.value}>{formatProjectValue(project, user?.role, true)}</Text>
       </View>
       <Text style={styles.owner}>Owner: {project.owner}</Text>
     </View>

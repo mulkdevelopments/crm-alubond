@@ -1,3 +1,4 @@
+import { FormattedDecimalInput } from '@/components/projects/FormattedDecimalInput';
 import {
   SPEC_CORE_OPTIONS,
   SPEC_PAINT_TYPE_OPTIONS,
@@ -58,15 +59,14 @@ export function ProjectCommercialFields({
           Total project value
         </label>
         <div className="mt-1 grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-          <input
+          <FormattedDecimalInput
             id={`${idPrefix}-value`}
-            type="number"
-            min={1}
             value={value}
-            onChange={(e) => onValueChange(e.target.value)}
+            onChange={onValueChange}
             placeholder="Amount"
             required={required}
             className={inputClassName}
+            maxFractionDigits={2}
           />
           <select
             id={`${idPrefix}-currency`}
@@ -88,16 +88,14 @@ export function ProjectCommercialFields({
         <label htmlFor={`${idPrefix}-quantity`} className="text-xs font-medium text-2">
           Total Project Quantity (m²)
         </label>
-        <input
+        <FormattedDecimalInput
           id={`${idPrefix}-quantity`}
-          type="number"
-          min={1}
-          step={1}
           value={itemQuantity}
-          onChange={(e) => onItemQuantityChange(e.target.value)}
+          onChange={onItemQuantityChange}
           placeholder="Total Project Quantity (m²)"
           required={required}
           className={`mt-1 ${inputClassName}`}
+          maxFractionDigits={2}
         />
       </div>
       {showSpecifications ? (

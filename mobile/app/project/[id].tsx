@@ -29,7 +29,7 @@ import {
   type ProjectStakeholder,
 } from "@/lib/api/projects-api";
 import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
-import { formatAed, formatStage } from "@/lib/utils";
+import { formatProjectValue, formatStage } from "@/lib/utils";
 import { formatSpecsSummary } from "@/lib/project-specs";
 
 const ACTIVITY_TYPES: ProjectActivity["type"][] = ["note", "call", "visit", "email", "whatsapp"];
@@ -224,7 +224,7 @@ export default function ProjectDetailScreen() {
           <Text style={styles.stage}>{formatStage(project.stage)}</Text>
           <Text style={styles.meta}>{project.city}, {project.country}</Text>
           <Text style={styles.meta}>{project.developer || "Customer TBD"}</Text>
-          <Text style={styles.value}>{formatAed(project.valueAed)}</Text>
+          <Text style={styles.value}>{formatProjectValue(project, user?.role)}</Text>
           {project.itemQuantity > 0 ? (
             <Text style={styles.meta}>{project.itemQuantity.toLocaleString()} m²</Text>
           ) : null}

@@ -424,6 +424,58 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
   res.status(200).json({ user: toAuthUser(user) });
 });
 
+usersRouter.delete("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
+  const userId = req.params.userId as string;
+
+  if (userId === req.user!.id) {
+    res.status(400).json({ message: "You cannot delete your own account." });
+    return;
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, firstName: true, lastName: true },
+  });
+  if (!existing) {
+    res.status(404).json({ message: "User not found" });
+    return;
+  }
+
+  if (existing.role === UserRole.ADMIN) {
+    const adminCount = await prisma.user.count({ where: { role: UserRole.ADMIN } });
+    if (adminCount <= 1) {
+      res.status(400).json({ message: "Cannot delete the last admin account." });
+      return;
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const projectsWithRep = await tx.project.findMany({
+      where: { salesRepIds: { has: userId } },
+      select: { id: true, salesRepIds: true, salesRepNames: true },
+    });
+
+    for (const project of projectsWithRep) {
+      const nextIds: string[] = [];
+      const nextNames: string[] = [];
+      project.salesRepIds.forEach((repId, index) => {
+        if (repId !== userId) {
+          nextIds.push(repId);
+          nextNames.push(project.salesRepNames[index] ?? "");
+        }
+      });
+      await tx.project.update({
+        where: { id: project.id },
+        data: { salesRepIds: nextIds, salesRepNames: nextNames },
+      });
+    }
+
+    await tx.user.delete({ where: { id: userId } });
+  });
+
+  res.status(200).json({ ok: true });
+});
+
 usersRouter.get("/", async (req, res) => {
   let where: Prisma.UserWhereInput = { id: req.user!.id };
 

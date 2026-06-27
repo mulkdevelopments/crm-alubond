@@ -47,7 +47,7 @@ const projectPayloadSchema = z.object({
   currencyCode: z.string().trim().length(3).optional(),
   valueAed: z.number().min(0).optional().default(0),
   itemName: z.string().trim().max(120).optional().default(""),
-  itemQuantity: z.number().int().min(0).optional().default(0),
+  itemQuantity: z.number().min(0).optional().default(0),
   specThickness: z.string().trim().max(16).optional().default(""),
   specCore: z.string().trim().max(16).optional().default(""),
   specPaintType: z.string().trim().max(16).optional().default(""),

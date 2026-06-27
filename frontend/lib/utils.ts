@@ -59,8 +59,37 @@ export function formatProjectValue(project: ProjectMoney, viewerRole?: string, c
   return local;
 }
 
-export function formatNumber(value: number) {
-  return new Intl.NumberFormat('en-AE').format(value);
+export function formatNumber(value: number, maxFractionDigits = 0) {
+  return new Intl.NumberFormat('en-AE', {
+    maximumFractionDigits: maxFractionDigits,
+    minimumFractionDigits: 0,
+  }).format(value);
+}
+
+/** Parse user-entered values like "1,139,376.50" or "10887.5". */
+export function parseFormattedNumber(raw: string): number {
+  const normalized = raw.replace(/,/g, '').trim();
+  if (!normalized) return NaN;
+  return Number(normalized);
+}
+
+/** Keep only digits, commas, and a single decimal point while typing. */
+export function sanitizeFormattedNumberInput(raw: string): string {
+  let cleaned = raw.replace(/[^\d.,]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot !== -1) {
+    cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  }
+  return cleaned;
+}
+
+/** Format a numeric value for commercial input fields. */
+export function formatNumberForInput(value: number, maxFractionDigits = 2): string {
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return new Intl.NumberFormat('en', {
+    maximumFractionDigits: maxFractionDigits,
+    minimumFractionDigits: 0,
+  }).format(value);
 }
 
 export function initials(name: string) {

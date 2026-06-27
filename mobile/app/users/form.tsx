@@ -1,6 +1,7 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import { ScreenLoader } from "@/components/ScreenLoader";
 import { colors } from "@/constants/theme";
 import {
   createUser,
+  deleteUser,
   listCeos,
   listRegionalManagers,
   listUsers,
@@ -21,6 +23,7 @@ import {
   type Role,
   type UserListItem,
 } from "@/lib/api/auth-api";
+import { listMasterRegions, type MasterRegionItem } from "@/lib/api/master-data-api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { normalizeOptionalId } from "@/lib/utils";
 
@@ -40,12 +43,14 @@ export default function UserFormScreen() {
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [regionalManagers, setRegionalManagers] = useState<ManagerOption[]>([]);
   const [ceos, setCeos] = useState<ManagerOption[]>([]);
+  const [masterRegions, setMasterRegions] = useState<MasterRegionItem[]>([]);
+  const [selectedOperationLocations, setSelectedOperationLocations] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
 
   const [role, setRole] = useState<Role>("SALES_REP");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [operationLocationsInput, setOperationLocationsInput] = useState("");
   const [yearlyTarget, setYearlyTarget] = useState("");
   const [password, setPassword] = useState("");
   const [managerId, setManagerId] = useState("");
@@ -56,14 +61,16 @@ export default function UserFormScreen() {
 
   const load = useCallback(async () => {
     if (!token) return;
-    const [usersData, regionalData, ceosData] = await Promise.all([
+    const [usersData, regionalData, ceosData, masterRegionsData] = await Promise.all([
       listUsers(token),
       listRegionalManagers(token),
       listCeos(token),
+      listMasterRegions(token).catch(() => [] as MasterRegionItem[]),
     ]);
     setUsers(usersData);
     setRegionalManagers(regionalData);
     setCeos(ceosData);
+    setMasterRegions(masterRegionsData);
 
     if (id) {
       const existing = usersData.find((entry) => entry.id === id);
@@ -72,7 +79,7 @@ export default function UserFormScreen() {
         setFirstName(existing.firstName);
         setLastName(existing.lastName);
         setEmail(existing.email);
-        setOperationLocationsInput((existing.operationLocations ?? []).join(", "));
+        setSelectedOperationLocations(existing.operationLocations ?? []);
         setYearlyTarget(existing.yearlyTarget ? String(existing.yearlyTarget) : "");
         setRegionalManagerId(existing.regionalManagerId ?? "");
         setReportsToId(existing.reportsToId ?? "");
@@ -109,6 +116,54 @@ export default function UserFormScreen() {
     return managers.filter((manager) => manager.regionalManagerId === regionalManagerId);
   }, [managers, regionalManagerId]);
 
+  const activeMasterRegions = useMemo(
+    () => masterRegions.filter((entry) => entry.isActive),
+    [masterRegions],
+  );
+
+  const legacyOperationLocations = useMemo(
+    () =>
+      selectedOperationLocations.filter(
+        (entry) => !activeMasterRegions.some((region) => region.name === entry),
+      ),
+    [selectedOperationLocations, activeMasterRegions],
+  );
+
+  function toggleOperationLocation(regionName: string) {
+    setSelectedOperationLocations((current) =>
+      current.includes(regionName)
+        ? current.filter((entry) => entry !== regionName)
+        : [...current, regionName],
+    );
+  }
+
+  async function onDelete() {
+    if (!token || !id || id === user?.id) return;
+    Alert.alert(
+      "Delete user",
+      `Delete ${firstName} ${lastName}? This permanently removes their account.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () =>
+            void (async () => {
+              setDeleting(true);
+              try {
+                await deleteUser(token, id);
+                router.back();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to delete user.");
+              } finally {
+                setDeleting(false);
+              }
+            })(),
+        },
+      ],
+    );
+  }
+
   async function onSave() {
     if (!token) return;
     setSaving(true);
@@ -142,12 +197,11 @@ export default function UserFormScreen() {
         throw new Error("Password is required for new users.");
       }
 
-      const parsedOperationLocations = operationLocationsInput
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean);
+      const parsedOperationLocations = selectedOperationLocations.filter((entry) =>
+        activeMasterRegions.some((region) => region.name === entry),
+      );
       if (parsedOperationLocations.length === 0) {
-        throw new Error("At least one operation location is required.");
+        throw new Error("Select at least one operating region from Master Data.");
       }
 
       const payload = {
@@ -212,11 +266,28 @@ export default function UserFormScreen() {
         <Field label="First name" value={firstName} onChangeText={setFirstName} />
         <Field label="Last name" value={lastName} onChangeText={setLastName} />
         <Field label="Email" value={email} onChangeText={setEmail} />
-        <Field
-          label="Operation locations (comma separated)"
-          value={operationLocationsInput}
-          onChangeText={setOperationLocationsInput}
-        />
+
+        <Text style={styles.label}>Operating regions</Text>
+        {activeMasterRegions.length === 0 ? (
+          <Text style={styles.helper}>No active regions in Master Data yet.</Text>
+        ) : (
+          <View style={styles.chips}>
+            {activeMasterRegions.map((region) => (
+              <Chip
+                key={region.id}
+                label={region.name}
+                active={selectedOperationLocations.includes(region.name)}
+                onPress={() => toggleOperationLocation(region.name)}
+              />
+            ))}
+          </View>
+        )}
+        {legacyOperationLocations.length > 0 ? (
+          <Text style={styles.helper}>
+            Legacy locations kept: {legacyOperationLocations.join(", ")}
+          </Text>
+        ) : null}
+
         {role !== "ADMIN" ? (
           <Field label="Yearly target (AED)" value={yearlyTarget} onChangeText={setYearlyTarget} keyboardType="numeric" />
         ) : null}
@@ -295,7 +366,12 @@ export default function UserFormScreen() {
         ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Pressable style={styles.button} onPress={() => void onSave()} disabled={saving}>
+        {editing && id && id !== user?.id ? (
+          <Pressable style={styles.deleteButton} onPress={() => void onDelete()} disabled={deleting || saving}>
+            <Text style={styles.deleteButtonText}>{deleting ? "Deleting..." : "Delete user"}</Text>
+          </Pressable>
+        ) : null}
+        <Pressable style={styles.button} onPress={() => void onSave()} disabled={saving || deleting}>
           <Text style={styles.buttonText}>{saving ? "Saving..." : editing ? "Save changes" : "Create user"}</Text>
         </Pressable>
       </ScrollView>
@@ -362,6 +438,18 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   chipText: { fontSize: 12, color: colors.textMuted },
   chipTextActive: { color: "#fff", fontWeight: "600" },
+  helper: { marginTop: 6, fontSize: 12, color: colors.textMuted },
+  deleteButton: {
+    marginTop: 16,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  deleteButtonText: { color: colors.danger, fontWeight: "700" },
   button: {
     marginTop: 20,
     height: 48,
