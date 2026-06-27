@@ -78,6 +78,17 @@ export function formatNumberForInput(value: number, maxFractionDigits = 2): stri
   }).format(value);
 }
 
+export function uniqueCustomerNames(projects: Array<{ developer: string }>): string[] {
+  const seen = new Map<string, string>();
+  for (const project of projects) {
+    const trimmed = project.developer.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) seen.set(key, trimmed);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
 export function formatStage(stage: string) {
   if (stage === "Tender") return "Quotation";
   if (stage === "PO Expected") return "PO awaited";

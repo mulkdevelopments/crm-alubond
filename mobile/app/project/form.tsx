@@ -25,6 +25,7 @@ import {
 import {
   createProject,
   getProject,
+  listProjects,
   updateProject,
   type ApiProject,
   type ProjectUpsertPayload,
@@ -33,11 +34,18 @@ import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem
 import { useAuth, canManageProjects, canSetBusinessDivision } from "@/lib/auth/AuthContext";
 import { suggestCurrencyCode } from "@/lib/currency-defaults";
 import {
+  citiesForCountry,
+  countryOptions,
+  normalizeCountryName,
+  projectCitiesForCountry,
+} from "@/lib/locations";
+import {
   effectiveValueLocal,
   formatNumberForInput,
   normalizeOptionalId,
   parseFormattedNumber,
   sanitizeFormattedNumberInput,
+  uniqueCustomerNames,
 } from "@/lib/utils";
 import {
   SPEC_CORE_OPTIONS,
@@ -84,6 +92,8 @@ export default function ProjectFormScreen() {
   const [regionalManagerId, setRegionalManagerId] = useState("");
   const [managerId, setManagerId] = useState("");
   const [salesRepIds, setSalesRepIds] = useState<string[]>([]);
+  const [customerSuggestions, setCustomerSuggestions] = useState<string[]>([]);
+  const [knownProjects, setKnownProjects] = useState<ApiProject[]>([]);
 
   const loadPeople = useCallback(async () => {
     if (!token) return;
@@ -119,12 +129,15 @@ export default function ProjectFormScreen() {
         await loadPeople();
         if (token) {
           try {
-            const [currencyRows, regionRows] = await Promise.all([
+            const [currencyRows, regionRows, projects] = await Promise.all([
               listActiveCurrencies(token),
               listActiveRegionDefaults(token),
+              listProjects(token),
             ]);
             setCurrencies(currencyRows);
             setRegionDefaults(Object.fromEntries(regionRows.map((row) => [row.name, row.defaultCurrencyCode])));
+            setCustomerSuggestions(uniqueCustomerNames(projects));
+            setKnownProjects(projects);
           } catch {
             setCurrencies([{ code: "AED", name: "UAE Dirham", rateToAed: 1 }]);
           }
@@ -157,7 +170,7 @@ export default function ProjectFormScreen() {
   function fillFromProject(project: ApiProject) {
     setName(project.name);
     setCity(project.city);
-    setCountry(project.country);
+    setCountry(normalizeCountryName(project.country));
     setDeveloper(project.developer);
     setBusinessDivision(project.businessDivision ?? "");
     setSavedBusinessDivision(project.businessDivision);
@@ -174,6 +187,47 @@ export default function ProjectFormScreen() {
     setRegionalManagerId(project.regionalManagerId ?? "");
     setManagerId(project.managerId ?? "");
     setSalesRepIds(project.salesRepIds);
+  }
+
+  const filteredCustomerSuggestions = useMemo(() => {
+    const query = developer.trim().toLowerCase();
+    if (!query) return [];
+    return customerSuggestions.filter((name) => name.toLowerCase().includes(query)).slice(0, 8);
+  }, [customerSuggestions, developer]);
+
+  const countryOptionList = useMemo(() => countryOptions(country), [country]);
+  const filteredCountrySuggestions = useMemo(() => {
+    const query = country.trim().toLowerCase();
+    const matches = query
+      ? countryOptionList.filter((name) => name.toLowerCase().includes(query))
+      : countryOptionList;
+    return matches.slice(0, 8);
+  }, [country, countryOptionList]);
+
+  const cityOptionList = useMemo(
+    () =>
+      citiesForCountry(country, {
+        existingCity: city,
+        projectCities: projectCitiesForCountry(knownProjects, country),
+      }),
+    [country, city, knownProjects],
+  );
+  const filteredCitySuggestions = useMemo(() => {
+    if (!country.trim()) return [];
+    const query = city.trim().toLowerCase();
+    const matches = query
+      ? cityOptionList.filter((name) => name.toLowerCase().includes(query))
+      : cityOptionList;
+    return matches.slice(0, 8);
+  }, [country, city, cityOptionList]);
+
+  function handleCountryChange(nextCountry: string) {
+    const countryChanged = normalizeCountryName(country) !== normalizeCountryName(nextCountry);
+    setCountry(nextCountry);
+    if (countryChanged) setCity("");
+    if (!editing) {
+      setCurrencyCode(defaultCurrencyForCountry(normalizeCountryName(nextCountry) || nextCountry));
+    }
   }
 
   const managersUnderRegional = useMemo(() => {
@@ -247,7 +301,7 @@ export default function ProjectFormScreen() {
       const payload: ProjectUpsertPayload = {
         name: name.trim(),
         city: city.trim(),
-        country: country.trim(),
+        country: normalizeCountryName(country.trim()),
         developer: developer.trim(),
         businessDivision: (canSetDivision ? businessDivision || null : savedBusinessDivision) as ProjectUpsertPayload["businessDivision"],
         stage,
@@ -294,18 +348,50 @@ export default function ProjectFormScreen() {
       <Stack.Screen options={{ title: editing ? "Edit project" : "New project" }} />
       <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
         <Field label="Project name" value={name} onChangeText={setName} />
-        <Field label="City" value={city} onChangeText={setCity} />
+        <Field label="Country" value={country} onChangeText={handleCountryChange} />
+        {filteredCountrySuggestions.length > 0 ? (
+          <View style={styles.suggestions}>
+            {filteredCountrySuggestions.map((entry) => (
+              <Pressable
+                key={entry}
+                onPress={() => handleCountryChange(entry)}
+                style={styles.suggestionItem}
+              >
+                <Text style={styles.suggestionText}>{entry}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <Field
-          label="Country"
-          value={country}
-          onChangeText={(nextCountry) => {
-            setCountry(nextCountry);
-            if (!editing) {
-              setCurrencyCode(defaultCurrencyForCountry(nextCountry));
-            }
-          }}
+          label="City"
+          value={city}
+          onChangeText={setCity}
+          editable={Boolean(country.trim())}
+          placeholder={country.trim() ? "Select or search city" : "Select country first"}
         />
+        {filteredCitySuggestions.length > 0 ? (
+          <View style={styles.suggestions}>
+            {filteredCitySuggestions.map((entry) => (
+              <Pressable key={entry} onPress={() => setCity(entry)} style={styles.suggestionItem}>
+                <Text style={styles.suggestionText}>{entry}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <Field label="Customer" value={developer} onChangeText={setDeveloper} />
+        {filteredCustomerSuggestions.length > 0 ? (
+          <View style={styles.suggestions}>
+            {filteredCustomerSuggestions.map((customer) => (
+              <Pressable
+                key={customer}
+                onPress={() => setDeveloper(customer)}
+                style={styles.suggestionItem}
+              >
+                <Text style={styles.suggestionText}>{customer}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         <Field
           label="Total project value"
           value={value}
@@ -470,6 +556,8 @@ function Field({
   onBlur,
   keyboardType,
   compact,
+  editable = true,
+  placeholder,
 }: {
   label: string;
   value: string;
@@ -477,16 +565,21 @@ function Field({
   onBlur?: () => void;
   keyboardType?: "numeric" | "decimal-pad" | "default";
   compact?: boolean;
+  editable?: boolean;
+  placeholder?: string;
 }) {
   return (
     <View style={compact ? styles.compactField : undefined}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, !editable && styles.inputDisabled]}
         value={value}
         onChangeText={onChangeText}
         onBlur={onBlur}
         keyboardType={keyboardType}
+        editable={editable}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
       />
     </View>
   );
@@ -511,6 +604,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: colors.surface,
   },
+  inputDisabled: {
+    opacity: 0.5,
+  },
+  suggestions: {
+    marginTop: -4,
+    marginBottom: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+  },
+  suggestionItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  suggestionText: { fontSize: 14, color: colors.text },
   row: { flexDirection: "row", gap: 10 },
   compactField: { flex: 1 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

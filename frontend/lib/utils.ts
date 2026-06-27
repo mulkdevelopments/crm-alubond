@@ -92,6 +92,18 @@ export function formatNumberForInput(value: number, maxFractionDigits = 2): stri
   }).format(value);
 }
 
+/** Distinct customer names from existing projects, sorted for autocomplete. */
+export function uniqueCustomerNames(projects: Array<{ developer: string }>): string[] {
+  const seen = new Map<string, string>();
+  for (const project of projects) {
+    const trimmed = project.developer.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) seen.set(key, trimmed);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
 export function initials(name: string) {
   return name
     .split(' ')

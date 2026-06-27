@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, MapPin } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
@@ -17,7 +17,7 @@ import {
   updateProject as updateProjectApi,
   type ApiProject,
 } from '@/lib/projects-api';
-import { cn, formatAED, formatNumber, formatNumberForInput, formatProjectValue, parseFormattedNumber } from '@/lib/utils';
+import { cn, formatAED, formatNumber, formatNumberForInput, formatProjectValue, parseFormattedNumber, uniqueCustomerNames } from '@/lib/utils';
 import { suggestCurrencyCode } from '@/lib/currency-defaults';
 import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem } from '@/lib/master-data-api';
 import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
@@ -27,6 +27,12 @@ import {
   formatSpecsSummary,
 } from '@/lib/project-specs';
 import { canSetBusinessDivision } from '@/lib/permissions';
+import {
+  citiesForCountry,
+  countryOptions,
+  normalizeCountryName,
+  projectCitiesForCountry,
+} from '@/lib/locations';
 
 type ProjectAssignment = {
   regionalManagerId: string | null;
@@ -94,32 +100,8 @@ type PipelineProject = {
 const PIPELINE_STAGES: Stage[] = [...STAGES, 'Lost', 'Won'];
 const PIPELINE_VISIBLE_STAGES: Stage[] = PIPELINE_STAGES.filter((stage) => stage !== 'Approved');
 const BUSINESS_DIVISIONS = ['alubond architecture', 'alubond transport', 'uniqube'] as const;
-const COUNTRIES = [
-  'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina', 'Armenia',
-  'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium',
-  'Belize', 'Benin', 'Bhutan', 'Bolivia', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei', 'Bulgaria',
-  'Burkina Faso', 'Burundi', 'Cabo Verde', 'Cambodia', 'Cameroon', 'Canada', 'Central African Republic', 'Chad',
-  'Chile', 'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', "Cote d'Ivoire", 'Croatia', 'Cuba', 'Cyprus',
-  'Czech Republic', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'DR Congo', 'Ecuador', 'Egypt',
-  'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France',
-  'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala', 'Guinea',
-  'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq',
-  'Ireland', 'Israel', 'Italy', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kiribati',
-  'Kuwait', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein',
-  'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta',
-  'Marshall Islands', 'Mauritania', 'Mauritius', 'Mexico', 'Micronesia', 'Moldova', 'Monaco', 'Mongolia',
-  'Montenegro', 'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru', 'Nepal', 'Netherlands',
-  'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway', 'Oman',
-  'Pakistan', 'Palau', 'Palestine', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland',
-  'Portugal', 'Qatar', 'Romania', 'Russia', 'Rwanda', 'Saint Kitts and Nevis', 'Saint Lucia',
-  'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe', 'Saudi Arabia',
-  'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia',
-  'Solomon Islands', 'Somalia', 'South Africa', 'South Korea', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan',
-  'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Taiwan', 'Tajikistan', 'Tanzania', 'Thailand', 'Timor-Leste',
-  'Togo', 'Tonga', 'Trinidad and Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Tuvalu', 'Uganda', 'Ukraine',
-  'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan', 'Vanuatu',
-  'Vatican City', 'Venezuela', 'Vietnam', 'Yemen', 'Zambia', 'Zimbabwe',
-] as const;
+const FORM_FIELD_CLASS =
+  'h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full';
 
 const EMPTY_FORM: ProjectFormState = {
   name: '',
@@ -244,6 +226,17 @@ export default function PipelinePage() {
     }
     return true;
   });
+
+  const customerSuggestions = useMemo(() => uniqueCustomerNames(items), [items]);
+  const countryOptionList = useMemo(() => countryOptions(form.country), [form.country]);
+  const citySuggestions = useMemo(
+    () =>
+      citiesForCountry(form.country, {
+        existingCity: form.city,
+        projectCities: projectCitiesForCountry(items, form.country),
+      }),
+    [form.country, form.city, items],
+  );
 
   function totalFor(stage: Stage, projects = items) {
     return projects.filter((p) => p.stage === stage).reduce((a, b) => a + b.value, 0);
@@ -683,6 +676,22 @@ function buildProjectAssignmentPayload(
   };
 }
 
+  function handleCountryChange(nextCountry: string) {
+    const countryChanged = normalizeCountryName(form.country) !== normalizeCountryName(nextCountry);
+    if (countryChanged) setLocationQuery('');
+    setForm((prev) => ({
+      ...prev,
+      country: nextCountry,
+      city: countryChanged ? '' : prev.city,
+      currencyCode: defaultCurrencyForForm(normalizeCountryName(nextCountry) || nextCountry),
+    }));
+  }
+
+  function handleCityChange(nextCity: string) {
+    setForm((prev) => ({ ...prev, city: nextCity }));
+    setLocationQuery(nextCity);
+  }
+
   function openCreateForm() {
     if (!canCreateProject) return;
     setEditingId(null);
@@ -708,7 +717,7 @@ function buildProjectAssignmentPayload(
     setForm({
       name: project.name,
       city: project.city,
-      country: project.country,
+      country: normalizeCountryName(project.country),
       developer: project.developer,
       businessDivision: project.businessDivision ?? '',
       value: formatNumberForInput(project.valueLocal > 0 ? project.valueLocal : project.valueAed),
@@ -842,7 +851,7 @@ function buildProjectAssignmentPayload(
 
     const name = form.name.trim();
     const city = form.city.trim();
-    const country = form.country.trim();
+    const country = normalizeCountryName(form.country.trim());
     const developer = form.developer.trim();
     const value = parseFormattedNumber(form.value);
     const itemQuantity = parseFormattedNumber(form.itemQuantity);
@@ -879,8 +888,8 @@ function buildProjectAssignmentPayload(
       user?.managerId,
     );
 
-    if (!name || !city) {
-      setFormError('Fill project name and city.');
+    if (!name || !city || !country) {
+      setFormError('Fill project name, country, and city.');
       return;
     }
     if (requiresCommercialDetails(form.stage)) {
@@ -1377,21 +1386,56 @@ function buildProjectAssignmentPayload(
                   onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                   placeholder="Project name"
                   required
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  className={FORM_FIELD_CLASS}
                 />
                 <input
-                  value={form.city}
-                  onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
-                  placeholder="City"
+                  list="project-country-options"
+                  value={form.country}
+                  onChange={(e) => handleCountryChange(e.target.value)}
+                  onBlur={(e) => {
+                    const normalized = normalizeCountryName(e.target.value);
+                    if (normalized && normalized !== e.target.value) {
+                      handleCountryChange(normalized);
+                    }
+                  }}
+                  placeholder="Select country"
                   required
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  autoComplete="off"
+                  className={FORM_FIELD_CLASS}
                 />
+                <datalist id="project-country-options">
+                  {countryOptionList.map((country) => (
+                    <option key={country} value={country} />
+                  ))}
+                </datalist>
                 <input
+                  list="project-city-options"
+                  value={form.city}
+                  onChange={(e) => handleCityChange(e.target.value)}
+                  placeholder={form.country.trim() ? 'Select or search city' : 'Select country first'}
+                  required
+                  disabled={!form.country.trim()}
+                  autoComplete="off"
+                  className={`${FORM_FIELD_CLASS} disabled:opacity-50 disabled:cursor-not-allowed`}
+                />
+                <datalist id="project-city-options">
+                  {citySuggestions.map((city) => (
+                    <option key={city} value={city} />
+                  ))}
+                </datalist>
+                <input
+                  list="project-customer-options"
                   value={form.developer}
                   onChange={(e) => setForm((prev) => ({ ...prev, developer: e.target.value }))}
                   placeholder="Customer"
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  autoComplete="off"
+                  className={FORM_FIELD_CLASS}
                 />
+                <datalist id="project-customer-options">
+                  {customerSuggestions.map((customer) => (
+                    <option key={customer} value={customer} />
+                  ))}
+                </datalist>
                 {canSetDivision ? (
                   <select
                     value={form.businessDivision}
@@ -1411,24 +1455,6 @@ function buildProjectAssignmentPayload(
                     ))}
                   </select>
                 ) : null}
-                <input
-                  list="project-country-options"
-                  value={form.country}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      country: e.target.value,
-                      currencyCode: defaultCurrencyForForm(e.target.value),
-                    }))
-                  }
-                  placeholder="Select or search country"
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-                />
-                <datalist id="project-country-options">
-                  {COUNTRIES.map((country) => (
-                    <option key={country} value={country} />
-                  ))}
-                </datalist>
                 <select
                   value={form.stage}
                   onChange={(e) => setForm((prev) => ({ ...prev, stage: e.target.value as Stage }))}
