@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, MapPin } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
@@ -127,6 +128,8 @@ const EMPTY_FORM: ProjectFormState = {
 
 export default function PipelinePage() {
   const { user, token } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<PipelineProject[]>([]);
   const [dragging, setDragging] = useState<string | null>(null);
   const [mobileStage, setMobileStage] = useState<Stage>('Lead Identified');
@@ -706,6 +709,13 @@ function buildProjectAssignmentPayload(
     });
     setIsFormOpen(true);
   }
+
+  useEffect(() => {
+    if (searchParams.get('createProject') !== '1' || !user) return;
+    openCreateForm();
+    router.replace('/pipeline');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, user]);
 
   function openEditForm(project: PipelineProject) {
     if (!canCreateProject) return;

@@ -97,12 +97,14 @@ authRouter.post("/forgot-password", async (req, res) => {
 
   const baseUrl = env.APP_BASE_URL || env.FRONTEND_ORIGIN;
   const resetUrl = `${baseUrl.replace(/\/$/, "")}/reset-password?token=${token}`;
+  const appResetUrl = `alubond-crm://reset-password?token=${token}`;
 
   try {
     await sendPasswordResetEmail({
       email: user.email,
       firstName: user.firstName,
       resetUrl,
+      appResetUrl,
     });
   } catch (error) {
     console.error("[auth] Failed to send password reset email:", error);

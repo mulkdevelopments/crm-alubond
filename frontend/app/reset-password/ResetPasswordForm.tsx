@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { AuthShell } from "@/components/auth/AuthShell";
 import { resetPasswordWithToken } from "@/lib/auth-api";
+import { isMobileUserAgent, mobileResetPasswordUrl } from "@/lib/mobile-app";
 
 export default function ResetPasswordForm() {
   const searchParams = useSearchParams();
@@ -15,6 +16,29 @@ export default function ResetPasswordForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [openingApp, setOpeningApp] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    const mobile = isMobileUserAgent(window.navigator.userAgent);
+    setIsMobile(mobile);
+    if (!mobile) return;
+
+    setOpeningApp(true);
+    window.location.href = mobileResetPasswordUrl(token);
+
+    const timer = window.setTimeout(() => {
+      setOpeningApp(false);
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, [token]);
+
+  function openInApp() {
+    if (!token) return;
+    window.location.href = mobileResetPasswordUrl(token);
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,6 +71,26 @@ export default function ResetPasswordForm() {
 
   return (
     <AuthShell title="Reset password" subtitle="Choose a new password for your CRM account.">
+      {isMobile && token ? (
+        <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm">
+          <p className="font-medium text-[var(--text)]">
+            {openingApp ? "Opening Alubond CRM app..." : "Reset your password in the app"}
+          </p>
+          <p className="mt-1 text-3">
+            {openingApp
+              ? "If nothing happens, tap the button below."
+              : "Use the app for the best experience on your phone."}
+          </p>
+          <button
+            type="button"
+            onClick={openInApp}
+            className="mt-4 w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+          >
+            Open in Alubond CRM
+          </button>
+        </div>
+      ) : null}
+
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
           <label htmlFor="password" className="text-sm font-medium">

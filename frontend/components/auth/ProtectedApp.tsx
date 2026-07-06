@@ -68,7 +68,7 @@ function readStoredTelemetry() {
   }
 }
 
-const PUBLIC_AUTH_PATHS = ["/login", "/forgot-password", "/reset-password", "/request-access"];
+const PUBLIC_AUTH_PATHS = ["/login", "/forgot-password", "/reset-password", "/request-access", "/privacy"];
 
 function isPublicAuthPath(pathname: string) {
   return PUBLIC_AUTH_PATHS.includes(pathname);

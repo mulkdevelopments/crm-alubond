@@ -1,118 +1,604 @@
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { ChevronDown, Plus, Search } from "lucide-react-native";
 
-import { ProjectCard } from "@/components/ProjectCard";
+import { OptionSheet } from "@/components/pipeline/OptionSheet";
+import {
+  CommercialStagePrompt,
+  createCommercialPromptState,
+  validateCommercialPrompt,
+  type CommercialPromptState,
+} from "@/components/pipeline/CommercialStagePrompt";
+import { PipelineProjectCard } from "@/components/pipeline/PipelineProjectCard";
 import { EmptyState, ScreenLoader } from "@/components/ScreenLoader";
-import { colors } from "@/constants/theme";
-import { deleteProject, listProjects, type ApiProject } from "@/lib/api/projects-api";
-import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
+import { ThemeColors, useThemeColors } from "@/constants/theme";
+import { listActiveCurrencies, type ActiveCurrencyItem } from "@/lib/api/master-data-api";
+import {
+  BUSINESS_DIVISIONS,
+  normalizePipelineStage,
+  PIPELINE_VISIBLE_STAGES,
+  stageDotColor,
+  stageTitle,
+  type Stage,
+} from "@/lib/constants/stages";
+import {
+  deleteProject,
+  listProjects,
+  updateProject,
+  type ApiProject,
+} from "@/lib/api/projects-api";
+import { useAuth, canManageProjects, canSetBusinessDivision } from "@/lib/auth/AuthContext";
+import {
+  commercialSpecsComplete,
+  formatProjectSpecs,
+  requiresCommercialDetails,
+} from "@/lib/project-specs";
+import { effectiveValueLocal, formatAed, parseFormattedNumber } from "@/lib/utils";
+
+type DivisionFilter = "ALL" | "UNASSIGNED" | (typeof BUSINESS_DIVISIONS)[number];
+
+function matchesProjectQuery(project: ApiProject, query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return (
+    project.name.toLowerCase().includes(normalized) ||
+    project.city.toLowerCase().includes(normalized) ||
+    project.developer.toLowerCase().includes(normalized)
+  );
+}
+
+function matchesBusinessDivisionFilter(project: ApiProject, filter: DivisionFilter) {
+  if (filter === "ALL") return true;
+  if (filter === "UNASSIGNED") return !project.businessDivision?.trim();
+  return project.businessDivision === filter;
+}
+
+function normalizeProjects(projects: ApiProject[]) {
+  return projects.map((project) => ({
+    ...project,
+    stage: normalizePipelineStage(project.stage),
+  }));
+}
 
 export default function PipelineScreen() {
-  const { token, user } = useAuth();
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
+  const { token, user } = useAuth();
+
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const canManage = canManageProjects(user?.role);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [mobileStage, setMobileStage] = useState<Stage>("Lead Identified");
+  const [divisionFilter, setDivisionFilter] = useState<DivisionFilter>("ALL");
+  const [divisionSheetOpen, setDivisionSheetOpen] = useState(false);
+  const [stageMoveProject, setStageMoveProject] = useState<ApiProject | null>(null);
+  const [commercialPrompt, setCommercialPrompt] = useState<{
+    project: ApiProject;
+    prompt: CommercialPromptState;
+  } | null>(null);
+  const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
+
+  const canCreate = canManageProjects(user?.role);
+  const canSetDivision = canSetBusinessDivision(user);
   const isAdmin = user?.role === "ADMIN";
 
   const load = useCallback(async () => {
     if (!token) return;
-    setProjects(await listProjects(token));
+    setError(null);
+    const items = await listProjects(token);
+    setProjects(normalizeProjects(items));
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    void listActiveCurrencies(token)
+      .then(setCurrencies)
+      .catch(() => setCurrencies([{ code: "AED", name: "UAE Dirham", rateToAed: 1 }]));
   }, [token]);
 
   useEffect(() => {
     void (async () => {
       setLoading(true);
-      try { await load(); } finally { setLoading(false); }
+      try {
+        await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load projects.");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [load]);
 
-  async function onDelete(project: ApiProject) {
+  const visibleProjects = useMemo(() => {
+    return projects.filter((project) =>
+      canSetDivision ? matchesBusinessDivisionFilter(project, divisionFilter) : true,
+    );
+  }, [projects, canSetDivision, divisionFilter]);
+
+  const stageItems = useMemo(() => {
+    return visibleProjects
+      .filter((project) => project.stage === mobileStage)
+      .filter((project) => matchesProjectQuery(project, query));
+  }, [visibleProjects, mobileStage, query]);
+
+  const stageTotal = useMemo(() => {
+    return visibleProjects
+      .filter((project) => project.stage === mobileStage)
+      .reduce((sum, project) => sum + project.valueAed, 0);
+  }, [visibleProjects, mobileStage]);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh pipeline.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function onDelete(project: ApiProject) {
     if (!token || !isAdmin) return;
     Alert.alert(
       "Delete project",
-      `Delete "${project.name}"? This cannot be undone.`,
+      `Delete "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => void (async () => {
-            await deleteProject(token, project.id);
-            await load();
-          })(),
+          onPress: () =>
+            void (async () => {
+              try {
+                await deleteProject(token, project.id);
+                await load();
+              } catch (err) {
+                Alert.alert("Delete failed", err instanceof Error ? err.message : "Please try again.");
+              }
+            })(),
         },
-      ]
+      ],
     );
   }
+
+  async function persistStageChange(
+    project: ApiProject,
+    nextStage: Stage,
+    commercial: {
+      value: number;
+      currencyCode: string;
+      itemQuantity: number;
+      specThickness: string;
+      specCore: string;
+      specPaintType: string;
+    },
+  ) {
+    if (!token) return;
+
+    const nextDaysInStage = project.stage === nextStage ? project.daysInStage : 1;
+    const itemName = commercialSpecsComplete(
+      commercial.specThickness,
+      commercial.specCore,
+      commercial.specPaintType,
+    )
+      ? formatProjectSpecs(commercial.specThickness, commercial.specCore, commercial.specPaintType)
+      : project.itemName;
+
+    setProjects((current) =>
+      current.map((entry) =>
+        entry.id === project.id
+          ? {
+              ...entry,
+              stage: nextStage,
+              daysInStage: nextDaysInStage,
+              valueLocal: commercial.value,
+              currencyCode: commercial.currencyCode,
+              itemQuantity: commercial.itemQuantity,
+              specThickness: commercial.specThickness,
+              specCore: commercial.specCore,
+              specPaintType: commercial.specPaintType,
+              itemName,
+            }
+          : entry,
+      ),
+    );
+
+    await updateProject(token, project.id, {
+      name: project.name,
+      city: project.city,
+      country: project.country,
+      developer: project.developer,
+      businessDivision: project.businessDivision,
+      stage: nextStage,
+      valueLocal: commercial.value,
+      currencyCode: commercial.currencyCode,
+      itemName,
+      itemQuantity: commercial.itemQuantity,
+      specThickness: commercial.specThickness,
+      specCore: commercial.specCore,
+      specPaintType: commercial.specPaintType,
+      lat: project.lat,
+      lng: project.lng,
+      probability: project.probability,
+      daysInStage: nextDaysInStage,
+      competitor: project.competitor,
+      regionalManagerId: project.regionalManagerId,
+      managerId: project.managerId,
+      salesRepIds: project.salesRepIds,
+    });
+  }
+
+  function requestStageChange(project: ApiProject, nextStage: Stage) {
+    if (project.stage === nextStage) return;
+
+    if (requiresCommercialDetails(nextStage)) {
+      setCommercialPrompt({
+        project,
+        prompt: createCommercialPromptState(nextStage, project),
+      });
+      return;
+    }
+
+    void persistStageChange(project, nextStage, {
+      value: effectiveValueLocal(project),
+      currencyCode: project.currencyCode || "AED",
+      itemQuantity: project.itemQuantity,
+      specThickness: project.specThickness,
+      specCore: project.specCore,
+      specPaintType: project.specPaintType,
+    }).catch((err) => {
+      void load();
+      Alert.alert("Stage update failed", err instanceof Error ? err.message : "Please try again.");
+    });
+  }
+
+  async function submitCommercialPrompt() {
+    if (!commercialPrompt) return;
+
+    const validationError = validateCommercialPrompt(commercialPrompt.prompt);
+    if (validationError) {
+      setCommercialPrompt({
+        ...commercialPrompt,
+        prompt: { ...commercialPrompt.prompt, error: validationError },
+      });
+      return;
+    }
+
+    setCommercialPrompt({
+      ...commercialPrompt,
+      prompt: { ...commercialPrompt.prompt, error: null, saving: true },
+    });
+
+    try {
+      await persistStageChange(commercialPrompt.project, commercialPrompt.prompt.targetStage, {
+        value: parseFormattedNumber(commercialPrompt.prompt.value),
+        currencyCode: commercialPrompt.prompt.currencyCode,
+        itemQuantity: parseFormattedNumber(commercialPrompt.prompt.itemQuantity),
+        specThickness: commercialPrompt.prompt.specThickness,
+        specCore: commercialPrompt.prompt.specCore,
+        specPaintType: commercialPrompt.prompt.specPaintType,
+      });
+      setCommercialPrompt(null);
+    } catch {
+      setCommercialPrompt({
+        ...commercialPrompt,
+        prompt: {
+          ...commercialPrompt.prompt,
+          saving: false,
+          error: "Failed to update stage. Please retry.",
+        },
+      });
+    }
+  }
+
+  const divisionOptions = useMemo(
+    () => [
+      { value: "ALL", label: "All divisions" },
+      { value: "UNASSIGNED", label: "Unassigned" },
+      ...BUSINESS_DIVISIONS.map((division) => ({ value: division, label: division })),
+    ],
+    [],
+  );
+
+  const stageMoveOptions = useMemo(
+    () => PIPELINE_VISIBLE_STAGES.map((stage) => ({ value: stage, label: stageTitle(stage) })),
+    [],
+  );
 
   if (loading) return <ScreenLoader label="Loading pipeline..." />;
 
   return (
-    <FlatList
-      style={styles.container}
-      contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-      data={projects}
-      keyExtractor={(item) => item.id}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => void (async () => {
-          setRefreshing(true);
-          try { await load(); } finally { setRefreshing(false); }
-        })()} />
-      }
-      ListEmptyComponent={<EmptyState title="No projects" subtitle="Your assigned projects will show here." />}
-      renderItem={({ item }) => (
-        <ProjectCard
-          project={item}
-          onPress={() => router.push(`/project/${item.id}`)}
-          trailing={
-            <View style={styles.actions}>
-              <Pressable onPress={() => router.push(`/project/${item.id}`)} style={styles.iconBtn}>
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-              </Pressable>
-              {isAdmin ? (
-                <Pressable onPress={() => void onDelete(item)} style={styles.iconBtn}>
-                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                </Pressable>
-              ) : null}
-            </View>
-          }
-        />
-      )}
-      ListHeaderComponent={
-        <View style={styles.header}>
-          {canManage ? (
-            <>
-              <Text style={styles.hint}>Tap a project to view details and log field activity.</Text>
-              <Pressable style={styles.createButton} onPress={() => router.push("/project/form")}>
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={styles.createButtonText}>New project</Text>
-              </Pressable>
-            </>
+    <View style={[styles.screen, { backgroundColor: colors.bg }]}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.toolbar}>
+          <View style={[styles.searchWrap, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
+            <Search size={16} color={colors.text3} strokeWidth={2.2} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search in this stage..."
+              placeholderTextColor={colors.text3}
+              style={[styles.searchInput, { color: colors.text }]}
+            />
+          </View>
+          {canCreate ? (
+            <Pressable
+              style={[styles.addButton, { backgroundColor: colors.brand }]}
+              onPress={() => router.push("/project/form")}
+            >
+              <Plus size={16} color="#fff" strokeWidth={2.4} />
+              <Text style={styles.addButtonText}>Add</Text>
+            </Pressable>
           ) : null}
         </View>
-      }
-    />
+
+        {canSetDivision ? (
+          <Pressable
+            style={[styles.divisionSelect, { backgroundColor: colors.surface2, borderColor: colors.border }]}
+            onPress={() => setDivisionSheetOpen(true)}
+          >
+            <Text style={[styles.divisionSelectText, { color: colors.text }]}>
+              {divisionOptions.find((option) => option.value === divisionFilter)?.label ?? "All divisions"}
+            </Text>
+            <ChevronDown size={16} color={colors.text3} strokeWidth={2.2} />
+          </Pressable>
+        ) : null}
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.stageRow}
+          style={styles.stageScroll}
+        >
+          {PIPELINE_VISIBLE_STAGES.map((stage) => {
+            const count = visibleProjects.filter((project) => project.stage === stage).length;
+            const active = mobileStage === stage;
+            return (
+              <Pressable
+                key={stage}
+                style={[
+                  styles.stagePill,
+                  {
+                    backgroundColor: active ? colors.brand : colors.surface,
+                    borderColor: active ? colors.brand : colors.border,
+                  },
+                ]}
+                onPress={() => setMobileStage(stage)}
+              >
+                <View
+                  style={[
+                    styles.stageDot,
+                    { backgroundColor: active ? "#fff" : stageDotColor(stage) },
+                  ]}
+                />
+                <Text style={[styles.stagePillText, { color: active ? "#fff" : colors.text2 }]}>
+                  {stageTitle(stage)}
+                </Text>
+                <Text style={[styles.stageCount, { color: active ? "rgba(255,255,255,0.9)" : colors.text3 }]}>
+                  {count}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={[styles.stageValueCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.stageValueLabel, { color: colors.text3 }]}>Stage value</Text>
+          <Text style={[styles.stageValueAmount, { color: colors.text }]}>{formatAed(stageTotal, true)}</Text>
+        </View>
+
+        {error ? (
+          <View style={[styles.errorBanner, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+            <Text style={{ color: colors.danger, fontSize: 13 }}>{error}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.list}>
+          {stageItems.map((project) => (
+            <PipelineProjectCard
+              key={project.id}
+              project={project}
+              viewerRole={user?.role}
+              canEdit={canCreate}
+              isAdmin={isAdmin}
+              onPress={() => router.push(`/project/${project.id}`)}
+              onEdit={() => router.push(`/project/form?id=${project.id}`)}
+              onDelete={() => onDelete(project)}
+              onMoveStagePress={() => setStageMoveProject(project)}
+            />
+          ))}
+
+          {stageItems.length === 0 ? (
+            <View style={[styles.emptyStage, { borderColor: colors.border }]}>
+              <Text style={[styles.emptyStageText, { color: colors.text3 }]}>
+                No projects in {stageTitle(mobileStage)}.
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {!error && projects.length === 0 ? (
+          <EmptyState title="No projects yet" subtitle="Create your first project to start building pipeline." />
+        ) : null}
+      </ScrollView>
+
+      <OptionSheet
+        visible={divisionSheetOpen}
+        title="Filter by business division"
+        options={divisionOptions}
+        selectedValue={divisionFilter}
+        onSelect={(value) => setDivisionFilter(value as DivisionFilter)}
+        onClose={() => setDivisionSheetOpen(false)}
+      />
+
+      <OptionSheet
+        visible={Boolean(stageMoveProject)}
+        title={stageMoveProject ? `Move ${stageMoveProject.name}` : "Move stage"}
+        options={stageMoveOptions}
+        selectedValue={stageMoveProject?.stage}
+        onSelect={(value) => {
+          if (!stageMoveProject) return;
+          const project = stageMoveProject;
+          setStageMoveProject(null);
+          requestStageChange(project, value as Stage);
+        }}
+        onClose={() => setStageMoveProject(null)}
+      />
+
+      <CommercialStagePrompt
+        visible={Boolean(commercialPrompt)}
+        prompt={commercialPrompt?.prompt ?? null}
+        currencies={currencies}
+        onChange={(prompt) => {
+          if (commercialPrompt) {
+            setCommercialPrompt({ ...commercialPrompt, prompt });
+          }
+        }}
+        onClose={() => {
+          if (commercialPrompt?.prompt.saving) return;
+          setCommercialPrompt(null);
+        }}
+        onSubmit={() => void submitCommercialPrompt()}
+      />
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { marginBottom: 12 },
-  hint: { marginBottom: 12, color: colors.textMuted, fontSize: 13 },
-  createButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: colors.brand,
-  },
-  createButtonText: { color: "#fff", fontWeight: "700" },
-  actions: { flexDirection: "row", gap: 4 },
-  iconBtn: { padding: 6 },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+    },
+    content: {
+      paddingHorizontal: 16,
+      paddingTop: 24,
+      paddingBottom: 120,
+      gap: 12,
+    },
+    toolbar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    searchWrap: {
+      flex: 1,
+      height: 40,
+      borderRadius: 12,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 14,
+      paddingVertical: 0,
+    },
+    addButton: {
+      height: 40,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    addButtonText: {
+      color: "#fff",
+      fontSize: 14,
+      fontWeight: "700",
+    },
+    divisionSelect: {
+      height: 40,
+      borderRadius: 12,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    divisionSelectText: {
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    stageScroll: {
+      marginHorizontal: -16,
+    },
+    stageRow: {
+      paddingHorizontal: 16,
+      gap: 8,
+    },
+    stagePill: {
+      height: 32,
+      borderRadius: 999,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    stageDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 999,
+    },
+    stagePillText: {
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    stageCount: {
+      fontSize: 10,
+      fontWeight: "700",
+    },
+    stageValueCard: {
+      borderRadius: 16,
+      borderWidth: 1,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    stageValueLabel: {
+      fontSize: 11,
+    },
+    stageValueAmount: {
+      marginTop: 2,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+    errorBanner: {
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+    },
+    list: {
+      gap: 8,
+    },
+    emptyStage: {
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderRadius: 12,
+      paddingVertical: 32,
+      alignItems: "center",
+    },
+    emptyStageText: {
+      fontSize: 12,
+    },
+  });
+}

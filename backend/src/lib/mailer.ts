@@ -7,6 +7,7 @@ type EmailAttachment = {
   filename: string;
   content: string | Buffer;
   contentType?: string;
+  contentId?: string;
 };
 
 let resendClient: Resend | null | undefined;
@@ -71,6 +72,8 @@ async function sendViaSmtp(input: {
       filename: attachment.filename,
       content: attachment.content,
       contentType: attachment.contentType,
+      cid: attachment.contentId,
+      contentDisposition: attachment.contentId ? "inline" : undefined,
     })),
   });
 }
@@ -100,6 +103,7 @@ async function sendViaResend(input: {
           ? attachment.content
           : attachment.content.toString("base64"),
       contentType: attachment.contentType,
+      contentId: attachment.contentId,
     })),
   });
 

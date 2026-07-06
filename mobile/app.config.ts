@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Alubond CRM",
   slug: "alubond-crm",
-  version: "1.0.0",
+  version: "1.0.1",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: "alubond-crm",
@@ -11,13 +11,35 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.alubond.crm",
+    // Universal links require Associated Domains on the Apple provisioning profile.
+    // Re-enable after running: eas credentials:configure-build -p ios -e production
+    // associatedDomains: ["applinks:crm.alubond.com"],
     infoPlist: {
       NSLocationWhenInUseUsageDescription:
         "Alubond CRM uses your location when logging site visits and showing projects on the map.",
+      NSPhotoLibraryUsageDescription:
+        "Alubond CRM needs photo access to attach images to project activities.",
+      NSCameraUsageDescription:
+        "Alubond CRM needs camera access to capture photos for project activities.",
+      ITSAppUsesNonExemptEncryption: false,
     },
   },
   android: {
     package: "com.alubond.crm",
+    intentFilters: [
+      {
+        action: "VIEW",
+        autoVerify: true,
+        data: [
+          {
+            scheme: "https",
+            host: "crm.alubond.com",
+            pathPrefix: "/reset-password",
+          },
+        ],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+    ],
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
       foregroundImage: "./assets/images/android-icon-foreground.png",

@@ -31,7 +31,14 @@ const ROLES: Role[] = ["SALES_REP", "MANAGER", "REGIONAL_MANAGER", "CEO", "ADMIN
 const DIRECT_REGIONAL = "__direct__";
 
 export default function UserFormScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, firstName: prefillFirstName, lastName: prefillLastName, email: prefillEmail } =
+    useLocalSearchParams<{
+      id?: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      accessRequestId?: string;
+    }>();
   const router = useRouter();
   const { token, user } = useAuth();
   const editing = Boolean(id);
@@ -89,8 +96,12 @@ export default function UserFormScreen() {
           setManagerId(existing.managerId ? existing.managerId : DIRECT_REGIONAL);
         }
       }
+    } else if (prefillFirstName || prefillLastName || prefillEmail) {
+      setFirstName(prefillFirstName ?? "");
+      setLastName(prefillLastName ?? "");
+      setEmail(prefillEmail ?? "");
     }
-  }, [id, token]);
+  }, [id, prefillEmail, prefillFirstName, prefillLastName, token]);
 
   useEffect(() => {
     if (!isAdmin) {

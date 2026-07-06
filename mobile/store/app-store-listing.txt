@@ -1,0 +1,34 @@
+APP NAME
+Alubond CRM
+
+SUBTITLE (30 chars max)
+Sales pipeline for Alubond
+
+PRIVACY POLICY URL
+https://crm.alubond.com/privacy
+
+SUPPORT URL
+https://crm.alubond.com
+
+CATEGORY
+Business
+
+KEYWORDS
+CRM,sales,pipeline,projects,construction,Alubond,follow-ups
+
+DESCRIPTION
+Alubond CRM helps the Alubond sales team manage construction project pipeline, follow-ups, team progress, and site visits from iPhone and iPad.
+
+• View and update project pipeline stages
+• Track project value, location, and commercial details
+• Log activities, site visits, and follow-ups
+• See team assignments and project map
+• Role-based access for reps, managers, and admins
+
+Alubond CRM is for authorized Alubond team members only.
+
+PROMOTIONAL TEXT (optional)
+Manage your sales pipeline and project follow-ups on the go.
+
+REVIEW NOTES FOR APPLE
+Internal sales CRM for Alubond employees. Use the demo credentials provided to log in and view the pipeline, projects, and team pages.

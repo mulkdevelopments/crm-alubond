@@ -1,7 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -31,6 +31,7 @@ import {
 import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
 import { formatProjectValue, formatStage } from "@/lib/utils";
 import { formatSpecsSummary } from "@/lib/project-specs";
+import { subscribeActivityComposer } from "@/lib/shell/activity-composer";
 
 const ACTIVITY_TYPES: ProjectActivity["type"][] = ["note", "call", "visit", "email", "whatsapp"];
 
@@ -44,9 +45,12 @@ const STAKEHOLDER_ROLES: ProjectStakeholder["role"][] = [
 ];
 
 export default function ProjectDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, composeActivity } = useLocalSearchParams<{ id: string; composeActivity?: string }>();
   const router = useRouter();
   const { token, user } = useAuth();
+  const scrollRef = useRef<ScrollView>(null);
+  const messageRef = useRef<TextInput>(null);
+  const activitySectionY = useRef(0);
   const canManage = canManageProjects(user?.role);
   const isAdmin = user?.role === "ADMIN";
   const [project, setProject] = useState<ApiProject | null>(null);
@@ -80,6 +84,24 @@ export default function ProjectDetailScreen() {
       try { await load(); } finally { setLoading(false); }
     })();
   }, [load]);
+
+  function focusActivityComposer() {
+    scrollRef.current?.scrollTo({ y: Math.max(activitySectionY.current - 12, 0), animated: true });
+    messageRef.current?.focus();
+  }
+
+  useEffect(() => {
+    return subscribeActivityComposer(focusActivityComposer);
+  }, []);
+
+  useEffect(() => {
+    if (composeActivity !== "1" || loading || !project) return;
+    const timer = setTimeout(() => {
+      focusActivityComposer();
+      router.setParams({ composeActivity: "" });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [composeActivity, loading, project, router]);
 
   async function onLogActivity() {
     if (!token || !id || !message.trim()) {
@@ -219,7 +241,12 @@ export default function ProjectDetailScreen() {
           ),
         }}
       />
-      <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.container}
+        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.card}>
           <Text style={styles.stage}>{formatStage(project.stage)}</Text>
           <Text style={styles.meta}>{project.city}, {project.country}</Text>
@@ -236,7 +263,9 @@ export default function ProjectDetailScreen() {
           <Text style={styles.meta}>Created by: {project.createdByName?.trim() || "Not recorded"}</Text>
         </View>
 
-        <Text style={styles.section}>Log activity</Text>
+        <View onLayout={(event) => { activitySectionY.current = event.nativeEvent.layout.y; }}>
+          <Text style={styles.section}>Log activity</Text>
+        </View>
         <View style={styles.typeRow}>
           {ACTIVITY_TYPES.map((type) => (
             <Pressable
@@ -251,6 +280,7 @@ export default function ProjectDetailScreen() {
           ))}
         </View>
         <TextInput
+          ref={messageRef}
           style={[styles.input, styles.textArea]}
           placeholder="What happened?"
           value={message}

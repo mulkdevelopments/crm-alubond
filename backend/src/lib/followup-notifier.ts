@@ -1,5 +1,5 @@
 import { env } from "../config/env";
-import { emailButtonStyle, wrapEmailHtml } from "./email-layout";
+import { buildBrandedEmail, emailButtonStyle } from "./email-layout";
 import { isEmailConfigured, sendEmail } from "./mailer";
 import { prisma } from "./prisma";
 
@@ -130,7 +130,7 @@ function buildFollowUpEmail(input: {
     "Alubond CRM",
   ].filter(Boolean);
 
-  const html = wrapEmailHtml(`
+  const { html, attachments: brandedAttachments } = buildBrandedEmail(`
       <p style="margin:0 0 16px">Hello ${escapeHtml(input.recipientName)},</p>
       <p style="margin:0 0 16px">A follow-up has been <strong>${actionLabel}</strong> by ${escapeHtml(input.actor)}.</p>
       <table style="width:100%;border-collapse:collapse;margin:0 0 20px">
@@ -154,7 +154,7 @@ function buildFollowUpEmail(input: {
       }
   `);
 
-  return { subject, text: textLines.join("\n"), html };
+  return { subject, text: textLines.join("\n"), html, attachments: brandedAttachments };
 }
 
 export async function sendFollowUpNotificationById(input: {
@@ -218,7 +218,7 @@ export async function sendFollowUpNotificationById(input: {
     dueAt: followUp.dueAt,
     appLink,
   });
-  const { subject, text, html } = buildFollowUpEmail({
+  const { subject, text, html, attachments: brandedAttachments } = buildFollowUpEmail({
     recipientName,
     actor,
     action: input.action,
@@ -241,6 +241,7 @@ export async function sendFollowUpNotificationById(input: {
       text,
       html,
       attachments: [
+        ...brandedAttachments,
         {
           filename: "follow-up.ics",
           content: Buffer.from(calendar.ics, "utf8"),

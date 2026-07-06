@@ -6,9 +6,12 @@ import { ActivityIndicator, View } from "react-native";
 import "react-native-reanimated";
 
 import { BrandMark } from "@/components/BrandLogo";
+import { AppFloatingActions } from "@/components/shell/AppFloatingActions";
+import { AppShellProvider } from "@/components/shell/AppShellContext";
 import { fetchMe, login as loginApi, type AuthUser } from "@/lib/api/auth-api";
 import { AuthProvider, useAuth } from "@/lib/auth/AuthContext";
 import { clearSession, getStoredToken, getStoredUser, saveSession } from "@/lib/auth/session";
+import { ThemePreferenceProvider } from "@/lib/theme/ThemePreferenceContext";
 import { colors } from "@/constants/theme";
 
 export { ErrorBoundary } from "expo-router";
@@ -91,7 +94,11 @@ export default function RootLayout() {
 
   return (
     <AuthProvider value={authValue}>
-      <RootNavigator />
+      <ThemePreferenceProvider>
+        <AppShellProvider>
+          <RootNavigator />
+        </AppShellProvider>
+      </ThemePreferenceProvider>
     </AuthProvider>
   );
 }
@@ -103,20 +110,25 @@ function RootNavigator() {
 
   useEffect(() => {
     const inAuth = segments[0] === "(auth)";
+    const authScreen = segments[1];
+
     if (!token && !inAuth) {
       router.replace("/(auth)/login");
-    } else if (token && inAuth) {
+    } else if (token && inAuth && authScreen === "login") {
       router.replace("/(tabs)");
     }
   }, [token, segments, router]);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="project/[id]" options={{ headerShown: true, title: "Project" }} />
-      <Stack.Screen name="project/form" options={{ headerShown: true, title: "Project" }} />
-      <Stack.Screen name="users/form" options={{ headerShown: true, title: "User" }} />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="project/[id]" options={{ headerShown: true, title: "Project" }} />
+        <Stack.Screen name="project/form" options={{ headerShown: true, title: "Project" }} />
+        <Stack.Screen name="users/form" options={{ headerShown: true, title: "User" }} />
+      </Stack>
+      {token ? <AppFloatingActions /> : null}
+    </>
   );
 }

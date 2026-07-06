@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,28 +7,135 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { LogOut, Save } from "lucide-react-native";
 
-import { colors } from "@/constants/theme";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { ThemeColors, useThemeColors } from "@/constants/theme";
 import { resetMyPassword, updateMe } from "@/lib/api/auth-api";
 import { useAuth } from "@/lib/auth/AuthContext";
 
+function formatRole(role: string | undefined) {
+  return role?.replace("_", " ") ?? "";
+}
+
+function ProfileField({
+  label,
+  value,
+  onChangeText,
+  disabled,
+  secureTextEntry,
+  colors,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onChangeText?: (text: string) => void;
+  disabled?: boolean;
+  secureTextEntry?: boolean;
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: colors.text2 }]}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        editable={!disabled}
+        secureTextEntry={secureTextEntry}
+        autoCapitalize="none"
+        placeholderTextColor={colors.text3}
+        style={[
+          styles.input,
+          {
+            backgroundColor: colors.surface2,
+            borderColor: colors.border,
+            color: disabled ? colors.text3 : colors.text,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+function ActionButton({
+  label,
+  loadingLabel,
+  loading,
+  onPress,
+  disabled,
+  variant,
+  icon,
+  colors,
+  styles,
+}: {
+  label: string;
+  loadingLabel?: string;
+  loading?: boolean;
+  onPress: () => void;
+  disabled?: boolean;
+  variant: "primary" | "soft";
+  icon?: ReactNode;
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const isPrimary = variant === "primary";
+
+  return (
+    <Pressable
+      style={[
+        styles.button,
+        isPrimary
+          ? { backgroundColor: colors.brand }
+          : { backgroundColor: colors.surface2, borderColor: colors.border, borderWidth: 1 },
+        (loading || disabled) && styles.buttonDisabled,
+      ]}
+      onPress={onPress}
+      disabled={loading || disabled}
+    >
+      {loading ? (
+        <Text style={[styles.buttonText, { color: isPrimary ? "#FFFFFF" : colors.text }]}>
+          {loadingLabel ?? label}
+        </Text>
+      ) : (
+        <View style={styles.buttonInner}>
+          {icon}
+          <Text style={[styles.buttonText, { color: isPrimary ? "#FFFFFF" : colors.text }]}>
+            {label}
+          </Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 export default function ProfileScreen() {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user, token, logout, refreshUser } = useAuth();
+
   const [firstName, setFirstName] = useState(user?.firstName ?? "");
   const [lastName, setLastName] = useState(user?.lastName ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
 
-  async function saveProfile() {
-    if (!token) return;
+  async function onSave() {
+    if (!token) {
+      setMessage("Session missing. Please login again.");
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
       await updateMe(token, { firstName: firstName.trim(), lastName: lastName.trim() });
       await refreshUser();
-      setMessage("Profile updated.");
+      setMessage("Profile updated successfully.");
     } catch {
       setMessage("Failed to update profile.");
     } finally {
@@ -37,92 +143,236 @@ export default function ProfileScreen() {
     }
   }
 
-  async function changePassword() {
-    if (!token) return;
-    setSaving(true);
-    setMessage(null);
+  async function onResetPassword() {
+    if (!token) {
+      setPasswordMessage("Session missing. Please login again.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage("New password and confirm password do not match.");
+      return;
+    }
+
+    setChangingPassword(true);
+    setPasswordMessage(null);
     try {
       await resetMyPassword(token, { currentPassword, newPassword });
       setCurrentPassword("");
       setNewPassword("");
-      setMessage("Password updated.");
+      setConfirmPassword("");
+      setPasswordMessage("Password updated successfully.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to update password.");
+      setPasswordMessage(error instanceof Error ? error.message : "Failed to update password.");
     } finally {
-      setSaving(false);
+      setChangingPassword(false);
     }
   }
 
-  function confirmLogout() {
-    Alert.alert("Sign out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Sign out", style: "destructive", onPress: () => void logout() },
-    ]);
-  }
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
-      <Text style={styles.email}>{user?.email}</Text>
-      <Text style={styles.role}>{user?.role?.replace("_", " ")}</Text>
+    <View style={[styles.screen, { backgroundColor: colors.bg }]}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <PageHeader
+          eyebrow="Account"
+          title="Profile settings"
+          subtitle="Manage your account name and session."
+        />
 
-      <Text style={styles.section}>Profile</Text>
-      <TextInput style={styles.input} placeholder="First name" value={firstName} onChangeText={setFirstName} />
-      <TextInput style={styles.input} placeholder="Last name" value={lastName} onChangeText={setLastName} />
-      <Pressable style={styles.button} onPress={() => void saveProfile()} disabled={saving}>
-        <Text style={styles.buttonText}>Save profile</Text>
-      </Pressable>
+        <Card style={styles.card}>
+          <View style={styles.row}>
+            <View style={styles.half}>
+              <ProfileField
+                label="First name"
+                value={firstName}
+                onChangeText={setFirstName}
+                colors={colors}
+                styles={styles}
+              />
+            </View>
+            <View style={styles.half}>
+              <ProfileField
+                label="Last name"
+                value={lastName}
+                onChangeText={setLastName}
+                colors={colors}
+                styles={styles}
+              />
+            </View>
+          </View>
 
-      <Text style={styles.section}>Change password</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Current password"
-        secureTextEntry
-        value={currentPassword}
-        onChangeText={setCurrentPassword}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="New password"
-        secureTextEntry
-        value={newPassword}
-        onChangeText={setNewPassword}
-      />
-      <Pressable style={styles.button} onPress={() => void changePassword()} disabled={saving}>
-        <Text style={styles.buttonText}>Update password</Text>
-      </Pressable>
+          <ProfileField
+            label="Email"
+            value={user?.email ?? ""}
+            disabled
+            colors={colors}
+            styles={styles}
+          />
 
-      {message ? <Text style={styles.message}>{message}</Text> : null}
+          <ProfileField
+            label="Role"
+            value={formatRole(user?.role)}
+            disabled
+            colors={colors}
+            styles={styles}
+          />
 
-      <Pressable style={[styles.button, styles.logout]} onPress={confirmLogout}>
-        <Text style={styles.buttonText}>Sign out</Text>
-      </Pressable>
-    </ScrollView>
+          {message ? <Text style={[styles.message, { color: colors.text2 }]}>{message}</Text> : null}
+
+          <View style={styles.actions}>
+            <ActionButton
+              label="Save profile"
+              loadingLabel="Saving..."
+              loading={saving}
+              onPress={() => void onSave()}
+              variant="primary"
+              icon={<Save size={16} color="#FFFFFF" strokeWidth={2.2} />}
+              colors={colors}
+              styles={styles}
+            />
+            <ActionButton
+              label="Logout"
+              onPress={() => void logout()}
+              variant="soft"
+              icon={<LogOut size={16} color={colors.text} strokeWidth={2.2} />}
+              colors={colors}
+              styles={styles}
+            />
+          </View>
+        </Card>
+
+        <Card style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Reset password</Text>
+            <Text style={[styles.sectionHint, { color: colors.text3 }]}>
+              Use letters, numbers, and symbols. Minimum 8 characters.
+            </Text>
+          </View>
+
+          <ProfileField
+            label="Current password"
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+            secureTextEntry
+            colors={colors}
+            styles={styles}
+          />
+
+          <View style={styles.row}>
+            <View style={styles.half}>
+              <ProfileField
+                label="New password"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                colors={colors}
+                styles={styles}
+              />
+            </View>
+            <View style={styles.half}>
+              <ProfileField
+                label="Confirm password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                colors={colors}
+                styles={styles}
+              />
+            </View>
+          </View>
+
+          {passwordMessage ? (
+            <Text style={[styles.message, { color: colors.text2 }]}>{passwordMessage}</Text>
+          ) : null}
+
+          <ActionButton
+            label="Update password"
+            loadingLabel="Updating password..."
+            loading={changingPassword}
+            onPress={() => void onResetPassword()}
+            variant="primary"
+            colors={colors}
+            styles={styles}
+          />
+        </Card>
+      </ScrollView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  email: { fontSize: 18, fontWeight: "700", color: colors.text },
-  role: { marginTop: 4, color: colors.textMuted, textTransform: "capitalize" },
-  section: { marginTop: 24, marginBottom: 10, fontSize: 15, fontWeight: "700", color: colors.text },
-  input: {
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    marginBottom: 10,
-    backgroundColor: colors.surface,
-  },
-  button: {
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-  },
-  logout: { marginTop: 28, backgroundColor: colors.danger },
-  buttonText: { color: "#fff", fontWeight: "700" },
-  message: { marginTop: 12, color: colors.success, fontSize: 13 },
-});
+function createStyles(_colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+    },
+    content: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 120,
+      gap: 16,
+    },
+    card: {
+      padding: 20,
+      gap: 16,
+    },
+    row: {
+      flexDirection: "row",
+      gap: 12,
+    },
+    half: {
+      flex: 1,
+      minWidth: 0,
+    },
+    field: {
+      gap: 6,
+    },
+    label: {
+      fontSize: 14,
+    },
+    input: {
+      height: 40,
+      borderRadius: 12,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      fontSize: 14,
+    },
+    message: {
+      fontSize: 14,
+    },
+    actions: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    sectionHeader: {
+      gap: 4,
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      letterSpacing: -0.2,
+    },
+    sectionHint: {
+      fontSize: 12,
+      lineHeight: 16,
+    },
+    button: {
+      height: 36,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    buttonInner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    buttonText: {
+      fontSize: 12,
+      fontWeight: "600",
+    },
+  });
+}
