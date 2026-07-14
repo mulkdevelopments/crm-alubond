@@ -65,6 +65,7 @@ type ProjectFormState = {
   stage: Stage;
   probability: string;
   competitor: string;
+  lossReason: string;
   regionalManagerId: string;
   managerId: string;
   salesRepIds: string[];
@@ -127,6 +128,7 @@ const EMPTY_FORM: ProjectFormState = {
   stage: 'Lead Identified',
   probability: '',
   competitor: '',
+  lossReason: '',
   regionalManagerId: '',
   managerId: '',
   salesRepIds: [],
@@ -863,6 +865,7 @@ function buildProjectAssignmentPayload(
       stage: project.stage,
       probability: String(project.probability),
       competitor: project.competitor ?? '',
+      lossReason: project.lossReason ?? '',
       regionalManagerId: existing?.regionalManagerId ?? (isRegionalManager && user?.id ? user.id : ''),
       managerId: existing?.managerId ?? (isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : ''),
       salesRepIds: existing?.salesRepIds ?? (isSalesRep && user?.id ? [user.id] : []),
@@ -1037,10 +1040,20 @@ function buildProjectAssignmentPayload(
         return;
       }
     }
+    if (form.stage === 'Lost') {
+      const lossError = validateLossPrompt({ reason: form.lossReason });
+      if (lossError) {
+        setFormError(lossError);
+        return;
+      }
+    }
 
     const normalizedLat = Number.isFinite(lat) ? lat : 0;
     const normalizedLng = Number.isFinite(lng) ? lng : 0;
-    const normalizedProbability = Number.isFinite(probability) ? probability : 0;
+    const normalizedProbability =
+      form.stage === 'Lost' ? 0 : Number.isFinite(probability) ? probability : 0;
+    const normalizedLossReason = form.stage === 'Lost' ? form.lossReason.trim() : null;
+    const normalizedCompetitor = form.competitor.trim() || null;
 
     if (editingProject) {
       const nextDaysInStage = editingProject.stage === form.stage ? editingProject.daysInStage : 1;
@@ -1063,7 +1076,8 @@ function buildProjectAssignmentPayload(
           lng: normalizedLng,
           probability: normalizedProbability,
           daysInStage: nextDaysInStage,
-          competitor: form.competitor.trim() || null,
+          competitor: normalizedCompetitor,
+          lossReason: normalizedLossReason,
           ...assignmentPayload,
           salesRepIds: form.salesRepIds,
         });
@@ -1093,7 +1107,8 @@ function buildProjectAssignmentPayload(
         lng: normalizedLng,
         probability: normalizedProbability,
         daysInStage: 1,
-        competitor: form.competitor.trim() || null,
+        competitor: normalizedCompetitor,
+        lossReason: normalizedLossReason,
         ...assignmentPayload,
         salesRepIds: form.salesRepIds,
       });
@@ -1880,6 +1895,32 @@ function buildProjectAssignmentPayload(
                     </option>
                   ))}
                 </select>
+                {form.stage === 'Lost' ? (
+                  <div className="space-y-3 rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
+                    <label className="block">
+                      <span className="text-xs font-semibold text-2">Loss reason *</span>
+                      <textarea
+                        value={form.lossReason}
+                        onChange={(e) => {
+                          setFormError(null);
+                          setForm((prev) => ({ ...prev, lossReason: e.target.value }));
+                        }}
+                        rows={3}
+                        placeholder="What caused us to lose this project?"
+                        className="mt-1 w-full rounded-xl border border-transparent bg-[var(--surface-2)] px-3 py-2 text-sm focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold text-2">Who won the project (optional)</span>
+                      <input
+                        value={form.competitor}
+                        onChange={(e) => setForm((prev) => ({ ...prev, competitor: e.target.value }))}
+                        placeholder="e.g. Reynobond, Alucobond"
+                        className="mt-1 h-10 w-full rounded-xl border border-transparent bg-[var(--surface-2)] px-3 text-sm focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none"
+                      />
+                    </label>
+                  </div>
+                ) : null}
                 <ProjectCommercialFields
                   idPrefix="project-form"
                   value={form.value}
@@ -1930,12 +1971,14 @@ function buildProjectAssignmentPayload(
                   placeholder="Probability (%)"
                   className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
                 />
-                <input
-                  value={form.competitor}
-                  onChange={(e) => setForm((prev) => ({ ...prev, competitor: e.target.value }))}
-                  placeholder="Competitor (optional)"
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-                />
+                {form.stage !== 'Lost' ? (
+                  <input
+                    value={form.competitor}
+                    onChange={(e) => setForm((prev) => ({ ...prev, competitor: e.target.value }))}
+                    placeholder="Competitor (optional)"
+                    className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
+                  />
+                ) : null}
                 <select
                   value={regionalManagerForForm}
                   onChange={(e) =>
