@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, BarChart3, BellRing, ChevronDown, ChevronRight, FileAudio2, FileText, MapPin, MessageCircleQuestion, Mic, MoreHorizontal, Pencil, Share2, Square, Trash2, Users, Waypoints } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
@@ -123,6 +123,15 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shouldOpenComposerFromQuery = searchParams.get('composeActivity');
+  const projectIdsFromQuery = searchParams.get('projectIds');
+  const targetProjectIds = useMemo(() => {
+    if (projectIdsFromQuery) {
+      const ids = projectIdsFromQuery.split(',').map((id) => id.trim()).filter(Boolean);
+      if (ids.length > 0) return ids;
+    }
+    return params?.id ? [params.id] : [];
+  }, [projectIdsFromQuery, params?.id]);
+  const loggingToMultipleProjects = targetProjectIds.length > 1;
   const { token, user, reportVisitPing } = useAuth();
   const [project, setProject] = useState<ApiProject | null>(null);
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
@@ -609,7 +618,7 @@ export default function ProjectDetailPage() {
   });
 
   function requiresCommercialDetails(stage: string) {
-    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
+    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won'].includes(stage);
   }
 
   async function onSaveCommercialDetails(event: React.FormEvent<HTMLFormElement>) {
@@ -825,7 +834,7 @@ export default function ProjectDetailPage() {
         details.push(`Meeting time: ${new Date(activityMeetingAt).toLocaleString('en-AE')}`);
       }
 
-      const created = await createProjectActivity(token, project.id, {
+      const activityPayload = {
         type: activityType,
         message: details.join('\n'),
         followUpDueAt:
@@ -834,8 +843,18 @@ export default function ProjectDetailPage() {
             : undefined,
         visitLocation: visitLocationPayload,
         attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
-      });
-      setActivities((prev) => [created, ...prev]);
+      };
+
+      const createdActivities: ProjectActivity[] = [];
+      for (const projectId of targetProjectIds) {
+        const created = await createProjectActivity(token, projectId, activityPayload);
+        if (projectId === project.id) {
+          createdActivities.push(created);
+        }
+      }
+      if (createdActivities.length > 0) {
+        setActivities((prev) => [...createdActivities, ...prev]);
+      }
       setActivityMessage('');
       setActivityType('note');
       setActivityStakeholderMode('existing');
@@ -1169,10 +1188,7 @@ export default function ProjectDetailPage() {
       </div>
       <PageHeader
         eyebrow={
-          <span className="inline-flex items-center gap-2">
-            <Badge tone={stageTone(project.stage)}>{project.stage}</Badge>
-            {project.competitor && <Badge tone="warning">vs {project.competitor}</Badge>}
-          </span>
+          <Badge tone={stageTone(project.stage)}>{project.stage}</Badge>
         }
         title={project.name}
         subtitle={
@@ -1183,6 +1199,30 @@ export default function ProjectDetailPage() {
           </span>
         }
       />
+
+      {project.stage === 'Lost' ? (
+        <section className="px-4 lg:px-8 pb-4">
+          <div className="rounded-2xl border border-rose-300/70 bg-rose-50/80 dark:bg-rose-500/10 dark:border-rose-500/30 px-4 py-4">
+            <p className="text-[10px] uppercase tracking-widest font-semibold text-rose-800 dark:text-rose-300">
+              Loss details
+            </p>
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="sm:col-span-2">
+                <p className="text-[11px] font-medium text-rose-800/80 dark:text-rose-300/80">Reason</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-rose-950 dark:text-rose-100 whitespace-pre-wrap">
+                  {project.lossReason?.trim() || 'Not recorded'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-rose-800/80 dark:text-rose-300/80">Who won</p>
+                <p className="mt-1.5 text-sm font-semibold text-rose-950 dark:text-rose-100">
+                  {project.competitor?.trim() || 'Not recorded'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="px-4 lg:px-8 pb-4">
         <div className="rounded-2xl border border-amber-300/70 bg-amber-100/70 dark:bg-amber-500/10 dark:border-amber-500/30 px-4 py-3">
@@ -1384,7 +1424,14 @@ export default function ProjectDetailPage() {
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-                    <p className="text-sm font-semibold tracking-tight">Log new update</p>
+                    <div>
+                      <p className="text-sm font-semibold tracking-tight">Log new update</p>
+                      {loggingToMultipleProjects && (
+                        <p className="text-xs text-3">
+                          This update will be logged to {targetProjectIds.length} projects.
+                        </p>
+                      )}
+                    </div>
                     <Button type="button" size="sm" variant="ghost" onClick={() => setShowActivityComposer(false)}>
                       Close
                     </Button>
@@ -2094,6 +2141,12 @@ export default function ProjectDetailPage() {
               <Row k="Created" v={new Date(project.createdAt).toLocaleString('en-AE')} />
               <Row k="Updated" v={new Date(project.updatedAt).toLocaleString('en-AE')} />
               <Row k="Stage" v={project.stage} />
+              {project.stage === 'Lost' ? (
+                <>
+                  <Row k="Loss reason" v={project.lossReason?.trim() || 'Not recorded'} />
+                  <Row k="Who won" v={project.competitor?.trim() || 'Not recorded'} />
+                </>
+              ) : null}
               <Row k="Country" v={project.country} />
               <Row k="City" v={project.city} />
               <Row k="Customer" v={project.developer} />

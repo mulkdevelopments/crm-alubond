@@ -3,9 +3,11 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, Mic, Send, Sparkles, Square, Volume2, VolumeX, X } from 'lucide-react';
 
+import { AssistantMessageBody } from '@/components/ai/AssistantMessageBody';
 import { useAuth } from '@/components/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { askAssistant, type AssistantMessage } from '@/lib/ai-api';
+import { humanizeAssistantDates } from '@/lib/assistant-message';
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -116,7 +118,12 @@ export function AIAssistantFab() {
   function speak(text: string) {
     if (typeof window === 'undefined' || !window.speechSynthesis || !voiceEnabledRef.current) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    const spoken = humanizeAssistantDates(text)
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/^\s*[-*•]\s+/gm, '')
+      .replace(/\n{2,}/g, '. ')
+      .replace(/\n/g, '. ');
+    const utterance = new SpeechSynthesisUtterance(spoken);
     utterance.rate = 1;
     utterance.pitch = 1;
     window.speechSynthesis.speak(utterance);
@@ -187,7 +194,7 @@ export function AIAssistantFab() {
             </div>
           </div>
 
-          <div className="max-h-[52vh] overflow-y-auto px-3 py-3 space-y-2 bg-[var(--surface-2)]/40">
+          <div className="max-h-[52vh] overflow-y-auto px-3 py-3 space-y-3 bg-[var(--surface-2)]/40">
             {messages.map((msg, index) => (
               <div
                 key={`${msg.role}-${index}`}
@@ -196,11 +203,11 @@ export function AIAssistantFab() {
                 <div
                   className={
                     msg.role === 'user'
-                      ? 'max-w-[85%] rounded-2xl rounded-tr-md bg-brand-600 text-white px-3 py-2 text-sm'
-                      : 'max-w-[85%] rounded-2xl rounded-tl-md bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm whitespace-pre-line'
+                      ? 'max-w-[88%] rounded-2xl rounded-tr-md bg-brand-600 text-white px-3.5 py-2.5 text-sm'
+                      : 'max-w-[92%] rounded-2xl rounded-tl-md bg-[var(--surface)] border border-[var(--border)] px-3.5 py-3 shadow-sm'
                   }
                 >
-                  {msg.content}
+                  <AssistantMessageBody content={msg.content} tone={msg.role === 'user' ? 'user' : 'assistant'} />
                 </div>
               </div>
             ))}

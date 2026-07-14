@@ -66,6 +66,19 @@ function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function formatAssistantDate(value: Date | string | null | undefined) {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function looksLikeActivityCommand(question: string) {
   const q = question.toLowerCase();
   return (
@@ -254,7 +267,13 @@ async function tryCreateActivityFromQuestion(input: { user: AuthUser; question: 
     },
   });
 
-  return `Activity logged successfully for ${matchedProject.name} (${type}).`;
+  return [
+    "Activity logged",
+    "",
+    `- **Project:** ${matchedProject.name}`,
+    `- **Type:** ${type}`,
+    `- **Note:** ${message}`,
+  ].join("\n");
 }
 
 async function tryEditActivityFromQuestion(input: { user: AuthUser; question: string }) {
@@ -299,7 +318,13 @@ async function tryEditActivityFromQuestion(input: { user: AuthUser; question: st
     },
   });
 
-  return `Activity updated successfully for ${matchedProject.name}.`;
+  return [
+    "Activity updated",
+    "",
+    `- **Project:** ${matchedProject.name}`,
+    `- **Type:** ${nextType}`,
+    `- **Note:** ${message}`,
+  ].join("\n");
 }
 
 async function tryCreateFollowUpFromQuestion(input: { user: AuthUser; question: string }) {
@@ -345,7 +370,15 @@ async function tryCreateFollowUpFromQuestion(input: { user: AuthUser; question: 
     actorName: input.user.email,
   }).catch(() => undefined);
 
-  return `Follow-up created for ${matchedProject.name} (${channel}) due ${dueAt.toLocaleString("en-AE")}.`;
+  return [
+    "Follow-up created",
+    "",
+    `- **Project:** ${matchedProject.name}`,
+    `- **Channel:** ${channel}`,
+    `- **Due:** ${formatAssistantDate(dueAt)}`,
+    `- **Contact:** ${contact} (${contactRole})`,
+    `- **Note:** ${note}`,
+  ].join("\n");
 }
 
 async function tryEditFollowUpFromQuestion(input: { user: AuthUser; question: string }) {
@@ -403,7 +436,14 @@ async function tryEditFollowUpFromQuestion(input: { user: AuthUser; question: st
     actorName: input.user.email,
   }).catch(() => undefined);
 
-  return `Follow-up updated successfully for ${matchedProject.name}.`;
+  return [
+    "Follow-up updated",
+    "",
+    `- **Project:** ${matchedProject.name}`,
+    `- **Channel:** ${shouldChangeChannel ? nextChannel : existing.channel}`,
+    `- **Due:** ${formatAssistantDate(finalDueAt)}`,
+    `- **Note:** ${note || existing.note}`,
+  ].join("\n");
 }
 
 export async function generateAssistantResponse(input: {
@@ -528,9 +568,21 @@ export async function generateAssistantResponse(input: {
       totalRecentActivities: activities.length,
       projectStageBreakdown: stageBreakdown,
     },
-    projects,
-    followUps,
-    activities,
+    projects: projects.map((project) => ({
+      ...project,
+      updatedAt: formatAssistantDate(project.updatedAt),
+    })),
+    followUps: followUps.map(({ owner, ...item }) => ({
+      ...item,
+      dueAt: formatAssistantDate(item.dueAt),
+      ownerName: owner
+        ? `${owner.firstName} ${owner.lastName}`.trim() || owner.email
+        : null,
+    })),
+    activities: activities.map((item) => ({
+      ...item,
+      createdAt: formatAssistantDate(item.createdAt),
+    })),
   };
 
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
@@ -540,10 +592,20 @@ export async function generateAssistantResponse(input: {
     messages: [
       {
         role: "system",
-        content:
-          "You are Alubond CRM Assistant. Answer only from provided CRM context. " +
-          "If data is unavailable in context, say clearly what is missing. " +
-          "Be concise, operational, and include numbers/status where possible.",
+        content: [
+          "You are Alubond CRM Assistant. Answer only from provided CRM context.",
+          "If data is unavailable in context, say clearly what is missing.",
+          "Be concise, operational, and include numbers/status where useful.",
+          "",
+          "Formatting rules for the chat UI (strict):",
+          "- Start with a one-line summary title (no markdown heading syntax).",
+          "- Then use short bullet lists with '- '.",
+          "- Put field labels in bold as **Label:** value.",
+          "- Separate sections with a blank line.",
+          "- Never output raw ISO timestamps (e.g. 2026-07-14T10:01:13.123Z). Use human dates already in the context.",
+          "- Never dump JSON, code fences, or tables.",
+          "- Prefer scannable replies (usually under 12 bullets).",
+        ].join("\n"),
       },
       {
         role: "system",

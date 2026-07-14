@@ -80,6 +80,7 @@ model Project {
   probability  Int
   daysInStage  Int
   competitor   String?
+  lossReason   String?
   owner        String
 
   regionalManagerId String?

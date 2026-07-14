@@ -25,6 +25,7 @@ export type ProjectRecord = {
   probability: number;
   daysInStage: number;
   competitor: string | null;
+  lossReason: string | null;
   owner: string;
   regionalManagerId: string | null;
   regionalManagerName: string;
@@ -60,6 +61,7 @@ export type UpsertProjectInput = {
   probability: number;
   daysInStage: number;
   competitor: string | null;
+  lossReason: string | null;
   owner: string;
   regionalManagerId: string | null;
   regionalManagerName: string;
@@ -97,6 +99,7 @@ function mapProject(record: {
   probability: number;
   daysInStage: number;
   competitor: string | null;
+  lossReason: string | null;
   owner: string;
   regionalManagerId: string | null;
   regionalManagerName: string;

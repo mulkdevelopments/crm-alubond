@@ -37,7 +37,7 @@ function GooglePlayIcon({ className }: { className?: string }) {
 export function MobileAppNotificationPromo() {
   return (
     <section
-      aria-label="Alubond CRM mobile app coming soon"
+      aria-label="Alubond CRM mobile app released"
       className="border-b border-[var(--border)] bg-gradient-to-br from-brand-600/10 via-[var(--surface)] to-[var(--surface-2)] px-3.5 py-3"
     >
       <div className="flex items-start gap-3">
@@ -46,12 +46,11 @@ export function MobileAppNotificationPromo() {
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs font-semibold tracking-tight text-[var(--text)]">Alubond CRM mobile app</p>
             <Badge tone="brand" className="text-[10px] px-1.5 py-0">
-              Coming soon
+              Released
             </Badge>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-3">
-            Our iOS and Android apps are coming soon. You&apos;ll be notified here once they&apos;re available to
-            download.
+            Our iOS and Android apps are released. Please check your email for the download links.
           </p>
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-medium text-3">

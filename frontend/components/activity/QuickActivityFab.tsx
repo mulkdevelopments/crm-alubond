@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Briefcase, ClipboardList, Plus, X } from 'lucide-react';
 
+import { ActivityProjectPicker } from '@/components/activity/ActivityProjectPicker';
 import { useAuth } from '@/components/auth/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { listProjects, type ApiProject } from '@/lib/projects-api';
@@ -15,7 +16,7 @@ export function QuickActivityFab() {
   const [openChoice, setOpenChoice] = useState(false);
   const [openActivityPicker, setOpenActivityPicker] = useState(false);
   const [projects, setProjects] = useState<ApiProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export function QuickActivityFab() {
       .then((items) => {
         if (cancelled) return;
         setProjects(items);
-        setSelectedProjectId((prev) => prev || items[0]?.id || '');
+        setSelectedProjectIds([]);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -76,13 +77,18 @@ export function QuickActivityFab() {
     router.push('/pipeline?createProject=1');
   }
 
-  function openComposerForSelectedProject() {
-    if (!selectedProjectId) {
-      setPickerError('Select a project to continue.');
+  function openComposerForSelectedProjects() {
+    if (selectedProjectIds.length === 0) {
+      setPickerError('Select at least one project to continue.');
       return;
     }
+    const [firstProjectId, ...restProjectIds] = selectedProjectIds;
+    const projectIdsQuery =
+      restProjectIds.length > 0
+        ? `&projectIds=${encodeURIComponent(selectedProjectIds.join(','))}`
+        : '';
     setOpenActivityPicker(false);
-    router.push(`/projects/${selectedProjectId}?composeActivity=1`);
+    router.push(`/projects/${firstProjectId}?composeActivity=1${projectIdsQuery}`);
   }
 
   return (
@@ -133,38 +139,45 @@ export function QuickActivityFab() {
       {openActivityPicker && (
         <div className="fixed inset-0 z-[75] bg-black/45 px-4 py-6 sm:p-8" onClick={closeAll}>
             <div
-              className="mx-auto w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+              className="mx-auto w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold tracking-tight">Log activity</p>
-                  <p className="text-xs text-3">Choose a project first.</p>
+                  <p className="text-xs text-3">Select one or more projects grouped by customer.</p>
                 </div>
                 <Button type="button" variant="ghost" size="sm" onClick={closeAll}>
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
               <div className="space-y-3 p-4">
-                <select
-                  value={selectedProjectId}
-                  onChange={(event) => setSelectedProjectId(event.target.value)}
-                  disabled={loadingProjects}
-                  className="h-10 w-full rounded-xl border border-transparent bg-[var(--surface-2)] px-3 text-sm focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none"
-                >
-                  <option value="">Select project</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
+                {loadingProjects ? (
+                  <p className="text-xs text-3">Loading projects...</p>
+                ) : (
+                  <ActivityProjectPicker
+                    projects={projects}
+                    selectedIds={selectedProjectIds}
+                    onChange={setSelectedProjectIds}
+                  />
+                )}
+                {selectedProjectIds.length > 0 && (
+                  <p className="text-xs text-3">
+                    {selectedProjectIds.length} project{selectedProjectIds.length === 1 ? '' : 's'} selected
+                  </p>
+                )}
                 {pickerError && <p className="text-xs text-rose-600">{pickerError}</p>}
                 <div className="flex items-center justify-end gap-2">
                   <Button type="button" variant="ghost" size="sm" onClick={closeAll}>
                     Cancel
                   </Button>
-                  <Button type="button" variant="primary" size="sm" onClick={openComposerForSelectedProject} disabled={loadingProjects}>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={openComposerForSelectedProjects}
+                    disabled={loadingProjects || selectedProjectIds.length === 0}
+                  >
                     {loadingProjects ? 'Loading...' : 'Continue'}
                   </Button>
                 </div>

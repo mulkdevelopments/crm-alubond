@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, MapPin } from 'lucide-react';
+import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, MapPin, Lock, LockOpen, Layers } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { LossStagePrompt, createLossPromptState, type LossPromptState } from '@/components/pipeline/LossStagePrompt';
+import { PipelineCustomerGroupList } from '@/components/pipeline/PipelineCustomerGroupList';
 import { Badge } from '@/components/ui/Badge';
 import { STAGES, type Stage } from '@/lib/data';
 import { listManagers, listMyTeam, listRegionalManagers, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
@@ -19,7 +21,9 @@ import {
   type ApiProject,
 } from '@/lib/projects-api';
 import { cn, formatAED, formatNumber, formatNumberForInput, formatProjectValue, parseFormattedNumber, uniqueCustomerNames } from '@/lib/utils';
+import { groupProjectsByCustomer } from '@/lib/group-projects-by-customer';
 import { suggestCurrencyCode } from '@/lib/currency-defaults';
+import { validateLossPrompt } from '@/lib/loss-reasons';
 import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem } from '@/lib/master-data-api';
 import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
 import {
@@ -88,6 +92,7 @@ type PipelineProject = {
   probability: number;
   daysInStage: number;
   competitor: string | null;
+  lossReason: string | null;
   owner: string;
   regionalManagerId: string | null;
   regionalManagerName: string;
@@ -98,6 +103,7 @@ type PipelineProject = {
   updatedAt: string;
 };
 
+const PIPELINE_STAGE_MOVES_KEY = 'alubond-pipeline-stage-moves-enabled';
 const PIPELINE_STAGES: Stage[] = [...STAGES, 'Lost', 'Won'];
 const PIPELINE_VISIBLE_STAGES: Stage[] = PIPELINE_STAGES.filter((stage) => stage !== 'Approved');
 const BUSINESS_DIVISIONS = ['alubond architecture', 'alubond transport', 'uniqube'] as const;
@@ -165,10 +171,38 @@ export default function PipelinePage() {
     error: string | null;
     saving: boolean;
   } | null>(null);
+  const [lossPrompt, setLossPrompt] = useState<{
+    projectId: string;
+    prompt: LossPromptState;
+  } | null>(null);
   const [projectPendingDelete, setProjectPendingDelete] = useState<PipelineProject | null>(null);
   const [deletingProject, setDeletingProject] = useState(false);
   const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
   const [regionDefaults, setRegionDefaults] = useState<Record<string, string>>({});
+  const [stageMovesEnabled, setStageMovesEnabled] = useState(false);
+  const [groupByCustomer, setGroupByCustomer] = useState(false);
+  const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(PIPELINE_STAGE_MOVES_KEY);
+    if (stored === '1') setStageMovesEnabled(true);
+  }, []);
+
+  function toggleStageMovesEnabled() {
+    setStageMovesEnabled((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(PIPELINE_STAGE_MOVES_KEY, next ? '1' : '0');
+      }
+      if (!next) setDragging(null);
+      return next;
+    });
+  }
+
+  function toggleCustomerExpanded(customer: string) {
+    setExpandedCustomers((prev) => ({ ...prev, [customer]: !prev[customer] }));
+  }
 
   function defaultCurrencyForForm(country: string) {
     return suggestCurrencyCode({ country, regionDefaults });
@@ -268,7 +302,7 @@ export default function PipelinePage() {
   }
 
   function requiresCommercialDetails(stage: Stage) {
-    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won', 'Lost'].includes(stage);
+    return ['Tender', 'Negotiation', 'Approved', 'PO Expected', 'Won'].includes(stage);
   }
 
   function validateCommercialInput(input: {
@@ -346,6 +380,7 @@ export default function PipelinePage() {
       probability: project.probability,
       daysInStage: nextDaysInStage,
       competitor: project.competitor,
+      lossReason: project.lossReason,
       regionalManagerId: project.regionalManagerId,
       managerId: project.managerId,
       salesRepIds: project.salesRepIds,
@@ -569,7 +604,7 @@ export default function PipelinePage() {
   }, [token]);
 
   function onDrop(stage: Stage) {
-    if (!dragging) return;
+    if (!stageMovesEnabled || !dragging) return;
     const dragged = items.find((item) => item.id === dragging);
     if (!dragged) {
       setDragging(null);
@@ -580,6 +615,13 @@ export default function PipelinePage() {
   }
 
   function requestStageChange(project: PipelineProject, stage: Stage) {
+    if (stage === 'Lost') {
+      setLossPrompt({
+        projectId: project.id,
+        prompt: createLossPromptState({ lossReason: project.lossReason, competitor: project.competitor }),
+      });
+      return;
+    }
     if (requiresCommercialDetails(stage)) {
       setCommercialPrompt({
         projectId: project.id,
@@ -605,6 +647,86 @@ export default function PipelinePage() {
     }).catch(() => {
       setProjectsError('Failed to update stage. Please retry.');
     });
+  }
+
+  function closeLossPrompt() {
+    setLossPrompt(null);
+    setDragging(null);
+  }
+
+  async function persistProjectLossUpdate(
+    project: PipelineProject,
+    loss: { lossReason: string; competitor: string | null },
+  ) {
+    const nextStage: Stage = 'Lost';
+    const nextDaysInStage = project.stage === nextStage ? project.daysInStage : 1;
+    setItems((prev) =>
+      prev.map((p) =>
+        p.id === project.id
+          ? {
+              ...p,
+              stage: nextStage,
+              daysInStage: nextDaysInStage,
+              probability: 0,
+              lossReason: loss.lossReason,
+              competitor: loss.competitor,
+            }
+          : p,
+      ),
+    );
+    if (!token) return;
+    await updateProjectApi(token, project.id, {
+      name: project.name,
+      city: project.city,
+      country: project.country,
+      developer: project.developer,
+      businessDivision: project.businessDivision,
+      stage: nextStage,
+      valueLocal: project.valueLocal > 0 ? project.valueLocal : project.valueAed,
+      currencyCode: project.currencyCode,
+      itemName: project.itemName,
+      itemQuantity: project.itemQuantity,
+      specThickness: project.specThickness,
+      specCore: project.specCore,
+      specPaintType: project.specPaintType,
+      lat: project.lat,
+      lng: project.lng,
+      probability: 0,
+      daysInStage: nextDaysInStage,
+      competitor: loss.competitor,
+      lossReason: loss.lossReason,
+      regionalManagerId: project.regionalManagerId,
+      managerId: project.managerId,
+      salesRepIds: project.salesRepIds,
+    });
+  }
+
+  async function submitLossPrompt() {
+    if (!lossPrompt) return;
+    const project = items.find((item) => item.id === lossPrompt.projectId);
+    if (!project) {
+      closeLossPrompt();
+      return;
+    }
+
+    const validationError = validateLossPrompt(lossPrompt.prompt);
+    if (validationError) {
+      setLossPrompt((prev) => (prev ? { ...prev, prompt: { ...prev.prompt, error: validationError } } : prev));
+      return;
+    }
+
+    const lossReason = lossPrompt.prompt.reason.trim();
+    const competitor = lossPrompt.prompt.winner.trim() || null;
+
+    setLossPrompt((prev) => (prev ? { ...prev, prompt: { ...prev.prompt, error: null, saving: true } } : prev));
+    try {
+      await persistProjectLossUpdate(project, { lossReason, competitor });
+      closeLossPrompt();
+    } catch {
+      setLossPrompt((prev) =>
+        prev ? { ...prev, prompt: { ...prev.prompt, saving: false, error: 'Failed to update stage. Please retry.' } } : prev,
+      );
+    }
   }
 
   function closeCommercialPrompt() {
@@ -982,12 +1104,38 @@ function buildProjectAssignmentPayload(
     }
   }
 
-  const mobileStageItems = filterPipelineProjects(
-    items.filter((project) => project.stage === mobileStage),
-    mobileQuery,
+  const mobileStageItems = useMemo(
+    () => filterPipelineProjects(items.filter((project) => project.stage === mobileStage), mobileQuery),
+    [items, mobileStage, mobileQuery, businessDivisionFilter, canSetDivision],
   );
 
-  const desktopFilteredItems = filterPipelineProjects(items, desktopQuery);
+  const desktopFilteredItems = useMemo(
+    () => filterPipelineProjects(items, desktopQuery),
+    [items, desktopQuery, businessDivisionFilter, canSetDivision],
+  );
+
+  useEffect(() => {
+    if (!groupByCustomer || !mobileQuery.trim()) return;
+    setExpandedCustomers((prev) => {
+      const next = { ...prev };
+      for (const group of groupProjectsByCustomer(mobileStageItems)) {
+        next[group.customer] = true;
+      }
+      return next;
+    });
+  }, [groupByCustomer, mobileQuery, mobileStageItems]);
+
+  useEffect(() => {
+    if (!groupByCustomer || !desktopQuery.trim()) return;
+    setExpandedCustomers((prev) => {
+      const next = { ...prev };
+      for (const group of groupProjectsByCustomer(desktopFilteredItems)) {
+        next[group.customer] = true;
+      }
+      return next;
+    });
+  }, [groupByCustomer, desktopQuery, desktopFilteredItems]);
+
   const mobileVisibleItems = canSetDivision
     ? items.filter((project) => matchesBusinessDivisionFilter(project))
     : items;
@@ -1026,6 +1174,36 @@ function buildProjectAssignmentPayload(
               ))}
             </select>
           ) : null}
+          <button
+            type="button"
+            onClick={() => setGroupByCustomer((prev) => !prev)}
+            className={cn(
+              'h-9 px-3 rounded-xl border text-sm font-medium inline-flex items-center gap-2 transition-colors',
+              groupByCustomer
+                ? 'bg-brand-600 text-white border-brand-600'
+                : 'bg-[var(--surface-2)] text-2 border-[var(--border)] hover:border-[var(--border-strong)]',
+            )}
+            aria-pressed={groupByCustomer}
+            title={groupByCustomer ? 'Showing projects grouped by customer' : 'Group projects by customer'}
+          >
+            <Layers className="h-4 w-4" />
+            Group
+          </button>
+          <button
+            type="button"
+            onClick={toggleStageMovesEnabled}
+            className={cn(
+              'h-9 px-3 rounded-xl border text-sm font-medium inline-flex items-center gap-2 transition-colors',
+              stageMovesEnabled
+                ? 'bg-brand-600 text-white border-brand-600'
+                : 'bg-[var(--surface-2)] text-2 border-[var(--border)] hover:border-[var(--border-strong)]',
+            )}
+            aria-pressed={stageMovesEnabled}
+            title={stageMovesEnabled ? 'Stage moves enabled — drag cards or use move controls' : 'Enable stage moves to drag projects between columns'}
+          >
+            {stageMovesEnabled ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {stageMovesEnabled ? 'Moving on' : 'Enable moves'}
+          </button>
           {canCreateProject && (
             <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreateForm}>Add project</Button>
           )}
@@ -1055,6 +1233,22 @@ function buildProjectAssignmentPayload(
             </Button>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setGroupByCustomer((prev) => !prev)}
+          className={cn(
+            'w-full h-10 px-3 rounded-xl border text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors',
+            groupByCustomer
+              ? 'bg-brand-600 text-white border-brand-600'
+              : 'bg-[var(--surface-2)] text-2 border-[var(--border)]',
+          )}
+          aria-pressed={groupByCustomer}
+        >
+          <Layers className="h-4 w-4" />
+          {groupByCustomer ? 'Grouped by customer' : 'Group by customer'}
+        </button>
+
 
         {canSetDivision ? (
           <select
@@ -1107,84 +1301,164 @@ function buildProjectAssignmentPayload(
           <p className="text-sm font-semibold">{formatAED(totalFor(mobileStage, mobileVisibleItems), true)}</p>
         </div>
 
-        <div className="space-y-2">
-          {mobileStageItems.map((project) => (
-            <article key={`mobile-${project.id}`} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-soft">
-              <div className="flex items-start gap-2">
-                <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
-                  <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2">{project.name}</h4>
-                  <p className="mt-1 text-[11px] text-3 truncate">{project.city} · {project.developer}</p>
-                </Link>
-                <div className="flex items-center gap-0.5">
-                  {canCreateProject && (
-                    <button
-                      type="button"
-                      onClick={() => openEditForm(project)}
-                      className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
-                      aria-label={`Edit ${project.name}`}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => requestDeleteProject(project)}
-                      className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
-                      aria-label={`Delete ${project.name}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+        {mobileStageItems.length === 0 ? (
+          <div className="text-center py-8 text-xs text-3 border border-dashed border-[var(--border-strong)] rounded-xl">
+            No projects in {stageTitle(mobileStage)}.
+          </div>
+        ) : groupByCustomer ? (
+          <PipelineCustomerGroupList
+            projects={mobileStageItems}
+            expandedCustomers={expandedCustomers}
+            onToggleCustomer={toggleCustomerExpanded}
+            renderProject={(project) => (
+              <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-soft">
+                <div className="flex items-start gap-2">
+                  <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
+                    <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2">{project.name}</h4>
+                    <p className="mt-1 text-[11px] text-3 truncate">{project.city}</p>
+                  </Link>
+                  <div className="flex items-center gap-0.5">
+                    {canCreateProject && (
+                      <button
+                        type="button"
+                        onClick={() => openEditForm(project)}
+                        className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                        aria-label={`Edit ${project.name}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => requestDeleteProject(project)}
+                        className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
+                        aria-label={`Delete ${project.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <p className="text-base font-bold tracking-tight num-tabular">
-                {formatProjectValue(project, user?.role, true)}
-              </p>
-                <span className="text-[10px] text-3 num-tabular inline-flex items-center gap-1">
-                  <Clock className="h-3 w-3" /> {project.daysInStage}d
-                </span>
-              </div>
-
-              <div className="mt-1.5 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
-                <div className="h-full bg-brand-600" style={{ width: `${project.probability}%` }} />
-              </div>
-
-              <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px]">
-                <div>
-                  <p className="text-3">Manager</p>
-                  <p className="font-medium truncate">{project.managerName}</p>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-base font-bold tracking-tight num-tabular">
+                    {formatProjectValue(project, user?.role, true)}
+                  </p>
+                  <span className="text-[10px] text-3 num-tabular inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> {project.daysInStage}d
+                  </span>
                 </div>
-                <div className="text-right">
-                  <p className="text-3">Reps</p>
-                  <p className="font-medium">{project.salesRepNames.length}</p>
-                </div>
-              </div>
 
-              <div className="mt-2">
-                <label className="text-[11px] text-3 block mb-1">Move stage</label>
-                <select
-                  value={project.stage}
-                  onChange={(event) => requestStageChange(project, event.target.value as Stage)}
-                  className="h-9 w-full px-2.5 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-xs"
-                >
-                  {PIPELINE_VISIBLE_STAGES.map((stage) => (
-                    <option key={`mobile-move-${project.id}-${stage}`} value={stage}>
-                      {stageTitle(stage)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </article>
-          ))}
-          {mobileStageItems.length === 0 && (
-            <div className="text-center py-8 text-xs text-3 border border-dashed border-[var(--border-strong)] rounded-xl">
-              No projects in {stageTitle(mobileStage)}.
-            </div>
-          )}
-        </div>
+                <div className="mt-1.5 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                  <div className="h-full bg-brand-600" style={{ width: `${project.probability}%` }} />
+                </div>
+
+                <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <p className="text-3">Manager</p>
+                    <p className="font-medium truncate">{project.managerName}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-3">Reps</p>
+                    <p className="font-medium">{project.salesRepNames.length}</p>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <label className="text-[11px] text-3 block mb-1">Move stage</label>
+                  <select
+                    value={project.stage}
+                    onChange={(event) => requestStageChange(project, event.target.value as Stage)}
+                    disabled={false}
+                    className="h-9 w-full px-2.5 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {PIPELINE_VISIBLE_STAGES.map((stage) => (
+                      <option key={`mobile-move-${project.id}-${stage}`} value={stage}>
+                        {stageTitle(stage)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </article>
+            )}
+          />
+        ) : (
+          <div className="space-y-2">
+            {mobileStageItems.map((project) => (
+              <article key={`mobile-${project.id}`} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 shadow-soft">
+                <div className="flex items-start gap-2">
+                  <Link href={`/projects/${project.id}`} className="flex-1 min-w-0">
+                    <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2">{project.name}</h4>
+                    <p className="mt-1 text-[11px] text-3 truncate">{project.city} · {project.developer}</p>
+                  </Link>
+                  <div className="flex items-center gap-0.5">
+                    {canCreateProject && (
+                      <button
+                        type="button"
+                        onClick={() => openEditForm(project)}
+                        className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                        aria-label={`Edit ${project.name}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => requestDeleteProject(project)}
+                        className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
+                        aria-label={`Delete ${project.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-base font-bold tracking-tight num-tabular">
+                    {formatProjectValue(project, user?.role, true)}
+                  </p>
+                  <span className="text-[10px] text-3 num-tabular inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> {project.daysInStage}d
+                  </span>
+                </div>
+
+                <div className="mt-1.5 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                  <div className="h-full bg-brand-600" style={{ width: `${project.probability}%` }} />
+                </div>
+
+                <div className="mt-2.5 grid grid-cols-2 gap-2 text-[11px]">
+                  <div>
+                    <p className="text-3">Manager</p>
+                    <p className="font-medium truncate">{project.managerName}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-3">Reps</p>
+                    <p className="font-medium">{project.salesRepNames.length}</p>
+                  </div>
+                </div>
+
+                <div className="mt-2">
+                  <label className="text-[11px] text-3 block mb-1">Move stage</label>
+                  <select
+                    value={project.stage}
+                    onChange={(event) => requestStageChange(project, event.target.value as Stage)}
+                    disabled={false}
+                    className="h-9 w-full px-2.5 rounded-lg bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {PIPELINE_VISIBLE_STAGES.map((stage) => (
+                      <option key={`mobile-move-${project.id}-${stage}`} value={stage}>
+                        {stageTitle(stage)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="hidden md:block px-4 lg:px-8">
@@ -1195,9 +1469,14 @@ function buildProjectAssignmentPayload(
               return (
                 <div
                   key={stage}
-                  onDragOver={(e) => e.preventDefault()}
+                  onDragOver={(e) => {
+                    if (stageMovesEnabled) e.preventDefault();
+                  }}
                   onDrop={() => onDrop(stage)}
-                  className="w-[300px] shrink-0 rounded-2xl bg-[var(--surface-2)]/60 border border-[var(--border)] flex flex-col"
+                  className={cn(
+                    'w-[300px] shrink-0 rounded-2xl bg-[var(--surface-2)]/60 border border-[var(--border)] flex flex-col',
+                    stageMovesEnabled && dragging && 'ring-1 ring-brand-600/20',
+                  )}
                 >
                   <div className="px-4 pt-4 pb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0">
@@ -1223,89 +1502,205 @@ function buildProjectAssignmentPayload(
                   </div>
 
                   <div className="flex-1 min-h-[200px] p-2 space-y-2">
-                    {cards.map((p) => (
-                      <article
-                        key={p.id}
-                        draggable
-                        onDragStart={() => setDragging(p.id)}
-                        onDragEnd={() => setDragging(null)}
-                        className={cn(
-                          'group surface rounded-xl border border-[var(--border)] p-3 shadow-soft transition-all cursor-grab active:cursor-grabbing',
-                          dragging === p.id ? 'opacity-50' : 'hover:shadow-card hover:-translate-y-0.5',
-                        )}
-                      >
-                        <div className="flex items-start gap-2">
-                          <GripVertical className="h-3.5 w-3.5 text-3 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start gap-2">
-                              <Link href={`/projects/${p.id}`} className="block flex-1 min-w-0">
-                                <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2 group-hover:text-brand-600 transition-colors">
-                                  {p.name}
-                                </h4>
-                              </Link>
-                              <div className="flex items-center gap-0.5">
-                                {canCreateProject && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditForm(p)}
-                                    className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
-                                    aria-label={`Edit ${p.name}`}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {isAdmin && (
-                                  <button
-                                    type="button"
-                                    onClick={() => requestDeleteProject(p)}
-                                    className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
-                                    aria-label={`Delete ${p.name}`}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                            <p className="mt-1 text-[11px] text-3 truncate">{p.city} · {p.developer}</p>
-                            <div className="mt-2 flex items-center justify-between">
-                              <span className="text-sm font-bold tracking-tight num-tabular">
-                                {formatProjectValue(p, user?.role, true)}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] text-3 truncate max-w-[110px]">
-                                  {(() => {
-                                    const specs = formatSpecsSummary(p);
-                                    const quantity = p.itemQuantity > 0 ? `${formatNumber(p.itemQuantity, 2)} m²` : '';
-                                    return [specs, quantity].filter(Boolean).join(' · ');
-                                  })()}
-                                </span>
-                                <span className="flex items-center gap-1 text-[10px] text-3 num-tabular">
-                                  <Clock className="h-2.5 w-2.5" /> {p.daysInStage}d
-                                </span>
-                              </div>
-                            </div>
-                            <div className="mt-2 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
-                              <div className="h-full bg-brand-600" style={{ width: `${p.probability}%` }} />
-                            </div>
-                            <div className="mt-2.5 flex items-center justify-between">
-                              <div className="min-w-0">
-                                <p className="text-[10px] text-3">Manager</p>
-                                <p className="text-[11px] font-medium truncate">{p.managerName}</p>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="chip !text-[9px] !px-1.5 !py-0">sales rep-{p.salesRepNames.length}</span>
-                                {p.valueAed > 5_000_000 && <Flame className="h-3 w-3 text-amber-500" />}
-                                {p.competitor && <span className="chip !text-[9px] !px-1.5 !py-0">vs {p.competitor}</span>}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                    {cards.length === 0 && (
+                    {cards.length === 0 ? (
                       <div className="text-center py-10 text-[11px] text-3 border border-dashed border-[var(--border-strong)] rounded-xl">
                         Drop projects here
                       </div>
+                    ) : groupByCustomer ? (
+                      <PipelineCustomerGroupList
+                        projects={cards}
+                        expandedCustomers={expandedCustomers}
+                        onToggleCustomer={toggleCustomerExpanded}
+                        groupClassName="rounded-lg border border-[var(--border)]/80 bg-[var(--surface)]"
+                        headerClassName="px-2 py-2"
+                        projectsClassName="space-y-2 p-2"
+                        renderProject={(p) => (
+                          <article
+                            draggable={stageMovesEnabled}
+                            onDragStart={() => {
+                              if (stageMovesEnabled) setDragging(p.id);
+                            }}
+                            onDragEnd={() => setDragging(null)}
+                            className={cn(
+                              'group surface rounded-xl border border-[var(--border)] p-3 shadow-soft transition-all',
+                              stageMovesEnabled
+                                ? 'cursor-grab active:cursor-grabbing hover:shadow-card hover:-translate-y-0.5'
+                                : 'cursor-default',
+                              dragging === p.id ? 'opacity-50' : '',
+                            )}
+                          >
+                            <div className="flex items-start gap-2">
+                              {stageMovesEnabled ? (
+                                <GripVertical className="h-3.5 w-3.5 text-3 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                              ) : null}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start gap-2">
+                                  <Link href={`/projects/${p.id}`} className="block flex-1 min-w-0">
+                                    <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2 group-hover:text-brand-600 transition-colors">
+                                      {p.name}
+                                    </h4>
+                                  </Link>
+                                  <div className="flex items-center gap-0.5">
+                                    {canCreateProject && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditForm(p)}
+                                        className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                                        aria-label={`Edit ${p.name}`}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                    {isAdmin && (
+                                      <button
+                                        type="button"
+                                        onClick={() => requestDeleteProject(p)}
+                                        className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
+                                        aria-label={`Delete ${p.name}`}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="mt-1 text-[11px] text-3 truncate">{p.city}</p>
+                                <div className="mt-2 flex items-center justify-between">
+                                  <span className="text-sm font-bold tracking-tight num-tabular">
+                                    {formatProjectValue(p, user?.role, true)}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-3 truncate max-w-[110px]">
+                                      {(() => {
+                                        const specs = formatSpecsSummary(p);
+                                        const quantity = p.itemQuantity > 0 ? `${formatNumber(p.itemQuantity, 2)} m²` : '';
+                                        return [specs, quantity].filter(Boolean).join(' · ');
+                                      })()}
+                                    </span>
+                                    <span className="flex items-center gap-1 text-[10px] text-3 num-tabular">
+                                      <Clock className="h-2.5 w-2.5" /> {p.daysInStage}d
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="mt-2 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                                  <div className="h-full bg-brand-600" style={{ width: `${p.probability}%` }} />
+                                </div>
+                                <div className="mt-2.5 flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] text-3">Manager</p>
+                                    <p className="text-[11px] font-medium truncate">{p.managerName}</p>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0 max-w-[55%] justify-end">
+                                    <span className="chip !text-[9px] !px-1.5 !py-0 shrink-0">rep {p.salesRepNames.length}</span>
+                                    {p.valueAed > 5_000_000 && <Flame className="h-3 w-3 text-amber-500 shrink-0" />}
+                                    {p.competitor && (
+                                      <span
+                                        className="chip !text-[9px] !px-1.5 !py-0 max-w-[110px] truncate whitespace-nowrap"
+                                        title={`vs ${p.competitor}`}
+                                      >
+                                        vs {p.competitor}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </article>
+                        )}
+                      />
+                    ) : (
+                      cards.map((p) => (
+                        <article
+                          key={p.id}
+                          draggable={stageMovesEnabled}
+                          onDragStart={() => {
+                            if (stageMovesEnabled) setDragging(p.id);
+                          }}
+                          onDragEnd={() => setDragging(null)}
+                          className={cn(
+                            'group surface rounded-xl border border-[var(--border)] p-3 shadow-soft transition-all',
+                            stageMovesEnabled
+                              ? 'cursor-grab active:cursor-grabbing hover:shadow-card hover:-translate-y-0.5'
+                              : 'cursor-default',
+                            dragging === p.id ? 'opacity-50' : '',
+                          )}
+                        >
+                          <div className="flex items-start gap-2">
+                            {stageMovesEnabled ? (
+                              <GripVertical className="h-3.5 w-3.5 text-3 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                            ) : null}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start gap-2">
+                                <Link href={`/projects/${p.id}`} className="block flex-1 min-w-0">
+                                  <h4 className="text-sm font-semibold tracking-tight leading-snug line-clamp-2 group-hover:text-brand-600 transition-colors">
+                                    {p.name}
+                                  </h4>
+                                </Link>
+                                <div className="flex items-center gap-0.5">
+                                  {canCreateProject && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditForm(p)}
+                                      className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-[var(--text)] hover:bg-[var(--surface-2)]"
+                                      aria-label={`Edit ${p.name}`}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {isAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => requestDeleteProject(p)}
+                                      className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
+                                      aria-label={`Delete ${p.name}`}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="mt-1 text-[11px] text-3 truncate">{p.city} · {p.developer}</p>
+                              <div className="mt-2 flex items-center justify-between">
+                                <span className="text-sm font-bold tracking-tight num-tabular">
+                                  {formatProjectValue(p, user?.role, true)}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-3 truncate max-w-[110px]">
+                                    {(() => {
+                                      const specs = formatSpecsSummary(p);
+                                      const quantity = p.itemQuantity > 0 ? `${formatNumber(p.itemQuantity, 2)} m²` : '';
+                                      return [specs, quantity].filter(Boolean).join(' · ');
+                                    })()}
+                                  </span>
+                                  <span className="flex items-center gap-1 text-[10px] text-3 num-tabular">
+                                    <Clock className="h-2.5 w-2.5" /> {p.daysInStage}d
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="mt-2 h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
+                                <div className="h-full bg-brand-600" style={{ width: `${p.probability}%` }} />
+                              </div>
+                              <div className="mt-2.5 flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] text-3">Manager</p>
+                                  <p className="text-[11px] font-medium truncate">{p.managerName}</p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0 max-w-[55%] justify-end">
+                                  <span className="chip !text-[9px] !px-1.5 !py-0 shrink-0">rep {p.salesRepNames.length}</span>
+                                  {p.valueAed > 5_000_000 && <Flame className="h-3 w-3 text-amber-500 shrink-0" />}
+                                  {p.competitor && (
+                                    <span
+                                      className="chip !text-[9px] !px-1.5 !py-0 max-w-[110px] truncate whitespace-nowrap"
+                                      title={`vs ${p.competitor}`}
+                                    >
+                                      vs {p.competitor}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </article>
+                      ))
                     )}
                   </div>
                 </div>
@@ -1314,6 +1709,15 @@ function buildProjectAssignmentPayload(
           </div>
         </div>
       </div>
+
+      {lossPrompt && (
+        <LossStagePrompt
+          prompt={lossPrompt.prompt}
+          onChange={(prompt) => setLossPrompt((prev) => (prev ? { ...prev, prompt } : prev))}
+          onClose={closeLossPrompt}
+          onSubmit={() => void submitLossPrompt()}
+        />
+      )}
 
       {commercialPrompt && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 flex items-center justify-center">
@@ -1732,6 +2136,7 @@ function toPipelineProject(project: ApiProject): PipelineProject {
     probability: project.probability,
     daysInStage: project.daysInStage,
     competitor: project.competitor,
+    lossReason: project.lossReason ?? null,
     owner: project.owner,
     regionalManagerId: project.regionalManagerId,
     regionalManagerName: project.regionalManagerName,

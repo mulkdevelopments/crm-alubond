@@ -22,6 +22,7 @@ import {
 } from "../modules/projects/projects.repository";
 import { accessRequestsRouter } from "../modules/access-requests/access-requests.routes";
 import { authRouter } from "../modules/auth/auth.routes";
+import { ecosystemRouter } from "../modules/ecosystem/ecosystem.routes";
 import { masterDataRouter } from "../modules/master-data/master-data.routes";
 import { usersRouter } from "../modules/users/users.routes";
 
@@ -56,12 +57,13 @@ const projectPayloadSchema = z.object({
   probability: z.number().min(0).max(100).optional().default(0),
   daysInStage: z.number().int().min(0).optional().default(1),
   competitor: z.string().nullable().optional().default(null),
+  lossReason: z.string().trim().max(500).nullable().optional().default(null),
   regionalManagerId: optionalEntityIdSchema,
   managerId: optionalEntityIdSchema,
   salesRepIds: z.array(entityIdSchema).optional().default([])
 });
 
-const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Expected", "Won", "Lost"]);
+const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Expected", "Won"]);
 
 function requiresCommercialDetails(stage: string) {
   return tenderOrLaterStages.has(stage);
@@ -86,6 +88,16 @@ function validateCommercialPayload(payload: {
   }
   if (!commercialSpecsComplete(payload.specThickness, payload.specCore, payload.specPaintType)) {
     return "Project specifications (thickness, core, and paint type) are required for Tender stage and later.";
+  }
+  return null;
+}
+
+function validateLossPayload(payload: { stage: string; lossReason: string | null }): string | null {
+  if (payload.stage !== "Lost") {
+    return null;
+  }
+  if (!payload.lossReason?.trim()) {
+    return "Loss reason is required when marking a project as Lost.";
   }
   return null;
 }
@@ -455,6 +467,7 @@ apiRouter.use("/auth", authRouter);
 apiRouter.use("/access-requests", accessRequestsRouter);
 apiRouter.use("/master-data", masterDataRouter);
 apiRouter.use("/users", usersRouter);
+apiRouter.use("/ecosystem", ecosystemRouter);
 
 apiRouter.post("/ai/assistant", authenticate, async (req, res) => {
   const parsed = assistantChatSchema.safeParse(req.body);
@@ -790,6 +803,7 @@ function projectCoreFields(payload: z.infer<typeof projectPayloadSchema>) {
     probability: payload.probability,
     daysInStage: payload.daysInStage,
     competitor: payload.competitor,
+    lossReason: payload.lossReason,
     itemQuantity: payload.itemQuantity,
   };
 }
@@ -837,6 +851,12 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
   });
   if (commercialError) {
     res.status(400).json({ message: commercialError });
+    return;
+  }
+
+  const lossError = validateLossPayload({ stage: payload.stage, lossReason: payload.lossReason });
+  if (lossError) {
+    res.status(400).json({ message: lossError });
     return;
   }
 
@@ -932,6 +952,12 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   });
   if (commercialError) {
     res.status(400).json({ message: commercialError });
+    return;
+  }
+
+  const lossError = validateLossPayload({ stage: payload.stage, lossReason: payload.lossReason });
+  if (lossError) {
+    res.status(400).json({ message: lossError });
     return;
   }
 

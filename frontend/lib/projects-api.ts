@@ -23,6 +23,7 @@ export type ApiProject = {
   probability: number;
   daysInStage: number;
   competitor: string | null;
+  lossReason: string | null;
   owner: string;
   regionalManagerId: string | null;
   regionalManagerName: string;
@@ -93,6 +94,7 @@ export type ProjectUpsertPayload = {
   probability: number;
   daysInStage: number;
   competitor: string | null;
+  lossReason?: string | null;
   regionalManagerId?: string | null;
   managerId?: string | null;
   salesRepIds?: string[];
