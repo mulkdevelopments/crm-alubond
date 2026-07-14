@@ -1,7 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -45,7 +45,11 @@ const STAKEHOLDER_ROLES: ProjectStakeholder["role"][] = [
 ];
 
 export default function ProjectDetailScreen() {
-  const { id, composeActivity } = useLocalSearchParams<{ id: string; composeActivity?: string }>();
+  const { id, composeActivity, projectIds: projectIdsParam } = useLocalSearchParams<{
+    id: string;
+    composeActivity?: string;
+    projectIds?: string;
+  }>();
   const router = useRouter();
   const { token, user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
@@ -65,6 +69,15 @@ export default function ProjectDetailScreen() {
   const [stakeholderOrg, setStakeholderOrg] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const targetProjectIds = useMemo(() => {
+    if (typeof projectIdsParam === "string" && projectIdsParam.trim()) {
+      const ids = projectIdsParam.split(",").map((entry) => entry.trim()).filter(Boolean);
+      if (ids.length > 0) return ids;
+    }
+    return id ? [id] : [];
+  }, [projectIdsParam, id]);
+  const loggingToMultipleProjects = targetProjectIds.length > 1;
 
   const load = useCallback(async () => {
     if (!token || !id) return;
@@ -130,12 +143,16 @@ export default function ProjectDetailScreen() {
         });
       }
 
-      await createProjectActivity(token, id, {
+      const activityPayload = {
         type: activityType,
         message: message.trim(),
         visitWhatHappened: activityType === "visit" ? visitNotes.trim() || message.trim() : undefined,
         visitLocation,
-      });
+      };
+
+      for (const projectId of targetProjectIds) {
+        await createProjectActivity(token, projectId, activityPayload);
+      }
 
       setMessage("");
       setVisitNotes("");
@@ -248,7 +265,9 @@ export default function ProjectDetailScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.card}>
-          <Text style={styles.stage}>{formatStage(project.stage)}</Text>
+          <Text style={[styles.stage, project.stage === "Lost" && styles.stageLost]}>
+            {formatStage(project.stage)}
+          </Text>
           <Text style={styles.meta}>{project.city}, {project.country}</Text>
           <Text style={styles.meta}>{project.developer || "Customer TBD"}</Text>
           <Text style={styles.value}>{formatProjectValue(project, user?.role)}</Text>
@@ -263,8 +282,27 @@ export default function ProjectDetailScreen() {
           <Text style={styles.meta}>Created by: {project.createdByName?.trim() || "Not recorded"}</Text>
         </View>
 
+        {project.stage === "Lost" ? (
+          <View style={styles.lossCard}>
+            <Text style={styles.lossEyebrow}>Loss details</Text>
+            <View style={styles.lossBlock}>
+              <Text style={styles.lossLabel}>Reason</Text>
+              <Text style={styles.lossReasonText}>{project.lossReason?.trim() || "Not recorded"}</Text>
+            </View>
+            <View style={[styles.lossBlock, styles.lossBlockLast]}>
+              <Text style={styles.lossLabel}>Who won</Text>
+              <Text style={styles.lossWinnerText}>{project.competitor?.trim() || "Not recorded"}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <View onLayout={(event) => { activitySectionY.current = event.nativeEvent.layout.y; }}>
           <Text style={styles.section}>Log activity</Text>
+          {loggingToMultipleProjects ? (
+            <Text style={styles.multiProjectHint}>
+              This update will be logged to {targetProjectIds.length} projects.
+            </Text>
+          ) : null}
         </View>
         <View style={styles.typeRow}>
           {ACTIVITY_TYPES.map((type) => (
@@ -354,9 +392,49 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   stage: { fontSize: 13, fontWeight: "700", color: colors.brand },
+  stageLost: { color: colors.danger },
+  lossCard: {
+    backgroundColor: "#FFF1F2",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(244, 63, 94, 0.25)",
+    padding: 16,
+    marginBottom: 8,
+  },
+  lossEyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: "#BE123C",
+    marginBottom: 12,
+  },
+  lossBlock: {
+    marginBottom: 12,
+  },
+  lossBlockLast: {
+    marginBottom: 0,
+  },
+  lossLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9F1239",
+    marginBottom: 4,
+  },
+  lossReasonText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#881337",
+  },
+  lossWinnerText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#881337",
+  },
   meta: { marginTop: 6, fontSize: 13, color: colors.textMuted },
   value: { marginTop: 10, fontSize: 22, fontWeight: "800", color: colors.text },
   section: { marginTop: 24, marginBottom: 10, fontSize: 16, fontWeight: "700", color: colors.text },
+  multiProjectHint: { marginBottom: 8, fontSize: 12, color: colors.textMuted },
   typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 },
   typeChip: {
     borderRadius: 999,

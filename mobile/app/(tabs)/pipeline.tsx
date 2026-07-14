@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { ChevronDown, Plus, Search } from "lucide-react-native";
+import { ChevronDown, Layers, Plus, Search } from "lucide-react-native";
 
 import { OptionSheet } from "@/components/pipeline/OptionSheet";
 import {
@@ -19,7 +19,13 @@ import {
   validateCommercialPrompt,
   type CommercialPromptState,
 } from "@/components/pipeline/CommercialStagePrompt";
+import {
+  createLossPromptState,
+  LossStagePrompt,
+  type LossPromptState,
+} from "@/components/pipeline/LossStagePrompt";
 import { PipelineProjectCard } from "@/components/pipeline/PipelineProjectCard";
+import { PipelineCustomerGroupList } from "@/components/pipeline/PipelineCustomerGroupList";
 import { EmptyState, ScreenLoader } from "@/components/ScreenLoader";
 import { ThemeColors, useThemeColors } from "@/constants/theme";
 import { listActiveCurrencies, type ActiveCurrencyItem } from "@/lib/api/master-data-api";
@@ -44,6 +50,8 @@ import {
   requiresCommercialDetails,
 } from "@/lib/project-specs";
 import { effectiveValueLocal, formatAed, parseFormattedNumber } from "@/lib/utils";
+import { validateLossPrompt } from "@/lib/loss-reasons";
+import { groupProjectsByCustomer } from "@/lib/group-projects-by-customer";
 
 type DivisionFilter = "ALL" | "UNASSIGNED" | (typeof BUSINESS_DIVISIONS)[number];
 
@@ -89,6 +97,12 @@ export default function PipelineScreen() {
     project: ApiProject;
     prompt: CommercialPromptState;
   } | null>(null);
+  const [lossPrompt, setLossPrompt] = useState<{
+    project: ApiProject;
+    prompt: LossPromptState;
+  } | null>(null);
+  const [groupByCustomer, setGroupByCustomer] = useState(false);
+  const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
   const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
 
   const canCreate = canManageProjects(user?.role);
@@ -139,6 +153,21 @@ export default function PipelineScreen() {
       .filter((project) => project.stage === mobileStage)
       .reduce((sum, project) => sum + project.valueAed, 0);
   }, [visibleProjects, mobileStage]);
+
+  useEffect(() => {
+    if (!groupByCustomer || !query.trim()) return;
+    setExpandedCustomers((prev) => {
+      const next = { ...prev };
+      for (const group of groupProjectsByCustomer(stageItems)) {
+        next[group.customer] = true;
+      }
+      return next;
+    });
+  }, [groupByCustomer, query, stageItems]);
+
+  function toggleCustomerExpanded(customer: string) {
+    setExpandedCustomers((prev) => ({ ...prev, [customer]: !prev[customer] }));
+  }
 
   async function onRefresh() {
     setRefreshing(true);
@@ -236,6 +265,7 @@ export default function PipelineScreen() {
       probability: project.probability,
       daysInStage: nextDaysInStage,
       competitor: project.competitor,
+      lossReason: project.lossReason,
       regionalManagerId: project.regionalManagerId,
       managerId: project.managerId,
       salesRepIds: project.salesRepIds,
@@ -244,6 +274,14 @@ export default function PipelineScreen() {
 
   function requestStageChange(project: ApiProject, nextStage: Stage) {
     if (project.stage === nextStage) return;
+
+    if (nextStage === "Lost") {
+      setLossPrompt({
+        project,
+        prompt: createLossPromptState({ lossReason: project.lossReason, competitor: project.competitor }),
+      });
+      return;
+    }
 
     if (requiresCommercialDetails(nextStage)) {
       setCommercialPrompt({
@@ -264,6 +302,94 @@ export default function PipelineScreen() {
       void load();
       Alert.alert("Stage update failed", err instanceof Error ? err.message : "Please try again.");
     });
+  }
+
+  async function persistLossStageChange(
+    project: ApiProject,
+    loss: { lossReason: string; competitor: string | null },
+  ) {
+    if (!token) return;
+    const nextStage: Stage = "Lost";
+    const nextDaysInStage = project.stage === nextStage ? project.daysInStage : 1;
+    const itemName =
+      commercialSpecsComplete(project.specThickness ?? "", project.specCore ?? "", project.specPaintType ?? "")
+        ? formatProjectSpecs(project.specThickness ?? "", project.specCore ?? "", project.specPaintType ?? "")
+        : project.itemName;
+
+    setProjects((current) =>
+      current.map((entry) =>
+        entry.id === project.id
+          ? {
+              ...entry,
+              stage: nextStage,
+              daysInStage: nextDaysInStage,
+              probability: 0,
+              lossReason: loss.lossReason,
+              competitor: loss.competitor,
+            }
+          : entry,
+      ),
+    );
+
+    await updateProject(token, project.id, {
+      name: project.name,
+      city: project.city,
+      country: project.country,
+      developer: project.developer,
+      businessDivision: project.businessDivision,
+      stage: nextStage,
+      valueLocal: effectiveValueLocal(project),
+      currencyCode: project.currencyCode || "AED",
+      itemName,
+      itemQuantity: project.itemQuantity,
+      specThickness: project.specThickness,
+      specCore: project.specCore,
+      specPaintType: project.specPaintType,
+      lat: project.lat,
+      lng: project.lng,
+      probability: 0,
+      daysInStage: nextDaysInStage,
+      competitor: loss.competitor,
+      lossReason: loss.lossReason,
+      regionalManagerId: project.regionalManagerId,
+      managerId: project.managerId,
+      salesRepIds: project.salesRepIds,
+    });
+  }
+
+  async function submitLossPrompt() {
+    if (!lossPrompt) return;
+
+    const validationError = validateLossPrompt(lossPrompt.prompt);
+    if (validationError) {
+      setLossPrompt({
+        ...lossPrompt,
+        prompt: { ...lossPrompt.prompt, error: validationError },
+      });
+      return;
+    }
+
+    const lossReason = lossPrompt.prompt.reason.trim();
+    const competitor = lossPrompt.prompt.winner.trim() || null;
+
+    setLossPrompt({
+      ...lossPrompt,
+      prompt: { ...lossPrompt.prompt, error: null, saving: true },
+    });
+
+    try {
+      await persistLossStageChange(lossPrompt.project, { lossReason, competitor });
+      setLossPrompt(null);
+    } catch {
+      setLossPrompt({
+        ...lossPrompt,
+        prompt: {
+          ...lossPrompt.prompt,
+          saving: false,
+          error: "Failed to update stage. Please retry.",
+        },
+      });
+    }
   }
 
   async function submitCommercialPrompt() {
@@ -362,6 +488,22 @@ export default function PipelineScreen() {
           </Pressable>
         ) : null}
 
+        <Pressable
+          style={[
+            styles.groupToggle,
+            {
+              backgroundColor: groupByCustomer ? colors.brand : colors.surface,
+              borderColor: groupByCustomer ? colors.brand : colors.border,
+            },
+          ]}
+          onPress={() => setGroupByCustomer((prev) => !prev)}
+        >
+          <Layers size={16} color={groupByCustomer ? "#fff" : colors.text3} strokeWidth={2.2} />
+          <Text style={[styles.groupToggleText, { color: groupByCustomer ? "#fff" : colors.text }]}>
+            {groupByCustomer ? "Grouped by customer" : "Group by customer"}
+          </Text>
+        </Pressable>
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -411,29 +553,50 @@ export default function PipelineScreen() {
           </View>
         ) : null}
 
-        <View style={styles.list}>
-          {stageItems.map((project) => (
-            <PipelineProjectCard
-              key={project.id}
-              project={project}
-              viewerRole={user?.role}
-              canEdit={canCreate}
-              isAdmin={isAdmin}
-              onPress={() => router.push(`/project/${project.id}`)}
-              onEdit={() => router.push(`/project/form?id=${project.id}`)}
-              onDelete={() => onDelete(project)}
-              onMoveStagePress={() => setStageMoveProject(project)}
-            />
-          ))}
-
-          {stageItems.length === 0 ? (
-            <View style={[styles.emptyStage, { borderColor: colors.border }]}>
-              <Text style={[styles.emptyStageText, { color: colors.text3 }]}>
-                No projects in {stageTitle(mobileStage)}.
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        {stageItems.length === 0 ? (
+          <View style={[styles.emptyStage, { borderColor: colors.border }]}>
+            <Text style={[styles.emptyStageText, { color: colors.text3 }]}>
+              No projects in {stageTitle(mobileStage)}.
+            </Text>
+          </View>
+        ) : groupByCustomer ? (
+          <PipelineCustomerGroupList
+            projects={stageItems}
+            expandedCustomers={expandedCustomers}
+            onToggleCustomer={toggleCustomerExpanded}
+            renderProject={(project) => (
+              <PipelineProjectCard
+                project={project}
+                viewerRole={user?.role}
+                canEdit={canCreate}
+                isAdmin={isAdmin}
+                showCustomer={false}
+                onPress={() => router.push(`/project/${project.id}`)}
+                onEdit={() => router.push(`/project/form?id=${project.id}`)}
+                onDelete={() => onDelete(project)}
+                onMoveStagePress={() => setStageMoveProject(project)}
+                stageMovesEnabled={true}
+              />
+            )}
+          />
+        ) : (
+          <View style={styles.list}>
+            {stageItems.map((project) => (
+              <PipelineProjectCard
+                key={project.id}
+                project={project}
+                viewerRole={user?.role}
+                canEdit={canCreate}
+                isAdmin={isAdmin}
+                onPress={() => router.push(`/project/${project.id}`)}
+                onEdit={() => router.push(`/project/form?id=${project.id}`)}
+                onDelete={() => onDelete(project)}
+                onMoveStagePress={() => setStageMoveProject(project)}
+                stageMovesEnabled={true}
+              />
+            ))}
+          </View>
+        )}
 
         {!error && projects.length === 0 ? (
           <EmptyState title="No projects yet" subtitle="Create your first project to start building pipeline." />
@@ -477,6 +640,21 @@ export default function PipelineScreen() {
           setCommercialPrompt(null);
         }}
         onSubmit={() => void submitCommercialPrompt()}
+      />
+
+      <LossStagePrompt
+        visible={Boolean(lossPrompt)}
+        prompt={lossPrompt?.prompt ?? null}
+        onChange={(prompt) => {
+          if (lossPrompt) {
+            setLossPrompt({ ...lossPrompt, prompt });
+          }
+        }}
+        onClose={() => {
+          if (lossPrompt?.prompt.saving) return;
+          setLossPrompt(null);
+        }}
+        onSubmit={() => void submitLossPrompt()}
       />
     </View>
   );
@@ -538,6 +716,48 @@ function createStyles(colors: ThemeColors) {
     divisionSelectText: {
       fontSize: 14,
       fontWeight: "600",
+    },
+    groupToggle: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    groupToggleText: {
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    moveToggleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      borderWidth: 1,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    moveToggleCopy: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    moveToggleTextWrap: {
+      flex: 1,
+    },
+    moveToggleTitle: {
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    moveToggleHint: {
+      marginTop: 2,
+      fontSize: 11,
+      lineHeight: 15,
     },
     stageScroll: {
       marginHorizontal: -16,

@@ -15,6 +15,8 @@ export function PipelineProjectCard({
   onEdit,
   onDelete,
   onMoveStagePress,
+  stageMovesEnabled,
+  showCustomer = true,
 }: {
   project: ApiProject;
   viewerRole?: string;
@@ -24,6 +26,8 @@ export function PipelineProjectCard({
   onEdit: () => void;
   onDelete: () => void;
   onMoveStagePress: () => void;
+  stageMovesEnabled: boolean;
+  showCustomer?: boolean;
 }) {
   const colors = useThemeColors();
   const styles = createStyles(colors);
@@ -36,7 +40,9 @@ export function PipelineProjectCard({
             {project.name}
           </Text>
           <Text style={[styles.meta, { color: colors.text3 }]} numberOfLines={1}>
-            {project.city} · {project.developer || "Customer TBD"}
+            {showCustomer
+              ? `${project.city} · ${project.developer || "Customer TBD"}`
+              : project.city}
           </Text>
         </Pressable>
         <View style={styles.actions}>
@@ -87,14 +93,20 @@ export function PipelineProjectCard({
       </View>
 
       <View style={styles.moveStage}>
-        <Text style={[styles.moveLabel, { color: colors.text3 }]}>Move stage</Text>
-        <Pressable
-          style={[styles.select, { backgroundColor: colors.surface2, borderColor: colors.border }]}
-          onPress={onMoveStagePress}
-        >
-          <Text style={[styles.selectText, { color: colors.text }]}>{stageTitle(project.stage)}</Text>
-          <ChevronDown size={14} color={colors.text3} strokeWidth={2.2} />
-        </Pressable>
+        <Text style={[styles.moveLabel, { color: colors.text3 }]}>Stage</Text>
+        {stageMovesEnabled ? (
+          <Pressable
+            style={[styles.select, { backgroundColor: colors.surface2, borderColor: colors.border }]}
+            onPress={onMoveStagePress}
+          >
+            <Text style={[styles.selectText, { color: colors.text }]}>{stageTitle(project.stage)}</Text>
+            <ChevronDown size={14} color={colors.text3} strokeWidth={2.2} />
+          </Pressable>
+        ) : (
+          <View style={[styles.select, styles.selectLocked, { backgroundColor: colors.surface2, borderColor: colors.border }]}>
+            <Text style={[styles.selectText, { color: colors.text2 }]}>{stageTitle(project.stage)}</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -212,6 +224,9 @@ function createStyles(colors: ThemeColors) {
     selectText: {
       fontSize: 12,
       fontWeight: "600",
+    },
+    selectLocked: {
+      opacity: 0.85,
     },
   });
 }

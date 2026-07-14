@@ -1,6 +1,8 @@
 import { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import MapView, { Marker, PROVIDER_DEFAULT, type MapPressEvent } from "react-native-maps";
+
+import { OsmMapView } from "@/components/map/OsmMapView";
 
 const DEFAULT_LAT = 25.2048;
 const DEFAULT_LNG = 55.2708;
@@ -30,6 +32,21 @@ export function LocationPickerMap({
 
   function handlePress(event: MapPressEvent) {
     onPick(event.nativeEvent.coordinate.latitude, event.nativeEvent.coordinate.longitude);
+  }
+
+  if (Platform.OS === "android") {
+    return (
+      <View style={[styles.wrap, { height }]}>
+        <OsmMapView
+          style={StyleSheet.absoluteFill}
+          initialRegion={region}
+          pickMode
+          pickPoint={hasPoint ? { latitude: lat!, longitude: lng! } : null}
+          onPick={onPick}
+          interactionEnabled
+        />
+      </View>
+    );
   }
 
   return (

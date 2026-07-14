@@ -10,7 +10,7 @@ import {
 import { usePathname, useRouter } from "expo-router";
 import { Briefcase, ClipboardList, Plus, X } from "lucide-react-native";
 
-import { FormSelect } from "@/components/ui/FormSelect";
+import { ActivityProjectPicker } from "@/components/activity/ActivityProjectPicker";
 import { ThemeColors, useThemeColors } from "@/constants/theme";
 import { listProjects, type ApiProject } from "@/lib/api/projects-api";
 import { useAuth, canManageProjects } from "@/lib/auth/AuthContext";
@@ -26,7 +26,7 @@ export function QuickActivityFab({ bottom }: { bottom: number }) {
   const [openChoice, setOpenChoice] = useState(false);
   const [openActivityPicker, setOpenActivityPicker] = useState(false);
   const [projects, setProjects] = useState<ApiProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
 
@@ -45,7 +45,7 @@ export function QuickActivityFab({ bottom }: { bottom: number }) {
       .then((items) => {
         if (cancelled) return;
         setProjects(items);
-        setSelectedProjectId((prev) => prev || items[0]?.id || "");
+        setSelectedProjectIds([]);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -84,22 +84,22 @@ export function QuickActivityFab({ bottom }: { bottom: number }) {
     router.push("/project/form");
   }
 
-  function openComposerForSelectedProject() {
-    if (!selectedProjectId) {
-      setPickerError("Select a project to continue.");
+  function openComposerForSelectedProjects() {
+    if (selectedProjectIds.length === 0) {
+      setPickerError("Select at least one project to continue.");
       return;
     }
+    const [firstProjectId] = selectedProjectIds;
     setOpenActivityPicker(false);
     router.push({
       pathname: "/project/[id]",
-      params: { id: selectedProjectId, composeActivity: "1" },
+      params: {
+        id: firstProjectId,
+        composeActivity: "1",
+        projectIds: selectedProjectIds.join(","),
+      },
     });
   }
-
-  const projectOptions = projects.map((project) => ({
-    value: project.id,
-    label: project.name,
-  }));
 
   return (
     <>
@@ -146,7 +146,7 @@ export function QuickActivityFab({ bottom }: { bottom: number }) {
             <View style={styles.dialogHeader}>
               <View style={styles.dialogHeaderText}>
                 <Text style={styles.dialogTitle}>Log activity</Text>
-                <Text style={styles.dialogSubtitle}>Choose a project first.</Text>
+                <Text style={styles.dialogSubtitle}>Select one or more projects grouped by customer.</Text>
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closeAll} style={styles.iconBtn}>
                 <X size={16} color={colors.text2} strokeWidth={2.2} />
@@ -156,14 +156,17 @@ export function QuickActivityFab({ bottom }: { bottom: number }) {
               {loadingProjects ? (
                 <ActivityIndicator color={colors.brand} style={{ marginVertical: 12 }} />
               ) : (
-                <FormSelect
-                  value={selectedProjectId}
-                  placeholder="Select project"
-                  options={projectOptions}
-                  onChange={setSelectedProjectId}
-                  disabled={loadingProjects}
+                <ActivityProjectPicker
+                  projects={projects}
+                  selectedIds={selectedProjectIds}
+                  onChange={setSelectedProjectIds}
                 />
               )}
+              {selectedProjectIds.length > 0 ? (
+                <Text style={styles.selectionCount}>
+                  {selectedProjectIds.length} project{selectedProjectIds.length === 1 ? "" : "s"} selected
+                </Text>
+              ) : null}
               {pickerError ? <Text style={styles.error}>{pickerError}</Text> : null}
               <View style={styles.dialogActions}>
                 <Pressable style={styles.ghostBtn} onPress={closeAll}>
@@ -171,8 +174,8 @@ export function QuickActivityFab({ bottom }: { bottom: number }) {
                 </Pressable>
                 <Pressable
                   style={[styles.primaryBtn, loadingProjects && styles.primaryBtnDisabled]}
-                  onPress={openComposerForSelectedProject}
-                  disabled={loadingProjects}
+                  onPress={openComposerForSelectedProjects}
+                  disabled={loadingProjects || selectedProjectIds.length === 0}
                 >
                   <Text style={styles.primaryBtnText}>{loadingProjects ? "Loading..." : "Continue"}</Text>
                 </Pressable>
@@ -274,6 +277,7 @@ function createStyles(colors: ThemeColors) {
     choiceTitle: { marginTop: 12, fontSize: 14, fontWeight: "700", color: colors.text },
     choiceSubtitle: { marginTop: 4, fontSize: 12, color: colors.text3, lineHeight: 16 },
     dialogBody: { padding: 16, gap: 12 },
+    selectionCount: { fontSize: 12, color: colors.text3 },
     error: { fontSize: 12, color: colors.danger },
     dialogActions: {
       flexDirection: "row",

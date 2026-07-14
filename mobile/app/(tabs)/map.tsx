@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,6 +14,7 @@ import { AlertTriangle, RefreshCw, RotateCcw } from "lucide-react-native";
 
 import { MapInteractionOverlay } from "@/components/map/MapInteractionOverlay";
 import { MapMobileProjectSheet } from "@/components/map/MapMobileProjectSheet";
+import { OsmMapView, type OsmMapViewRef } from "@/components/map/OsmMapView";
 import { ProjectMapMarker } from "@/components/map/ProjectMapMarker";
 import { ScreenLoader } from "@/components/ScreenLoader";
 import { Badge } from "@/components/ui/Badge";
@@ -23,6 +25,7 @@ import {
   STAGE_LEGEND_ORDER,
   mapStageLabel,
   markerColor,
+  markerRadius,
   stageTone,
 } from "@/lib/map/stages";
 import {
@@ -45,8 +48,10 @@ export default function MapScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
-  const mapRef = useRef<MapView>(null);
+  const nativeMapRef = useRef<MapView>(null);
+  const osmMapRef = useRef<OsmMapViewRef>(null);
   const { token, user } = useAuth();
+  const useOsm = Platform.OS === "android";
 
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [latestActivityByProjectId, setLatestActivityByProjectId] = useState<
@@ -80,6 +85,26 @@ export default function MapScreen() {
     if (!stageFilter) return validProjects;
     return validProjects.filter((project) => project.stage === stageFilter);
   }, [validProjects, stageFilter]);
+
+  const osmMarkers = useMemo(
+    () =>
+      filteredProjects.map((project) => ({
+        id: project.id,
+        latitude: project.lat,
+        longitude: project.lng,
+        color: markerColor(project.stage),
+        radius: markerRadius(project.valueAed),
+      })),
+    [filteredProjects],
+  );
+
+  function animateToRegion(region: Region, durationMs = 500) {
+    if (useOsm) {
+      osmMapRef.current?.animateToRegion(region, durationMs);
+    } else {
+      nativeMapRef.current?.animateToRegion(region, durationMs);
+    }
+  }
 
   const overviewRegion = useMemo<Region>(() => {
     if (filteredProjects.length === 0) return DEFAULT_REGION;
@@ -176,11 +201,11 @@ export default function MapScreen() {
   }, [loadProjects]);
 
   useEffect(() => {
-    mapRef.current?.animateToRegion(overviewRegion, 500);
+    animateToRegion(overviewRegion, 500);
   }, [overviewRegion]);
 
   function focusProject(project: ApiProject) {
-    mapRef.current?.animateToRegion(
+    animateToRegion(
       {
         latitude: project.lat,
         longitude: project.lng,
@@ -197,8 +222,13 @@ export default function MapScreen() {
     setMobileMapProjectId(project.id);
   }
 
+  function handleOsmMarkerPress(projectId: string) {
+    const project = filteredProjects.find((item) => item.id === projectId);
+    if (project) handleMarkerPress(project);
+  }
+
   function resetMapView() {
-    mapRef.current?.animateToRegion(overviewRegion, 800);
+    animateToRegion(overviewRegion, 800);
     setFocusedProjectId(null);
     setMobileMapProjectId(null);
     setMapActive(false);
@@ -257,24 +287,35 @@ export default function MapScreen() {
 
           <View style={styles.mapWrapOuter}>
             <View style={[styles.mapWrap, { borderColor: colors.border }]}>
-              <MapView
-                ref={mapRef}
-                style={styles.map}
-                provider={PROVIDER_DEFAULT}
-                initialRegion={overviewRegion}
-                scrollEnabled={mapActive}
-                zoomEnabled={mapActive}
-                pitchEnabled={mapActive}
-                rotateEnabled={mapActive}
-              >
-                {filteredProjects.map((project) => (
-                  <ProjectMapMarker
-                    key={project.id}
-                    project={project}
-                    onPress={() => handleMarkerPress(project)}
-                  />
-                ))}
-              </MapView>
+              {useOsm ? (
+                <OsmMapView
+                  ref={osmMapRef}
+                  style={styles.map}
+                  initialRegion={overviewRegion}
+                  markers={osmMarkers}
+                  interactionEnabled={mapActive}
+                  onMarkerPress={handleOsmMarkerPress}
+                />
+              ) : (
+                <MapView
+                  ref={nativeMapRef}
+                  style={styles.map}
+                  provider={PROVIDER_DEFAULT}
+                  initialRegion={overviewRegion}
+                  scrollEnabled={mapActive}
+                  zoomEnabled={mapActive}
+                  pitchEnabled={mapActive}
+                  rotateEnabled={mapActive}
+                >
+                  {filteredProjects.map((project) => (
+                    <ProjectMapMarker
+                      key={project.id}
+                      project={project}
+                      onPress={() => handleMarkerPress(project)}
+                    />
+                  ))}
+                </MapView>
+              )}
 
               <Pressable
                 style={[styles.resetBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}

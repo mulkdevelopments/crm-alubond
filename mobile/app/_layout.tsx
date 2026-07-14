@@ -25,29 +25,48 @@ export default function RootLayout() {
   const [booting, setBooting] = useState(true);
 
   useEffect(() => {
+    if (!loaded) return;
+
+    let cancelled = false;
+
     async function boot() {
       try {
         const storedToken = await getStoredToken();
         const storedUser = await getStoredUser();
+        if (cancelled) return;
         if (storedToken) {
           setToken(storedToken);
           if (storedUser) setUser(storedUser);
           try {
             const fresh = await fetchMe(storedToken);
+            if (cancelled) return;
             setUser(fresh);
             await saveSession(storedToken, fresh);
           } catch {
             await clearSession();
+            if (cancelled) return;
             setToken(null);
             setUser(null);
           }
         }
+      } catch {
+        // SecureStore / network failures must not leave the splash stuck or kill boot.
+        if (!cancelled) {
+          setToken(null);
+          setUser(null);
+        }
       } finally {
-        setBooting(false);
-        if (loaded) SplashScreen.hideAsync();
+        if (!cancelled) {
+          setBooting(false);
+          await SplashScreen.hideAsync().catch(() => undefined);
+        }
       }
     }
-    if (loaded) void boot();
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
   }, [loaded]);
 
   const login = useCallback(async (email: string, password: string) => {

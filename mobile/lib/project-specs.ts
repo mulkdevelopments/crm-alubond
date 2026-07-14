@@ -27,5 +27,5 @@ export function formatSpecsSummary(project: {
 }
 
 export function requiresCommercialDetails(stage: string) {
-  return ["Tender", "Negotiation", "Approved", "PO Expected", "Won", "Lost"].includes(stage);
+  return ["Tender", "Negotiation", "Approved", "PO Expected", "Won"].includes(stage);
 }

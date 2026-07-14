@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { MessageSquare, Send, Sparkles, X } from "lucide-react-native";
 
+import { AssistantMessageBody } from "@/components/shell/AssistantMessageBody";
 import { ThemeColors, useThemeColors } from "@/constants/theme";
 import { askAssistant, type AssistantMessage } from "@/lib/api/ai-api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -31,20 +32,29 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([INITIAL_MESSAGE]);
   const scrollRef = useRef<ScrollView>(null);
+  const stickToBottomRef = useRef(true);
 
   const historyForApi = useMemo(
     () => messages.filter((msg) => msg.role === "user" || msg.role === "assistant").slice(-12),
-    [messages]
+    [messages],
   );
+
+  function scrollToBottom(animated = true) {
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToEnd({ animated });
+    });
+  }
 
   async function onSubmit() {
     const question = input.trim();
     if (!question || !token || loading) return;
 
+    stickToBottomRef.current = true;
     const nextMessages: AssistantMessage[] = [...messages, { role: "user", content: question }];
     setMessages(nextMessages);
     setInput("");
     setLoading(true);
+    scrollToBottom();
     try {
       const answer = await askAssistant(token, question, historyForApi);
       setMessages((prev) => [...prev, { role: "assistant", content: answer }]);
@@ -58,23 +68,30 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
       ]);
     } finally {
       setLoading(false);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      scrollToBottom();
     }
   }
 
   return (
     <>
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+        {/*
+          Use a View shell + separate backdrop Pressable so the ScrollView is NOT nested
+          inside a Pressable (Android often steals pan gestures and makes chat feel stuck).
+        */}
+        <View style={styles.backdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setOpen(false)}
+            accessibilityLabel="Dismiss AI assistant"
+          />
+
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={styles.panelWrap}
             pointerEvents="box-none"
           >
-            <Pressable
-              style={[styles.panel, { bottom: bottom + 56 }]}
-              onPress={(event) => event.stopPropagation()}
-            >
+            <View style={[styles.panel, { bottom: bottom + 56 }]} collapsable={false}>
               <View style={styles.panelHeader}>
                 <View style={styles.panelTitleRow}>
                   <Sparkles size={16} color={colors.brand} strokeWidth={2.2} />
@@ -85,6 +102,7 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
                   accessibilityLabel="Close AI assistant"
                   onPress={() => setOpen(false)}
                   style={styles.iconBtn}
+                  hitSlop={8}
                 >
                   <X size={16} color={colors.text2} strokeWidth={2.2} />
                 </Pressable>
@@ -94,7 +112,24 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
                 ref={scrollRef}
                 style={styles.messages}
                 contentContainerStyle={styles.messagesContent}
-                onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                bounces
+                overScrollMode="always"
+                onScrollBeginDrag={() => {
+                  stickToBottomRef.current = false;
+                }}
+                onScroll={({ nativeEvent }) => {
+                  const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+                  const distanceFromBottom =
+                    contentSize.height - (layoutMeasurement.height + contentOffset.y);
+                  stickToBottomRef.current = distanceFromBottom < 48;
+                }}
+                scrollEventThrottle={16}
+                onContentSizeChange={() => {
+                  if (stickToBottomRef.current) scrollToBottom(false);
+                }}
               >
                 {messages.map((msg, index) => (
                   <View
@@ -102,9 +137,10 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
                     style={msg.role === "user" ? styles.userRow : styles.assistantRow}
                   >
                     <View style={msg.role === "user" ? styles.userBubble : styles.assistantBubble}>
-                      <Text style={msg.role === "user" ? styles.userText : styles.assistantText}>
-                        {msg.content}
-                      </Text>
+                      <AssistantMessageBody
+                        content={msg.content}
+                        tone={msg.role === "user" ? "user" : "assistant"}
+                      />
                     </View>
                   </View>
                 ))}
@@ -120,6 +156,7 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
                   style={styles.input}
                   editable={!loading}
                   returnKeyType="send"
+                  blurOnSubmit={false}
                   onSubmitEditing={() => void onSubmit()}
                 />
                 <Pressable
@@ -136,9 +173,9 @@ export function AIAssistantFab({ bottom }: { bottom: number }) {
                   )}
                 </Pressable>
               </View>
-            </Pressable>
+            </View>
           </KeyboardAvoidingView>
-        </Pressable>
+        </View>
       </Modal>
 
       <Pressable
@@ -182,7 +219,8 @@ function createStyles(colors: ThemeColors) {
       position: "absolute",
       right: 16,
       left: 16,
-      maxHeight: "58%",
+      height: "58%",
+      maxHeight: 520,
       borderRadius: 16,
       borderWidth: 1,
       borderColor: colors.border,
@@ -221,36 +259,35 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     messages: {
-      maxHeight: 320,
+      flex: 1,
       backgroundColor: colors.surface2,
     },
     messagesContent: {
       paddingHorizontal: 12,
       paddingVertical: 12,
-      gap: 8,
+      gap: 12,
+      paddingBottom: 16,
     },
     userRow: { alignItems: "flex-end" },
     assistantRow: { alignItems: "flex-start" },
     userBubble: {
-      maxWidth: "85%",
+      maxWidth: "88%",
       borderRadius: 16,
       borderTopRightRadius: 6,
       backgroundColor: colors.brand,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
     },
     assistantBubble: {
-      maxWidth: "85%",
+      maxWidth: "92%",
       borderRadius: 16,
       borderTopLeftRadius: 6,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
     },
-    userText: { fontSize: 14, color: "#fff" },
-    assistantText: { fontSize: 14, color: colors.text },
     thinking: { fontSize: 12, color: colors.text3, paddingHorizontal: 4 },
     inputRow: {
       flexDirection: "row",

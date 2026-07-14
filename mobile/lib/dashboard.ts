@@ -40,7 +40,8 @@ export function buildLossBreakdown(projects: ApiProject[]) {
 
   const buckets = new Map<string, number>();
   for (const project of lost) {
-    const reason = project.competitor ? `vs ${project.competitor}` : "No competitor captured";
+    const reason = project.lossReason?.trim()
+      || (project.competitor ? `vs ${project.competitor}` : "No reason captured");
     buckets.set(reason, (buckets.get(reason) ?? 0) + 1);
   }
 
