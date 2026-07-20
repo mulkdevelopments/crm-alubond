@@ -1,6 +1,7 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,8 +11,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { MapPin } from "lucide-react-native";
+import { MapPin, Pencil, Trash2 } from "lucide-react-native";
 
+import { buildConverterOptions } from "@/components/pipeline/WinStagePrompt";
 import { LocationPickerMap } from "@/components/map/LocationPickerMap";
 import { ProjectCommercialFields } from "@/components/projects/ProjectCommercialFields";
 import { ScreenLoader } from "@/components/ScreenLoader";
@@ -39,6 +41,7 @@ import {
   type ApiProject,
   type ProjectUpsertPayload,
 } from "@/lib/api/projects-api";
+import { createCustomer, listCustomers, renameCustomer, trashCustomer } from "@/lib/api/customers-api";
 import { useAuth, canManageProjects, canSetBusinessDivision } from "@/lib/auth/AuthContext";
 import { suggestCurrencyCode } from "@/lib/currency-defaults";
 import {
@@ -82,7 +85,12 @@ export default function ProjectFormScreen() {
   const [regionalManagers, setRegionalManagers] = useState<ManagerOption[]>([]);
   const [salesReps, setSalesReps] = useState<Array<TeamMember | UserListItem>>([]);
   const [knownProjects, setKnownProjects] = useState<ApiProject[]>([]);
-  const [customerSuggestions, setCustomerSuggestions] = useState<string[]>([]);
+  const [catalogCustomers, setCatalogCustomers] = useState<string[]>([]);
+  const [extraCustomers, setExtraCustomers] = useState<string[]>([]);
+  const [addingCustomer, setAddingCustomer] = useState(false);
+  const [newCustomerDraft, setNewCustomerDraft] = useState("");
+  const [editingCustomer, setEditingCustomer] = useState<string | null>(null);
+  const [editCustomerDraft, setEditCustomerDraft] = useState("");
   const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
   const [regionDefaults, setRegionDefaults] = useState<Record<string, string>>({});
 
@@ -108,6 +116,7 @@ export default function ProjectFormScreen() {
   const [regionalManagerId, setRegionalManagerId] = useState("");
   const [managerId, setManagerId] = useState("");
   const [salesRepIds, setSalesRepIds] = useState<string[]>([]);
+  const [convertedById, setConvertedById] = useState("");
 
   const loadPeople = useCallback(async () => {
     if (!token) return;
@@ -143,15 +152,16 @@ export default function ProjectFormScreen() {
         await loadPeople();
         if (token) {
           try {
-            const [currencyRows, regionRows, projects] = await Promise.all([
+            const [currencyRows, regionRows, projects, customers] = await Promise.all([
               listActiveCurrencies(token),
               listActiveRegionDefaults(token),
               listProjects(token),
+              listCustomers(token),
             ]);
             setCurrencies(currencyRows);
             setRegionDefaults(Object.fromEntries(regionRows.map((row) => [row.name, row.defaultCurrencyCode])));
-            setCustomerSuggestions(uniqueCustomerNames(projects));
             setKnownProjects(projects);
+            setCatalogCustomers(customers.map((row) => row.name));
           } catch {
             setCurrencies([{ code: "AED", name: "UAE Dirham", rateToAed: 1 }]);
           }
@@ -205,6 +215,7 @@ export default function ProjectFormScreen() {
     setRegionalManagerId(project.regionalManagerId ?? (isRegionalManager && user?.id ? user.id : ""));
     setManagerId(project.managerId ?? (isManager && user?.id ? user.id : ""));
     setSalesRepIds(project.salesRepIds);
+    setConvertedById(project.convertedById ?? "");
   }
 
   const countryOptionList = useMemo(() => countryOptions(country), [country]);
@@ -234,11 +245,24 @@ export default function ProjectFormScreen() {
     return matches.slice(0, 8);
   }, [country, city, cityOptionList]);
 
+  const customerOptions = useMemo(
+    () =>
+      uniqueCustomerNames([
+        ...catalogCustomers.map((entry) => ({ developer: entry })),
+        ...extraCustomers.map((entry) => ({ developer: entry })),
+        ...(developer.trim() ? [{ developer }] : []),
+      ]),
+    [catalogCustomers, extraCustomers, developer],
+  );
+
+  const [customerQuery, setCustomerQuery] = useState("");
   const filteredCustomerSuggestions = useMemo(() => {
-    const query = developer.trim().toLowerCase();
-    if (!query) return [];
-    return customerSuggestions.filter((entry) => entry.toLowerCase().includes(query)).slice(0, 8);
-  }, [customerSuggestions, developer]);
+    const query = customerQuery.trim().toLowerCase();
+    const matches = query
+      ? customerOptions.filter((entry) => entry.toLowerCase().includes(query))
+      : customerOptions;
+    return matches.slice(0, 12);
+  }, [customerOptions, customerQuery]);
 
   const managersUnderRegional = useMemo(() => {
     if (!regionalManagerId) return managers;
@@ -261,6 +285,33 @@ export default function ProjectFormScreen() {
   const regionalManagerForForm =
     isRegionalManager && user?.id ? user.id : regionalManagerId;
   const managerForForm = isManager && user?.id ? user.id : managerId;
+
+  const converterOptions = useMemo(() => {
+    const selectedManager = managers.find((entry) => entry.id === managerForForm);
+    const selectedRegional = regionalManagers.find((entry) => entry.id === regionalManagerForForm);
+    return buildConverterOptions({
+      salesRepIds,
+      salesRepNames: salesRepIds.map((id) => {
+        const rep = salesReps.find((entry) => entry.id === id);
+        return rep ? `${rep.firstName} ${rep.lastName}`.trim() : "Sales rep";
+      }),
+      managerId: managerForForm || null,
+      managerName: selectedManager
+        ? `${selectedManager.firstName} ${selectedManager.lastName}`.trim()
+        : "",
+      regionalManagerId: regionalManagerForForm || null,
+      regionalManagerName: selectedRegional
+        ? `${selectedRegional.firstName} ${selectedRegional.lastName}`.trim()
+        : "",
+    });
+  }, [
+    salesRepIds,
+    salesReps,
+    managers,
+    regionalManagers,
+    managerForForm,
+    regionalManagerForForm,
+  ]);
 
   function handleCountryChange(nextCountry: string) {
     const countryChanged = normalizeCountryName(country) !== normalizeCountryName(nextCountry);
@@ -339,6 +390,13 @@ export default function ProjectFormScreen() {
       if (!name.trim() || !city.trim() || !country.trim()) {
         throw new Error("Fill project name, country, and city.");
       }
+      const customerName = developer.trim();
+      if (
+        !customerName ||
+        !customerOptions.some((entry) => entry.toLowerCase() === customerName.toLowerCase())
+      ) {
+        throw new Error("Select a customer from the list, or add a new one.");
+      }
       if (requiresCommercialDetails(stage)) {
         if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
           throw new Error("Total project value must be greater than 0.");
@@ -349,6 +407,9 @@ export default function ProjectFormScreen() {
         if (!commercialSpecsComplete(specThickness, specCore, specPaintType)) {
           throw new Error("Select thickness, core, and paint type.");
         }
+      }
+      if (stage === "Won" && !convertedById) {
+        throw new Error("Select who converted this project.");
       }
 
       const itemName = commercialSpecsComplete(specThickness, specCore, specPaintType)
@@ -390,6 +451,7 @@ export default function ProjectFormScreen() {
               ? salesRepIds
               : [user.id]
             : salesRepIds,
+        convertedById: stage === "Won" ? convertedById || null : null,
       };
 
       const saved =
@@ -438,14 +500,253 @@ export default function ProjectFormScreen() {
             colors={colors}
           />
 
-          <SuggestionField
-            value={developer}
-            onChangeText={setDeveloper}
-            placeholder="Customer"
-            suggestions={filteredCustomerSuggestions}
-            onSelectSuggestion={setDeveloper}
-            colors={colors}
-          />
+          <View>
+            <View style={styles.customerRow}>
+              <View style={styles.half}>
+                <FormInput
+                  value={customerQuery}
+                  onChangeText={setCustomerQuery}
+                  placeholder={developer.trim() ? `Selected: ${developer}` : "Search customer"}
+                  colors={colors}
+                />
+              </View>
+              <Pressable
+                onPress={() => {
+                  setAddingCustomer((prev) => !prev);
+                  setNewCustomerDraft("");
+                }}
+                style={[
+                  styles.addCustomerBtn,
+                  {
+                    backgroundColor: addingCustomer ? colors.brand : colors.surface2,
+                    borderColor: addingCustomer ? colors.brand : colors.border,
+                  },
+                ]}
+                accessibilityLabel={addingCustomer ? "Cancel add customer" : "Add customer"}
+              >
+                <Text style={{ color: addingCustomer ? "#fff" : colors.text, fontWeight: "700", fontSize: 18 }}>
+                  {addingCustomer ? "×" : "+"}
+                </Text>
+              </Pressable>
+            </View>
+            {developer.trim() ? (
+              <Text style={[styles.hint, { color: colors.text3, marginTop: 4 }]}>
+                Customer: {developer}
+              </Text>
+            ) : null}
+            {filteredCustomerSuggestions.length > 0 ? (
+              <View style={[stylesStatic.suggestions, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                {filteredCustomerSuggestions.map((entry) => (
+                  <View
+                    key={entry}
+                    style={[stylesStatic.suggestionItem, { borderBottomColor: colors.border, flexDirection: "row", alignItems: "center" }]}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        setDeveloper(entry);
+                        setCustomerQuery("");
+                      }}
+                      style={{ flex: 1, paddingVertical: 2 }}
+                    >
+                      <Text style={{ color: colors.text, fontSize: 14 }}>{entry}</Text>
+                    </Pressable>
+                    {canManage ? (
+                      <View style={{ flexDirection: "row", gap: 4 }}>
+                        <Pressable
+                          onPress={() => {
+                            setAddingCustomer(false);
+                            setEditingCustomer(entry);
+                            setEditCustomerDraft(entry);
+                          }}
+                          hitSlop={8}
+                        >
+                          <Pencil size={14} color={colors.text3} strokeWidth={2.2} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => {
+                            const persisted = catalogCustomers.some(
+                              (name) => name.trim().toLowerCase() === entry.toLowerCase(),
+                            );
+                            Alert.alert(
+                              "Move to trash",
+                              persisted
+                                ? `Move “${entry}” to trash? Projects keep this name; restore from Trash. Permanent delete is admin-only.`
+                                : `Remove “${entry}” from the list?`,
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                {
+                                  text: "Move to trash",
+                                  style: "destructive",
+                                  onPress: () =>
+                                    void (async () => {
+                                      if (!token) return;
+                                      try {
+                                        if (persisted) {
+                                          await trashCustomer(token, entry);
+                                          const [projects, customers] = await Promise.all([
+                                            listProjects(token),
+                                            listCustomers(token),
+                                          ]);
+                                          setKnownProjects(projects);
+                                          setCatalogCustomers(customers.map((row) => row.name));
+                                        } else {
+                                          setExtraCustomers((prev) =>
+                                            prev.filter((item) => item.toLowerCase() !== entry.toLowerCase()),
+                                          );
+                                        }
+                                        if (developer.toLowerCase() === entry.toLowerCase()) {
+                                          setDeveloper("");
+                                        }
+                                      } catch (err) {
+                                        setError(err instanceof Error ? err.message : "Failed to move customer to trash.");
+                                      }
+                                    })(),
+                                },
+                              ],
+                            );
+                          }}
+                          hitSlop={8}
+                        >
+                          <Trash2 size={14} color={colors.danger} strokeWidth={2.2} />
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={[styles.hint, { color: colors.text3, marginTop: 6 }]}>
+                {customerOptions.length === 0
+                  ? "No customers yet — tap + to add one."
+                  : "No matches. Tap + to add a new customer."}
+              </Text>
+            )}
+            {addingCustomer ? (
+              <View style={[styles.addCustomerPanel, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
+                <FormInput
+                  value={newCustomerDraft}
+                  onChangeText={setNewCustomerDraft}
+                  placeholder="New customer name"
+                  colors={colors}
+                />
+                <Pressable
+                  onPress={() =>
+                    void (async () => {
+                      const name = newCustomerDraft.trim();
+                      if (!name) {
+                        setError("Enter a customer name.");
+                        return;
+                      }
+                      const existing = customerOptions.find(
+                        (entry) => entry.toLowerCase() === name.toLowerCase(),
+                      );
+                      if (existing) {
+                        setError(`“${existing}” already exists.`);
+                        return;
+                      }
+                      if (!token) return;
+                      try {
+                        const created = await createCustomer(token, name);
+                        const customers = await listCustomers(token);
+                        setCatalogCustomers(customers.map((row) => row.name));
+                        setExtraCustomers((prev) =>
+                          prev.some((entry) => entry.toLowerCase() === created.name.toLowerCase())
+                            ? prev
+                            : [...prev, created.name],
+                        );
+                        setDeveloper(created.name);
+                        setCustomerQuery("");
+                        setAddingCustomer(false);
+                        setNewCustomerDraft("");
+                        setError(null);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to add customer.");
+                      }
+                    })()
+                  }
+                  style={[styles.addCustomerSave, { backgroundColor: colors.brand }]}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Add customer</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {editingCustomer ? (
+              <View style={[styles.addCustomerPanel, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
+                <Text style={[styles.hint, { color: colors.text3 }]}>
+                  Rename “{editingCustomer}” on all projects
+                </Text>
+                <FormInput
+                  value={editCustomerDraft}
+                  onChangeText={setEditCustomerDraft}
+                  placeholder="Customer name"
+                  colors={colors}
+                />
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => {
+                      setEditingCustomer(null);
+                      setEditCustomerDraft("");
+                    }}
+                    style={[styles.addCustomerSave, { flex: 1, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }]}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: "700", fontSize: 13 }}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() =>
+                      void (async () => {
+                        const name = editCustomerDraft.trim();
+                        if (!name || !token || !editingCustomer) return;
+                        if (name.toLowerCase() === editingCustomer.toLowerCase()) {
+                          setError("New name must be different.");
+                          return;
+                        }
+                        const conflict = customerOptions.find(
+                          (entry) =>
+                            entry.toLowerCase() === name.toLowerCase() &&
+                            entry.toLowerCase() !== editingCustomer.toLowerCase(),
+                        );
+                        if (conflict) {
+                          setError(`“${conflict}” already exists.`);
+                          return;
+                        }
+                        const persisted = catalogCustomers.some(
+                          (entry) => entry.trim().toLowerCase() === editingCustomer.toLowerCase(),
+                        );
+                        try {
+                          if (persisted) {
+                            await renameCustomer(token, editingCustomer, name);
+                            const [projects, customers] = await Promise.all([
+                              listProjects(token),
+                              listCustomers(token),
+                            ]);
+                            setKnownProjects(projects);
+                            setCatalogCustomers(customers.map((row) => row.name));
+                          } else {
+                            setExtraCustomers((prev) =>
+                              prev.map((item) =>
+                                item.toLowerCase() === editingCustomer.toLowerCase() ? name : item,
+                              ),
+                            );
+                          }
+                          if (developer.toLowerCase() === editingCustomer.toLowerCase()) {
+                            setDeveloper(name);
+                          }
+                          setEditingCustomer(null);
+                          setEditCustomerDraft("");
+                          setError(null);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : "Failed to rename customer.");
+                        }
+                      })()
+                    }
+                    style={[styles.addCustomerSave, { flex: 1, backgroundColor: colors.brand }]}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Save</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+          </View>
 
           {canSetDivision ? (
             <FormSelect
@@ -466,6 +767,40 @@ export default function ProjectFormScreen() {
             }))}
             onChange={setStage}
           />
+
+          {stage === "Won" ? (
+            <View style={[styles.converterBox, { borderColor: "rgba(16,185,129,0.35)", backgroundColor: "rgba(16,185,129,0.08)" }]}>
+              <Text style={[styles.converterTitle, { color: colors.text1 }]}>Who converted this project? *</Text>
+              <Text style={{ color: colors.text3, fontSize: 12, marginBottom: 8 }}>
+                This person gets the win credit on Field Team.
+              </Text>
+              {converterOptions.length === 0 ? (
+                <Text style={{ color: colors.danger, fontSize: 12 }}>
+                  Assign a sales rep, manager, or regional manager first.
+                </Text>
+              ) : (
+                converterOptions.map((option) => {
+                  const selected = convertedById === option.id;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      onPress={() => setConvertedById(option.id)}
+                      style={[
+                        styles.converterOption,
+                        {
+                          borderColor: selected ? colors.brand : colors.border,
+                          backgroundColor: selected ? "rgba(227,6,19,0.08)" : colors.surface,
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: colors.text1, fontWeight: "700", fontSize: 14 }}>{option.name}</Text>
+                      <Text style={{ color: colors.text3, fontSize: 11, marginTop: 2 }}>{option.roleLabel}</Text>
+                    </Pressable>
+                  );
+                })
+              )}
+            </View>
+          ) : null}
 
           <ProjectCommercialFields
             value={value}
@@ -773,6 +1108,48 @@ function createStyles(colors: ThemeColors) {
     },
     half: {
       flex: 1,
+    },
+    customerRow: {
+      flexDirection: "row",
+      gap: 8,
+      alignItems: "center",
+    },
+    addCustomerBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    converterBox: {
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+      gap: 8,
+    },
+    converterTitle: {
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    converterOption: {
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    addCustomerPanel: {
+      marginTop: 8,
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 10,
+      gap: 8,
+    },
+    addCustomerSave: {
+      height: 40,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
     },
     hint: {
       fontSize: 11,

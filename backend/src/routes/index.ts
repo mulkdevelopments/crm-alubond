@@ -15,15 +15,21 @@ import { authenticate, authenticateMediaProxy } from "../middleware/auth";
 import { generateAssistantResponse } from "../modules/ai/ai.service";
 import {
   createProject,
-  deleteProject,
   getProjectById,
+  hardDeleteProject,
   listProjects,
-  updateProject
+  listTrashedProjects,
+  mergeProjectWhere,
+  notDeletedWhere,
+  restoreProject,
+  trashProject,
+  updateProject,
 } from "../modules/projects/projects.repository";
 import { accessRequestsRouter } from "../modules/access-requests/access-requests.routes";
 import { authRouter } from "../modules/auth/auth.routes";
 import { ecosystemRouter } from "../modules/ecosystem/ecosystem.routes";
 import { masterDataRouter } from "../modules/master-data/master-data.routes";
+import { customersRouter } from "../modules/customers/customers.routes";
 import { usersRouter } from "../modules/users/users.routes";
 
 export const apiRouter = Router();
@@ -60,7 +66,8 @@ const projectPayloadSchema = z.object({
   lossReason: z.string().trim().max(500).nullable().optional().default(null),
   regionalManagerId: optionalEntityIdSchema,
   managerId: optionalEntityIdSchema,
-  salesRepIds: z.array(entityIdSchema).optional().default([])
+  salesRepIds: z.array(entityIdSchema).optional().default([]),
+  convertedById: optionalEntityIdSchema,
 });
 
 const tenderOrLaterStages = new Set(["Tender", "Negotiation", "Approved", "PO Expected", "Won"]);
@@ -100,6 +107,58 @@ function validateLossPayload(payload: { stage: string; lossReason: string | null
     return "Loss reason is required when marking a project as Lost.";
   }
   return null;
+}
+
+function validateWonConverterPayload(payload: {
+  stage: string;
+  convertedById: string | null | undefined;
+}): string | null {
+  if (payload.stage !== "Won") {
+    return null;
+  }
+  if (!payload.convertedById?.trim()) {
+    return "Select who converted this project when marking it as Won.";
+  }
+  return null;
+}
+
+async function resolveConvertedBy(
+  convertedById: string | null | undefined,
+  context: {
+    stage: string;
+    salesRepIds: string[];
+    managerId: string | null;
+    regionalManagerId: string | null;
+  },
+): Promise<{ convertedById: string | null; convertedByName: string | null } | { error: string }> {
+  if (context.stage !== "Won") {
+    return { convertedById: null, convertedByName: null };
+  }
+  if (!convertedById) {
+    return { error: "Select who converted this project when marking it as Won." };
+  }
+
+  const allowed = new Set(
+    [...context.salesRepIds, context.managerId, context.regionalManagerId].filter(
+      (id): id is string => Boolean(id),
+    ),
+  );
+  if (!allowed.has(convertedById)) {
+    return { error: "Converter must be an assigned sales rep, manager, or regional manager on this project." };
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: convertedById },
+    select: { id: true, firstName: true, lastName: true, isActive: true },
+  });
+  if (!user || !user.isActive) {
+    return { error: "Selected converter is invalid or inactive." };
+  }
+
+  return {
+    convertedById: user.id,
+    convertedByName: `${user.firstName} ${user.lastName}`.trim(),
+  };
 }
 
 function normalizeCommercialFields(payload: {
@@ -146,17 +205,29 @@ function projectScopeForUser(user: { id: string; role: UserRole }): Prisma.Proje
 
 async function canAccessProjectById(
   user: { id: string; role: UserRole },
-  projectId: string
+  projectId: string,
+  options?: { includeTrashed?: boolean },
 ): Promise<boolean> {
   const scope = projectScopeForUser(user);
   const project = await prisma.project.findFirst({
-    where: {
-      id: projectId,
-      ...(scope ?? {}),
-    },
+    where: mergeProjectWhere(
+      { id: projectId },
+      options?.includeTrashed ? undefined : notDeletedWhere,
+      scope,
+    ),
     select: { id: true },
   });
   return Boolean(project);
+}
+
+async function findActiveProject(
+  projectId: string,
+  select: Prisma.ProjectSelect = { id: true },
+) {
+  return prisma.project.findFirst({
+    where: mergeProjectWhere({ id: projectId }, notDeletedWhere),
+    select,
+  });
 }
 
 async function resolveAttachmentProjectId(blobUrl: string): Promise<string | null> {
@@ -466,6 +537,7 @@ apiRouter.get("/health", (_req, res) => {
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/access-requests", accessRequestsRouter);
 apiRouter.use("/master-data", masterDataRouter);
+apiRouter.use("/customers", customersRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/ecosystem", ecosystemRouter);
 
@@ -586,10 +658,60 @@ apiRouter.post(
   }
 );
 
+/** Bulk activities across accessible active projects (avoids N+1 per-project fetches). */
+apiRouter.get("/activities", authenticate, async (req, res) => {
+  const activityModel = projectActivityDelegate();
+  if (!activityModel) {
+    res.status(503).json({ message: "Activity service is unavailable. Restart backend once." });
+    return;
+  }
+
+  const typeParam = typeof req.query.type === "string" ? req.query.type.trim() : "";
+  const includeAttachments =
+    req.query.includeAttachments === "1" || req.query.includeAttachments === "true";
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : NaN;
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 5000) : undefined;
+
+  const projectScope = projectScopeForUser(req.user!);
+  const where = {
+    ...(typeParam ? { type: typeParam } : {}),
+    project: mergeProjectWhere(notDeletedWhere, projectScope),
+  };
+
+  const items = await activityModel.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    ...(limit ? { take: limit } : {}),
+    ...(includeAttachments
+      ? {
+          include: {
+            attachments: {
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        }
+      : {}),
+  });
+
+  res.status(200).json({
+    items: items.map((item) => ({
+      ...item,
+      attachments: includeAttachments && Array.isArray(item.attachments) ? item.attachments : [],
+    })),
+  });
+});
+
 apiRouter.get("/projects", authenticate, async (req, res) => {
   const scope = projectScopeForUser(req.user!);
   res.status(200).json({
     items: await listProjects(scope)
+  });
+});
+
+apiRouter.get("/projects/trash", authenticate, async (req, res) => {
+  const scope = projectScopeForUser(req.user!);
+  res.status(200).json({
+    items: await listTrashedProjects(scope),
   });
 });
 
@@ -860,9 +982,29 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     return;
   }
 
+  const wonError = validateWonConverterPayload({
+    stage: payload.stage,
+    convertedById: payload.convertedById,
+  });
+  if (wonError) {
+    res.status(400).json({ message: wonError });
+    return;
+  }
+
   const assignees = await resolveProjectAssignees(payload);
   if ("error" in assignees) {
     res.status(400).json({ message: assignees.error });
+    return;
+  }
+
+  const convertedBy = await resolveConvertedBy(payload.convertedById, {
+    stage: payload.stage,
+    salesRepIds: assignees.salesRepIds,
+    managerId: assignees.managerId,
+    regionalManagerId: assignees.regionalManagerId,
+  });
+  if ("error" in convertedBy) {
+    res.status(400).json({ message: convertedBy.error });
     return;
   }
 
@@ -886,6 +1028,8 @@ apiRouter.post("/projects", authenticate, async (req, res) => {
     owner: assignees.owner,
     salesRepIds: assignees.salesRepIds,
     salesRepNames: assignees.salesRepNames,
+    convertedById: convertedBy.convertedById,
+    convertedByName: convertedBy.convertedByName,
     createdById: req.user.id,
     createdByName,
   });
@@ -909,19 +1053,16 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     return;
   }
   const payload = parsed.data;
-  const existingProject = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: {
-      id: true,
-      businessDivision: true,
-      regionalManagerId: true,
-      regionalManagerName: true,
-      managerId: true,
-      managerName: true,
-      salesRepIds: true,
-      salesRepNames: true,
-      owner: true,
-    },
+  const existingProject = await findActiveProject(req.params.projectId as string, {
+    id: true,
+    businessDivision: true,
+    regionalManagerId: true,
+    regionalManagerName: true,
+    managerId: true,
+    managerName: true,
+    salesRepIds: true,
+    salesRepNames: true,
+    owner: true,
   });
   if (!existingProject) {
     res.status(404).json({ message: "Project not found" });
@@ -961,6 +1102,15 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     return;
   }
 
+  const wonError = validateWonConverterPayload({
+    stage: payload.stage,
+    convertedById: payload.convertedById,
+  });
+  if (wonError) {
+    res.status(400).json({ message: wonError });
+    return;
+  }
+
   const assignmentError = await assertProjectAssignmentAllowed(req.user, payload);
   if (assignmentError) {
     res.status(403).json({ message: assignmentError });
@@ -990,6 +1140,17 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
   const resolvedOwner =
     resolvedSalesRepNames[0] ?? resolvedManagerName ?? resolvedRegionalManagerName ?? existingProject.owner;
 
+  const convertedBy = await resolveConvertedBy(payload.convertedById, {
+    stage: payload.stage,
+    salesRepIds: resolvedSalesRepIds,
+    managerId: resolvedManagerId,
+    regionalManagerId: resolvedRegionalManagerId,
+  });
+  if ("error" in convertedBy) {
+    res.status(400).json({ message: convertedBy.error });
+    return;
+  }
+
   const canSetDivision = await userCanSetBusinessDivision(req.user);
 
   const project = await updateProject(req.params.projectId as string, {
@@ -1005,21 +1166,103 @@ apiRouter.patch("/projects/:projectId", authenticate, async (req, res) => {
     owner: resolvedOwner,
     managerName: resolvedManagerName,
     salesRepIds: resolvedSalesRepIds,
-    salesRepNames: resolvedSalesRepNames
+    salesRepNames: resolvedSalesRepNames,
+    convertedById: convertedBy.convertedById,
+    convertedByName: convertedBy.convertedByName,
   });
 
   res.status(200).json({ project });
 });
 
-apiRouter.delete("/projects/:projectId", authenticate, async (req, res) => {
-  if (!req.user || req.user.role !== UserRole.ADMIN) {
-    res.status(403).json({ message: "Only admins can delete projects" });
+apiRouter.post("/projects/:projectId/trash", authenticate, async (req, res) => {
+  if (!req.user || !canManageProjects(req.user.role)) {
+    res.status(403).json({ message: "You do not have permission to move projects to trash" });
+    return;
+  }
+  if (!(await canAccessProjectById(req.user, req.params.projectId as string))) {
+    res.status(403).json({ message: "Forbidden for your role" });
     return;
   }
 
-  const deleted = await deleteProject(req.params.projectId as string);
-  if (!deleted) {
+  const actor = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { firstName: true, lastName: true },
+  });
+  const deletedByName = actor ? `${actor.firstName} ${actor.lastName}`.trim() : req.user.email;
+
+  const project = await trashProject(req.params.projectId as string, {
+    id: req.user.id,
+    name: deletedByName || "User",
+  });
+  if (!project) {
     res.status(404).json({ message: "Project not found" });
+    return;
+  }
+
+  res.status(200).json({ project });
+});
+
+apiRouter.post("/projects/:projectId/restore", authenticate, async (req, res) => {
+  if (!req.user || !canManageProjects(req.user.role)) {
+    res.status(403).json({ message: "You do not have permission to restore projects" });
+    return;
+  }
+  if (!(await canAccessProjectById(req.user, req.params.projectId as string, { includeTrashed: true }))) {
+    res.status(403).json({ message: "Forbidden for your role" });
+    return;
+  }
+
+  const project = await restoreProject(req.params.projectId as string);
+  if (!project) {
+    res.status(404).json({ message: "Trashed project not found" });
+    return;
+  }
+
+  res.status(200).json({ project });
+});
+
+/** Soft-delete (move to trash). Prefer POST /trash; kept for clients that still call DELETE. */
+apiRouter.delete("/projects/:projectId", authenticate, async (req, res) => {
+  if (!req.user || !canManageProjects(req.user.role)) {
+    res.status(403).json({ message: "You do not have permission to move projects to trash" });
+    return;
+  }
+  if (!(await canAccessProjectById(req.user, req.params.projectId as string))) {
+    res.status(403).json({ message: "Forbidden for your role" });
+    return;
+  }
+
+  const actor = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { firstName: true, lastName: true },
+  });
+  const deletedByName = actor ? `${actor.firstName} ${actor.lastName}`.trim() : req.user.email;
+
+  const project = await trashProject(req.params.projectId as string, {
+    id: req.user.id,
+    name: deletedByName || "User",
+  });
+  if (!project) {
+    res.status(404).json({ message: "Project not found" });
+    return;
+  }
+
+  res.status(204).send();
+});
+
+apiRouter.delete("/projects/:projectId/permanent", authenticate, async (req, res) => {
+  if (!req.user || req.user.role !== UserRole.ADMIN) {
+    res.status(403).json({ message: "Only admins can permanently delete projects" });
+    return;
+  }
+  if (!(await canAccessProjectById(req.user, req.params.projectId as string, { includeTrashed: true }))) {
+    res.status(403).json({ message: "Forbidden for your role" });
+    return;
+  }
+
+  const deleted = await hardDeleteProject(req.params.projectId as string);
+  if (!deleted) {
+    res.status(404).json({ message: "Trashed project not found" });
     return;
   }
 
@@ -1033,10 +1276,7 @@ apiRouter.get("/projects/:projectId/activities", authenticate, async (req, res) 
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1076,10 +1316,7 @@ apiRouter.post("/projects/:projectId/activities", authenticate, async (req, res)
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1214,10 +1451,7 @@ apiRouter.patch("/projects/:projectId/activities/:activityId", authenticate, asy
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1290,10 +1524,7 @@ apiRouter.delete("/projects/:projectId/activities/:activityId", authenticate, as
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1346,10 +1577,7 @@ apiRouter.get("/projects/:projectId/stakeholders", authenticate, async (req, res
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1379,10 +1607,7 @@ apiRouter.post("/projects/:projectId/stakeholders", authenticate, async (req, re
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1429,10 +1654,7 @@ apiRouter.patch("/projects/:projectId/stakeholders/:stakeholderId", authenticate
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1472,10 +1694,7 @@ apiRouter.delete("/projects/:projectId/stakeholders/:stakeholderId", authenticat
     return;
   }
 
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.projectId as string },
-    select: { id: true }
-  });
+  const project = await findActiveProject(req.params.projectId as string);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;
@@ -1506,7 +1725,9 @@ apiRouter.get("/follow-ups", authenticate, async (req, res) => {
     return;
   }
   const projectScope = projectScopeForUser(req.user!);
-  const where = projectScope ? ({ project: projectScope } satisfies Prisma.FollowUpWhereInput) : undefined;
+  const where = {
+    project: mergeProjectWhere(notDeletedWhere, projectScope),
+  } satisfies Prisma.FollowUpWhereInput;
   const followUps = await followUpModel.findMany({
     where,
     include: {
@@ -1547,10 +1768,7 @@ apiRouter.post("/follow-ups", authenticate, async (req, res) => {
     return;
   }
   const payload = parsed.data;
-  const project = await prisma.project.findUnique({
-    where: { id: payload.projectId },
-    select: { id: true },
-  });
+  const project = await findActiveProject(payload.projectId);
   if (!project) {
     res.status(404).json({ message: "Project not found" });
     return;

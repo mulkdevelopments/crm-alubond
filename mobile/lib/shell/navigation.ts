@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MapPin,
   MessageCircle,
+  Trash2,
   UserCircle2,
   UserCog,
   UserPlus,
@@ -40,6 +41,7 @@ export function getDrawerNavItems(isAdmin: boolean): DrawerNavItem[] {
     { key: "pipeline", label: "Pipeline", icon: KanbanSquare, href: "/(tabs)/pipeline" },
     { key: "map", label: "Geo Intel", icon: MapPin, href: "/(tabs)/map" },
     { key: "follow-ups", label: "Follow-ups", icon: Bell, href: "/(tabs)/follow-ups" },
+    { key: "trash", label: "Trash", icon: Trash2, href: "/(tabs)/trash" },
     {
       key: "team",
       label: "Field Team",

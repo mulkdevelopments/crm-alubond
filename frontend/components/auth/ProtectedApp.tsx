@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bell, BookOpen, Database, KanbanSquare, LayoutDashboard, LogOut, MapPin, MessageCircle, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
+import { Bell, BookOpen, Database, KanbanSquare, LayoutDashboard, LogOut, MapPin, MessageCircle, Trash2, UserCircle2, UserCog, UserPlus, Users, X } from "lucide-react";
 
 import { AuthProvider } from "@/components/auth/AuthContext";
 import { BrandLogo } from "@/components/brand/BrandLogo";
@@ -89,6 +89,7 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
     { href: "/map", label: "Geo Intel", icon: MapPin },
     { href: "/follow-ups", label: "Follow-ups", icon: Bell },
     { href: "/team", label: "Field Team", icon: Users },
+    { href: "/trash", label: "Trash", icon: Trash2 },
     { href: "/docs", label: "Docs", icon: BookOpen },
     { href: FEEDBACK_WHATSAPP_URL, label: "Report issue", icon: MessageCircle, external: true },
     ...(user?.role === "ADMIN"
@@ -129,6 +130,16 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
         router.replace("/login");
       });
   }, [pathname, router]);
+
+  useEffect(() => {
+    if (isPublicAuthPath(pathname) || !token) return;
+    const heartbeat = window.setInterval(() => {
+      void fetchMe(token).catch(() => {
+        // Ignore transient heartbeat failures; session check on navigation handles logout.
+      });
+    }, 60_000);
+    return () => window.clearInterval(heartbeat);
+  }, [pathname, token]);
 
   useEffect(() => {
     setMobileMenuOpen(false);

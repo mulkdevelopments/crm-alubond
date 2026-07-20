@@ -11,9 +11,9 @@ function initials(name: string) {
     .join("");
 }
 
-export function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
+export function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
   const colors = useThemeColors();
-  const px = size === "sm" ? 32 : 40;
+  const px = size === "sm" ? 32 : size === "lg" ? 56 : 40;
 
   return (
     <View
@@ -28,7 +28,12 @@ export function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md"
         },
       ]}
     >
-      <Text style={[styles.text, { color: colors.text2, fontSize: size === "sm" ? 11 : 13 }]}>
+      <Text
+        style={[
+          styles.text,
+          { color: colors.text2, fontSize: size === "sm" ? 11 : size === "lg" ? 18 : 13 },
+        ]}
+      >
         {initials(name || "?")}
       </Text>
     </View>

@@ -17,6 +17,27 @@ const configuredOrigins = env.FRONTEND_ORIGIN.split(",")
   .map((origin) => origin.replace(/\/+$/, ""))
   .filter(Boolean);
 
+function isPrivateLanHost(hostname: string) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+  );
+}
+
+function isAllowedDevOrigin(origin: string) {
+  if (env.NODE_ENV !== "development") return false;
+  try {
+    const url = new URL(origin);
+    // Local / LAN frontends (CRM :3000, MULK OS :3100, etc.) while developing the ecosystem.
+    return isPrivateLanHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 const corsOptions: cors.CorsOptions = {
   origin(origin, callback) {
     // Allow same-origin or server-to-server requests without Origin header.
@@ -28,6 +49,11 @@ const corsOptions: cors.CorsOptions = {
     const normalizedOrigin = origin.replace(/\/+$/, "");
 
     if (configuredOrigins.includes(normalizedOrigin)) {
+      callback(null, true);
+      return;
+    }
+
+    if (isAllowedDevOrigin(normalizedOrigin)) {
       callback(null, true);
       return;
     }
@@ -56,10 +82,11 @@ const corsOptions: cors.CorsOptions = {
       return;
     }
 
-    callback(new Error("CORS origin not allowed"));
+    // Reject quietly — throwing here spams logs as unhandled CORS errors.
+    callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Ecosystem-Key"],
 };
 
 app.use(

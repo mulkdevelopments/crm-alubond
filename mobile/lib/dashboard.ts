@@ -2,33 +2,93 @@ import type { UserListItem } from "@/lib/api/auth-api";
 import type { ApiProject } from "@/lib/api/projects-api";
 import { STAGES } from "@/lib/constants/stages";
 
-export function buildMonthlyTrend(projects: ApiProject[], users: UserListItem[]) {
+export type TargetOwner = Pick<UserListItem, "id" | "role" | "yearlyTarget">;
+
+export type MonthlyTrendPoint = {
+  month: string;
+  target: number;
+  achieved: number;
+};
+
+export function resolveTargetOwner(
+  currentUserId: string | null | undefined,
+  currentUserRole: UserListItem["role"] | null | undefined,
+  users: UserListItem[]
+): TargetOwner | null {
+  if (!currentUserId || !currentUserRole) return null;
+
+  const owner =
+    currentUserRole === "ADMIN"
+      ? users.find((entry) => entry.role === "CEO" && (entry.yearlyTarget ?? 0) > 0) ?? null
+      : users.find((entry) => entry.id === currentUserId) ?? null;
+
+  if (!owner || !owner.yearlyTarget || owner.yearlyTarget <= 0) return null;
+  return owner;
+}
+
+export function filterWonForOwner(
+  owner: TargetOwner,
+  users: UserListItem[],
+  projects: ApiProject[]
+): ApiProject[] {
+  const wonProjects = projects.filter((project) => project.stage === "Won");
+
+  if (owner.role === "CEO") return wonProjects;
+
+  if (owner.role === "REGIONAL_MANAGER") {
+    const managerIds = new Set(
+      users
+        .filter((entry) => entry.role === "MANAGER" && entry.regionalManagerId === owner.id)
+        .map((entry) => entry.id)
+    );
+    return wonProjects.filter(
+      (project) => project.managerId != null && managerIds.has(project.managerId)
+    );
+  }
+
+  if (owner.role === "MANAGER") {
+    return wonProjects.filter((project) => project.managerId === owner.id);
+  }
+
+  if (owner.role === "SALES_REP") {
+    return wonProjects.filter((project) => project.salesRepIds.includes(owner.id));
+  }
+
+  return [];
+}
+
+function monthKeyFromDate(date: Date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export function buildMonthlyTrend(params: {
+  projects: ApiProject[];
+  users: UserListItem[];
+  currentUserId?: string | null;
+  currentUserRole?: UserListItem["role"] | null;
+}): MonthlyTrendPoint[] {
+  const { projects, users, currentUserId, currentUserRole } = params;
   const now = new Date();
   const labels = Array.from({ length: 6 }).map((_, index) => {
     const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - index), 1));
-    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-    return { key, month: date.toLocaleString("en", { month: "short" }) };
+    return { key: monthKeyFromDate(date), month: date.toLocaleString("en", { month: "short" }) };
   });
 
-  const fallbackTargetM =
-    users
-      .filter((user) => user.role === "SALES_REP")
-      .reduce((sum, user) => sum + ((user.yearlyTarget ?? 0) / 12), 0) / 1_000_000;
+  const owner = resolveTargetOwner(currentUserId, currentUserRole, users);
+  const monthlyTargetM = owner?.yearlyTarget ? owner.yearlyTarget / 12 / 1_000_000 : 0;
+  const scopedWon = owner ? filterWonForOwner(owner, users, projects) : [];
 
   return labels.map((entry) => {
     const achievedM =
-      projects
-        .filter((project) => {
-          if (project.stage !== "Won") return false;
-          const date = new Date(project.updatedAt);
-          const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-          return key === entry.key;
-        })
+      scopedWon
+        .filter((project) => monthKeyFromDate(new Date(project.updatedAt)) === entry.key)
         .reduce((sum, project) => sum + project.valueAed, 0) / 1_000_000;
+
+    const target = monthlyTargetM > 0 ? monthlyTargetM : Math.max(1, achievedM * 1.1);
 
     return {
       month: entry.month,
-      target: Number((fallbackTargetM > 0 ? fallbackTargetM : Math.max(1, achievedM * 1.1)).toFixed(1)),
+      target: Number(target.toFixed(1)),
       achieved: Number(achievedM.toFixed(1)),
     };
   });

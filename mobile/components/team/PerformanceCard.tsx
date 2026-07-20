@@ -10,8 +10,13 @@ export function PerformanceCard({
   topPerformer,
   isYou = false,
   online,
+  presenceLabel,
+  role,
+  note,
+  breakdown,
   hideTeamPerformance = false,
   onPress,
+  onWonPress,
   onPipelinePress,
   onVisitsPress,
 }: {
@@ -21,97 +26,113 @@ export function PerformanceCard({
   topPerformer: boolean;
   isYou?: boolean;
   online?: boolean;
+  presenceLabel?: string;
+  role?: string;
+  note?: string;
+  breakdown?: { fromPeople: number; self: number };
+  /** @deprecated dual bars removed; kept for call-site compatibility */
   hideTeamPerformance?: boolean;
   onPress?: () => void;
+  onWonPress?: () => void;
   onPipelinePress?: () => void;
   onVisitsPress?: () => void;
 }) {
-  const assignedAccent = progressAccent(metrics.assignedAttainmentPct, "assigned");
-  const teamAccent = progressAccent(metrics.attainmentPct, "team");
+  void hideTeamPerformance;
+  const target = metrics.assignedTargetAed ?? metrics.targetAed;
+  const pct =
+    metrics.assignedTargetAed != null ? metrics.assignedAttainmentPct : metrics.attainmentPct;
+  const accent = progressAccent(pct);
 
   const content = (
     <>
       <View style={styles.header}>
         <View style={styles.headerMain}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{nameInitials(name)}</Text>
-          </View>
-          <View style={styles.headerText}>
-            <Text style={styles.name} numberOfLines={1}>
-              {name}
-            </Text>
-            <View style={styles.locationRow}>
+          <View style={styles.avatarWrap}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{nameInitials(name)}</Text>
+            </View>
+            {online !== undefined ? (
               <View
                 style={[
-                  styles.statusDot,
-                  { backgroundColor: online === false ? "rgba(255,255,255,0.3)" : "#34d399" },
+                  styles.avatarDot,
+                  { backgroundColor: online ? "#34d399" : "rgba(255,255,255,0.3)" },
                 ]}
               />
-              <Text style={styles.location} numberOfLines={1}>
-                {location || "Not set"}
+            ) : null}
+          </View>
+          <View style={styles.headerText}>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>
+                {name}
               </Text>
+              {role ? <Text style={styles.roleBadge}>{role}</Text> : null}
+              {isYou ? <Text style={styles.youBadge}>You</Text> : null}
             </View>
+            {presenceLabel ? (
+              <Text style={[styles.presence, { color: online ? "#6ee7b7" : "rgba(255,255,255,0.55)" }]} numberOfLines={1}>
+                {presenceLabel}
+              </Text>
+            ) : null}
+            <Text style={styles.location} numberOfLines={1}>
+              {location || "Not set"}
+            </Text>
           </View>
         </View>
-        <View style={styles.badges}>
-          {isYou ? <Text style={styles.youBadge}>You</Text> : null}
-          {topPerformer ? <Text style={styles.topBadge}>Top performer</Text> : null}
-        </View>
+        {topPerformer ? <Text style={styles.topBadge}>Top</Text> : null}
       </View>
 
       <View style={styles.progressSection}>
         <View style={styles.progressHeader}>
-          <Text style={styles.progressLabel}>Yearly target progress</Text>
-          <Text style={styles.progressValue}>{formatAed(metrics.achievedAed, true)}</Text>
+          <Text style={styles.progressLabel}>Won</Text>
+          {onWonPress ? (
+            <Pressable onPress={onWonPress} hitSlop={8}>
+              <Text style={[styles.progressValue, styles.linkValue]}>{formatAed(metrics.achievedAed, true)}</Text>
+            </Pressable>
+          ) : (
+            <Text style={styles.progressValue}>{formatAed(metrics.achievedAed, true)}</Text>
+          )}
         </View>
         <View style={styles.progressTrack}>
           <View
             style={[
               styles.progressFill,
               {
-                backgroundColor: assignedAccent,
-                width: `${Math.min(100, Math.max(2, metrics.assignedAttainmentPct))}%`,
+                backgroundColor: accent,
+                width: `${Math.min(100, Math.max(2, pct))}%`,
               },
             ]}
           />
         </View>
         <View style={styles.progressMeta}>
-          <Text style={styles.progressMetaText}>{metrics.assignedAttainmentPct}%</Text>
-          <Text style={styles.progressMetaText}>
-            {formatAed(metrics.assignedTargetAed ?? metrics.targetAed, true)}
-          </Text>
+          <Text style={styles.progressMetaText}>{pct}% of yearly target</Text>
+          <Text style={styles.progressMetaText}>{formatAed(target, true)}</Text>
         </View>
       </View>
 
-      {!hideTeamPerformance ? (
-        <View style={styles.progressSection}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Team performance</Text>
-            <Text style={styles.progressValue}>{formatAed(metrics.achievedAed, true)}</Text>
+      {breakdown ? (
+        <View style={styles.breakdownRow}>
+          <View style={styles.breakdownCell}>
+            <Text style={styles.breakdownLabel}>Self</Text>
+            <Text style={styles.breakdownValue}>{formatAed(breakdown.self, true)}</Text>
           </View>
-          <View style={styles.progressTrack}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  backgroundColor: teamAccent,
-                  width: `${Math.min(100, Math.max(2, metrics.attainmentPct))}%`,
-                },
-              ]}
-            />
-          </View>
-          <View style={styles.progressMeta}>
-            <Text style={styles.progressMetaText}>{metrics.attainmentPct}%</Text>
-            <Text style={styles.progressMetaText}>{formatAed(metrics.targetAed, true)}</Text>
+          <View style={styles.breakdownCell}>
+            <Text style={styles.breakdownLabel}>From people</Text>
+            <Text style={styles.breakdownValue}>{formatAed(breakdown.fromPeople, true)}</Text>
           </View>
         </View>
       ) : null}
+
+      {note ? <Text style={styles.note}>{note}</Text> : null}
 
       <View style={styles.statsRow}>
         <Stat label="Pipeline" value={formatAed(metrics.pipelineAed, true)} onPress={onPipelinePress} />
         <Stat label="Visits/wk" value={String(metrics.visitsWeek)} onPress={onVisitsPress} />
         <Stat label="Convert" value={`${metrics.conversionPct}%`} />
       </View>
+
+      {onPress ? (
+        <Text style={styles.openHint}>Open team →</Text>
+      ) : null}
     </>
   );
 
@@ -178,6 +199,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  avatarWrap: {
+    width: 36,
+    height: 36,
+    position: "relative",
+  },
   avatar: {
     width: 36,
     height: 36,
@@ -188,6 +214,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  avatarDot: {
+    position: "absolute",
+    right: -1,
+    bottom: -1,
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: "#0C1017",
+  },
   avatarText: {
     color: "#8FB5FF",
     fontSize: 11,
@@ -197,30 +233,37 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
   name: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+    maxWidth: "70%",
   },
-  locationRow: {
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
+  roleBadge: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
     borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    overflow: "hidden",
+  },
+  presence: {
+    marginTop: 2,
+    fontSize: 11,
+    fontWeight: "600",
   },
   location: {
-    flex: 1,
+    marginTop: 2,
     color: "rgba(255,255,255,0.6)",
     fontSize: 11,
-  },
-  badges: {
-    alignItems: "flex-end",
-    gap: 4,
   },
   youBadge: {
     color: "#fdba74",
@@ -265,6 +308,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
+  linkValue: {
+    textDecorationLine: "underline",
+  },
   progressTrack: {
     marginTop: 6,
     height: 6,
@@ -286,10 +332,52 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.45)",
     fontSize: 10,
   },
+  breakdownRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+  breakdownCell: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  breakdownWarn: {
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(251, 191, 36, 0.3)",
+  },
+  breakdownLabel: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+  },
+  breakdownWarnText: {
+    color: "#fde68a",
+  },
+  breakdownValue: {
+    marginTop: 2,
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  note: {
+    marginTop: 8,
+    color: "#fde68a",
+    fontSize: 11,
+  },
   statsRow: {
     marginTop: 12,
     flexDirection: "row",
     gap: 8,
+  },
+  openHint: {
+    marginTop: 12,
+    textAlign: "right",
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    fontWeight: "600",
   },
   stat: {
     flex: 1,

@@ -31,8 +31,13 @@ export type ApiProject = {
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
+  convertedById: string | null;
+  convertedByName: string | null;
   createdById: string | null;
   createdByName: string | null;
+  deletedAt: string | null;
+  deletedById: string | null;
+  deletedByName: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -97,6 +102,7 @@ export type ProjectUpsertPayload = {
   regionalManagerId?: string | null;
   managerId?: string | null;
   salesRepIds?: string[];
+  convertedById?: string | null;
 };
 
 export async function listProjects(token: string): Promise<ApiProject[]> {
@@ -162,14 +168,85 @@ export async function updateProject(
 }
 
 export async function deleteProject(token: string, projectId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/projects/${projectId}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` }
+  const response = await fetch(`${API_BASE}/projects/${projectId}/trash`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message ?? "Failed to delete project");
+    throw new Error(body.message ?? "Failed to move project to trash");
   }
+}
+
+export async function trashProject(token: string, projectId: string): Promise<ApiProject> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/trash`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "Failed to move project to trash");
+  }
+  const data = (await response.json()) as { project: ApiProject };
+  return data.project;
+}
+
+export async function listTrashedProjects(token: string): Promise<ApiProject[]> {
+  const response = await fetch(`${API_BASE}/projects/trash`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error("Failed to load trash");
+  }
+  const data = (await response.json()) as { items: ApiProject[] };
+  return data.items;
+}
+
+export async function restoreProject(token: string, projectId: string): Promise<ApiProject> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/restore`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "Failed to restore project");
+  }
+  const data = (await response.json()) as { project: ApiProject };
+  return data.project;
+}
+
+export async function permanentlyDeleteProject(token: string, projectId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/projects/${projectId}/permanent`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message ?? "Failed to permanently delete project");
+  }
+}
+
+export async function listActivities(
+  token: string,
+  options?: { type?: ProjectActivity["type"]; includeAttachments?: boolean; limit?: number },
+): Promise<ProjectActivity[]> {
+  const params = new URLSearchParams();
+  if (options?.type) params.set("type", options.type);
+  if (options?.includeAttachments) params.set("includeAttachments", "1");
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  const response = await fetch(`${API_BASE}/activities${qs ? `?${qs}` : ""}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to load activities");
+  }
+  const data = (await response.json()) as { items: ProjectActivity[] };
+  return data.items.map((item) => ({
+    ...item,
+    attachments: Array.isArray(item.attachments) ? item.attachments : [],
+  }));
 }
 
 export async function listProjectActivities(token: string, projectId: string): Promise<ProjectActivity[]> {

@@ -10,6 +10,7 @@ import {
   Bell,
   BookOpen,
   MessageCircle,
+  Trash2,
   UserCog,
   UserCircle2,
   UserPlus,
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
   { href: '/map', label: 'Geo Intel', icon: MapPin },
   { href: '/follow-ups', label: 'Follow-ups', icon: Bell },
   { href: '/team', label: 'Field Team', icon: Users },
+  { href: '/trash', label: 'Trash', icon: Trash2 },
   { href: '/docs', label: 'Docs', icon: BookOpen },
   {
     href: FEEDBACK_WHATSAPP_URL,

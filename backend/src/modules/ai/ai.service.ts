@@ -1,4 +1,4 @@
-import { UserRole } from "@prisma/client";
+import { UserRole, type Prisma } from "@prisma/client";
 import OpenAI from "openai";
 
 import { env } from "../../config/env";
@@ -11,54 +11,75 @@ export type AssistantHistoryMessage = {
   content: string;
 };
 
-function projectsWhereForUser(user: AuthUser) {
+function projectsWhereForUser(user: AuthUser): Prisma.ProjectWhereInput {
+  const active = { deletedAt: null } satisfies Prisma.ProjectWhereInput;
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
-    return {};
+    return active;
   }
   if (user.role === UserRole.REGIONAL_MANAGER) {
-    return { manager: { regionalManagerId: user.id } };
+    return { AND: [active, { manager: { regionalManagerId: user.id } }] };
   }
   if (user.role === UserRole.MANAGER) {
-    return { managerId: user.id };
+    return { AND: [active, { managerId: user.id }] };
   }
-  return { salesRepIds: { has: user.id } };
+  return { AND: [active, { salesRepIds: { has: user.id } }] };
 }
 
 function followUpsWhereForUser(user: AuthUser) {
+  const activeProject = { project: { deletedAt: null } };
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
-    return {};
+    return activeProject;
   }
   if (user.role === UserRole.REGIONAL_MANAGER) {
     return {
-      OR: [{ ownerId: user.id }, { project: { manager: { regionalManagerId: user.id } } }],
+      AND: [
+        activeProject,
+        { OR: [{ ownerId: user.id }, { project: { manager: { regionalManagerId: user.id } } }] },
+      ],
     };
   }
   if (user.role === UserRole.MANAGER) {
     return {
-      OR: [{ ownerId: user.id }, { project: { managerId: user.id } }],
+      AND: [
+        activeProject,
+        { OR: [{ ownerId: user.id }, { project: { managerId: user.id } }] },
+      ],
     };
   }
   return {
-    OR: [{ ownerId: user.id }, { project: { salesRepIds: { has: user.id } } }],
+    AND: [
+      activeProject,
+      { OR: [{ ownerId: user.id }, { project: { salesRepIds: { has: user.id } } }] },
+    ],
   };
 }
 
 function activitiesWhereForUser(user: AuthUser) {
+  const activeProject = { project: { deletedAt: null } };
   if (user.role === UserRole.ADMIN || user.role === UserRole.CEO) {
-    return {};
+    return activeProject;
   }
   if (user.role === UserRole.REGIONAL_MANAGER) {
     return {
-      OR: [{ createdById: user.id }, { project: { manager: { regionalManagerId: user.id } } }],
+      AND: [
+        activeProject,
+        { OR: [{ createdById: user.id }, { project: { manager: { regionalManagerId: user.id } } }] },
+      ],
     };
   }
   if (user.role === UserRole.MANAGER) {
     return {
-      OR: [{ createdById: user.id }, { project: { managerId: user.id } }],
+      AND: [
+        activeProject,
+        { OR: [{ createdById: user.id }, { project: { managerId: user.id } }] },
+      ],
     };
   }
   return {
-    OR: [{ createdById: user.id }, { project: { salesRepIds: { has: user.id } } }],
+    AND: [
+      activeProject,
+      { OR: [{ createdById: user.id }, { project: { salesRepIds: { has: user.id } } }] },
+    ],
   };
 }
 

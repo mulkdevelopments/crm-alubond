@@ -32,6 +32,7 @@ model User {
   yearlyTarget Float? @map("monthlyTarget")
   isActive     Boolean  @default(true)
   canSetBusinessDivision Boolean @default(false)
+  lastSeenAt   DateTime?
 
   managerId String?
   manager   User?    @relation("ManagerReps", fields: [managerId], references: [id], onDelete: SetNull)
@@ -93,11 +94,20 @@ model Project {
 
   salesRepIds   String[]
   salesRepNames String[]
+
+  /** Person credited for the win on Field Team (set when stage → Won). */
+  convertedById   String?
+  convertedByName String?
+
   createdById   String?
   createdByName String?
   activities    ProjectActivity[]
   stakeholders  ProjectStakeholder[]
   followUps     FollowUp[]
+
+  deletedAt    DateTime?
+  deletedById  String?
+  deletedByName String?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -105,6 +115,21 @@ model Project {
   @@index([stage])
   @@index([managerId])
   @@index([regionalManagerId])
+  @@index([deletedAt])
+}
+
+model Customer {
+  id            String    @id @default(cuid())
+  name          String
+  nameKey       String    @unique
+  deletedAt     DateTime?
+  deletedById   String?
+  deletedByName String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([deletedAt])
+  @@index([nameKey])
 }
 
 model FollowUp {

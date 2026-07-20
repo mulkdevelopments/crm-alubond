@@ -10,10 +10,10 @@ export function PipelineProjectCard({
   project,
   viewerRole,
   canEdit,
-  isAdmin,
+  canTrash,
   onPress,
   onEdit,
-  onDelete,
+  onTrash,
   onMoveStagePress,
   stageMovesEnabled,
   showCustomer = true,
@@ -21,10 +21,10 @@ export function PipelineProjectCard({
   project: ApiProject;
   viewerRole?: string;
   canEdit: boolean;
-  isAdmin: boolean;
+  canTrash: boolean;
   onPress: () => void;
   onEdit: () => void;
-  onDelete: () => void;
+  onTrash: () => void;
   onMoveStagePress: () => void;
   stageMovesEnabled: boolean;
   showCustomer?: boolean;
@@ -55,11 +55,11 @@ export function PipelineProjectCard({
               <Pencil size={14} color={colors.text3} strokeWidth={2.2} />
             </Pressable>
           ) : null}
-          {isAdmin ? (
+          {canTrash ? (
             <Pressable
               style={[styles.iconBtn, { backgroundColor: "rgba(244, 63, 94, 0.08)" }]}
-              onPress={onDelete}
-              accessibilityLabel={`Delete ${project.name}`}
+              onPress={onTrash}
+              accessibilityLabel={`Move ${project.name} to trash`}
             >
               <Trash2 size={14} color={colors.danger} strokeWidth={2.2} />
             </Pressable>

@@ -22,7 +22,13 @@ for port in "${PORTS[@]}"; do
 done
 
 echo "Starting postgres on :5433 (docker compose)"
-docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d postgres
+# Reuse a leftover named container (e.g. after the repo moved) instead of failing on name conflict.
+if docker ps -a --format '{{.Names}}' | grep -qx 'alubond-crm-postgres'; then
+  docker start alubond-crm-postgres >/dev/null
+  echo "Using existing container alubond-crm-postgres"
+else
+  docker compose -f "${ROOT_DIR}/docker-compose.yml" up -d postgres
+fi
 
 cleanup() {
   echo "Stopping frontend/backend dev servers..."

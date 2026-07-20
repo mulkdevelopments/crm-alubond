@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bell, Sun, Moon, Menu, Check, X, MapPin, AlertTriangle, Clock3, CheckCircle2 } from 'lucide-react';
+import { Bell, Menu, Check, X, MapPin, AlertTriangle, Clock3, CheckCircle2, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '@/components/auth/AuthContext';
@@ -26,10 +26,7 @@ type TargetProgress = {
   percent: number;
 };
 
-const THEME_STORAGE_KEY = 'alubond-theme';
-
 export function Topbar({ onMenu }: { onMenu?: () => void }) {
-  const [dark, setDark] = useState(false);
   const { locationTelemetry, token, user } = useAuth();
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -39,23 +36,6 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const [notificationsSeenAtMs, setNotificationsSeenAtMs] = useState(0);
   const [targetProgress, setTargetProgress] = useState<TargetProgress | null>(null);
   const notificationPanelRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    const isDark = savedTheme
-      ? savedTheme === 'dark'
-      : document.documentElement.classList.contains('dark') ||
-        window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setDark(isDark);
-    document.documentElement.classList.toggle('dark', isDark);
-  }, []);
-
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle('dark', next);
-    window.localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light');
-  }
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -259,6 +239,15 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       </div>
 
       <div className="flex items-center gap-1.5">
+        <Link
+          href="/pipeline?createProject=1"
+          className="h-9 inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 px-2.5 sm:px-3 text-white shadow-sm hover:bg-brand-700 transition-colors"
+          aria-label="Add project"
+          title="Add project"
+        >
+          <Plus className="h-4 w-4 shrink-0" strokeWidth={2.5} />
+          <span className="hidden sm:inline text-xs font-semibold tracking-tight">Project</span>
+        </Link>
         {hasLocationInfo && (
           <div className="hidden md:flex items-center gap-2 h-9 pl-2 pr-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface)]">
             {locationLabel && (
@@ -315,13 +304,6 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
             )}
           </div>
         )}
-        <button
-          onClick={toggle}
-          className="h-9 w-9 inline-flex items-center justify-center rounded-xl text-2 hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-all"
-          aria-label="Toggle theme"
-        >
-          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
         <div className="relative" ref={notificationPanelRef}>
           <button
             type="button"

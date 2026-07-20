@@ -1,5 +1,5 @@
-import type { UserListItem } from "@/lib/api/auth-api";
-import type { ApiProject, ProjectActivity } from "@/lib/api/projects-api";
+import type { UserListItem } from "@/lib/auth-api";
+import type { ApiProject, ProjectActivity } from "@/lib/projects-api";
 
 export type NodeMetrics = {
   assignedTargetAed: number | null;

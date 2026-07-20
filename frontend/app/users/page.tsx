@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
+import { Avatar } from '@/components/ui/Avatar';
 import {
   createUser,
   deleteUser,
@@ -273,9 +274,9 @@ export default function UsersPage() {
           if (entry.role !== 'SALES_REP' && entry.role !== 'MANAGER') return false;
         }
         if (statusFilter !== 'ALL') {
-          const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
-          if (statusFilter === 'live' && !live) return false;
-          if (statusFilter === 'offline' && live) return false;
+          const online = isUserOnline(entry.lastSeenAt, entry.isActive);
+          if (statusFilter === 'live' && !online) return false;
+          if (statusFilter === 'offline' && online) return false;
         }
         return true;
       })
@@ -700,7 +701,7 @@ export default function UsersPage() {
                       className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
                     >
                       <option value="ALL">All statuses</option>
-                      <option value="live">Live</option>
+                      <option value="live">Online</option>
                       <option value="offline">Offline</option>
                     </select>
                   </div>
@@ -732,14 +733,29 @@ export default function UsersPage() {
                         </thead>
                         <tbody className="divide-y divide-[var(--border)]">
                           {paginatedUsers.map((entry) => {
-                            const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
+                            const online = isUserOnline(entry.lastSeenAt, entry.isActive);
+                            const locationLive = isUserLive(entry.lastLocationPingAt, entry.isActive);
                             return (
                               <tr key={entry.id} className="hover:bg-[var(--surface-2)]/40 transition-colors">
                                 <td className="px-4 py-3">
-                                  <p className="font-medium text-[var(--text)]">
-                                    {entry.firstName} {entry.lastName}
-                                  </p>
-                                  <p className="text-xs text-3 truncate max-w-[220px]">{entry.email}</p>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <Avatar
+                                      name={`${entry.firstName} ${entry.lastName}`}
+                                      size="sm"
+                                      online={online}
+                                    />
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-[var(--text)] truncate inline-flex items-center gap-1.5">
+                                        {entry.firstName} {entry.lastName}
+                                        {online ? (
+                                          <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                            Online
+                                          </span>
+                                        ) : null}
+                                      </p>
+                                      <p className="text-xs text-3 truncate max-w-[220px]">{entry.email}</p>
+                                    </div>
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3">
                                   <Badge tone={roleBadgeTone(entry.role as Role)}>{entry.role.replace('_', ' ')}</Badge>
@@ -755,12 +771,12 @@ export default function UsersPage() {
                                   {entry.yearlyTarget != null ? `AED ${formatAed(entry.yearlyTarget)}` : '—'}
                                 </td>
                                 <td className="px-4 py-3">
-                                  <span className={cn('text-xs font-medium', live ? 'text-emerald-600' : 'text-rose-600')}>
-                                    {live
-                                      ? 'Live'
-                                      : entry.lastLocationPingAt
-                                        ? formatLastSeen(entry.lastLocationPingAt)
-                                        : 'No location'}
+                                  <span className={cn('text-xs font-medium', online ? 'text-emerald-600' : 'text-3')}>
+                                    {online
+                                      ? 'Online'
+                                      : entry.lastSeenAt
+                                        ? `Last login ${formatLastSeen(entry.lastSeenAt)}`
+                                        : 'Never logged in'}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3">
@@ -772,7 +788,7 @@ export default function UsersPage() {
                                       icon={<CalendarDays className="h-3.5 w-3.5" />}
                                       onClick={() => void openAttendance(entry)}
                                     >
-                                      {live ? 'Live' : 'History'}
+                                      {locationLive ? 'Live' : 'History'}
                                     </Button>
                                     <Button
                                       type="button"
@@ -805,15 +821,28 @@ export default function UsersPage() {
 
                     <div className="md:hidden space-y-2">
                       {paginatedUsers.map((entry) => {
-                        const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
+                        const online = isUserOnline(entry.lastSeenAt, entry.isActive);
+                        const locationLive = isUserLive(entry.lastLocationPingAt, entry.isActive);
                         return (
                           <div key={entry.id} className="rounded-xl border border-[var(--border)] p-3 space-y-2">
                             <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="font-medium truncate">
-                                  {entry.firstName} {entry.lastName}
-                                </p>
-                                <p className="text-xs text-3 truncate">{entry.email}</p>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Avatar
+                                  name={`${entry.firstName} ${entry.lastName}`}
+                                  size="sm"
+                                  online={online}
+                                />
+                                <div className="min-w-0">
+                                  <p className="font-medium truncate inline-flex items-center gap-1.5 flex-wrap">
+                                    {entry.firstName} {entry.lastName}
+                                    {online ? (
+                                      <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                        Online
+                                      </span>
+                                    ) : null}
+                                  </p>
+                                  <p className="text-xs text-3 truncate">{entry.email}</p>
+                                </div>
                               </div>
                               <Badge tone={roleBadgeTone(entry.role as Role)}>{entry.role.replace('_', ' ')}</Badge>
                             </div>
@@ -828,12 +857,16 @@ export default function UsersPage() {
                               </div>
                             </div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className={cn('text-xs font-medium', live ? 'text-emerald-600' : 'text-rose-600')}>
-                                {live ? 'Live' : entry.lastLocationPingAt ? formatLastSeen(entry.lastLocationPingAt) : 'No location'}
+                              <span className={cn('text-xs font-medium', online ? 'text-emerald-600' : 'text-3')}>
+                                {online
+                                  ? 'Online'
+                                  : entry.lastSeenAt
+                                    ? `Last login ${formatLastSeen(entry.lastSeenAt)}`
+                                    : 'Never logged in'}
                               </span>
                               <div className="inline-flex items-center gap-1.5">
                                 <Button type="button" variant="soft" size="sm" onClick={() => void openAttendance(entry)}>
-                                  {live ? 'Live' : 'History'}
+                                  {locationLive ? 'Live' : 'History'}
                                 </Button>
                                 <Button type="button" variant="secondary" size="sm" onClick={() => openEditUserDialog(entry)}>
                                   Edit
@@ -1667,11 +1700,19 @@ function formatLocalDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function isUserOnline(lastSeenAt: string | null, isActive: boolean) {
+  if (!isActive || !lastSeenAt) return false;
+  const lastSeenMs = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeenMs)) return false;
+  // Heartbeat every ~60s while logged in; treat <=5 minutes as online.
+  return Date.now() - lastSeenMs <= 5 * 60_000;
+}
+
 function isUserLive(lastLocationPingAt: string | null, isActive: boolean) {
   if (!isActive || !lastLocationPingAt) return false;
   const lastSeenMs = new Date(lastLocationPingAt).getTime();
   if (!Number.isFinite(lastSeenMs)) return false;
-  // Pings are sent every 60s; treat <=150s as live.
+  // Pings are sent every 60s; treat <=150s as live field presence.
   return Date.now() - lastSeenMs <= 150_000;
 }
 

@@ -46,6 +46,7 @@ export type UserListItem = {
   canSetBusinessDivision: boolean;
   createdAt: string;
   lastLocationPingAt: string | null;
+  lastSeenAt: string | null;
   manager: ManagerOption | null;
   regionalManager: ManagerOption | null;
   reportsTo: ManagerOption | null;

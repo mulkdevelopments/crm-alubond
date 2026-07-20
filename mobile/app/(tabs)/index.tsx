@@ -10,6 +10,10 @@ import { ScreenLoader } from "@/components/ScreenLoader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardHeader } from "@/components/ui/Card";
+import {
+  DashboardKpiDetailModal,
+  type KpiDetailKind,
+} from "@/components/dashboard/DashboardKpiDetailModal";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ThemeColors, useThemeColors } from "@/constants/theme";
@@ -52,6 +56,7 @@ export default function HomeScreen() {
   const [followUps, setFollowUps] = useState<ApiFollowUp[]>([]);
   const [users, setUsers] = useState<Awaited<ReturnType<typeof listUsers>>>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
+  const [kpiDetail, setKpiDetail] = useState<KpiDetailKind | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -133,7 +138,16 @@ export default function HomeScreen() {
     0
   );
 
-  const monthlyTrend = useMemo(() => buildMonthlyTrend(projects, users), [projects, users]);
+  const monthlyTrend = useMemo(
+    () =>
+      buildMonthlyTrend({
+        projects,
+        users,
+        currentUserId: user?.id,
+        currentUserRole: user?.role,
+      }),
+    [projects, users, user?.id, user?.role]
+  );
   const lossBreakdown = useMemo(() => buildLossBreakdown(projects), [projects]);
   const stageFunnel = useMemo(() => buildStageFunnel(projects), [projects]);
   const teamSummary = useMemo(() => {
@@ -200,16 +214,16 @@ export default function HomeScreen() {
             value={formatAed(pipelineValue, true)}
             hint={`${activeProjects.length} active`}
             accent="brand"
-            spark={monthlyTrend.map((entry) => entry.achieved)}
             icon={<Briefcase size={16} color={colors.text2} strokeWidth={2.2} />}
+            onPress={() => setKpiDetail("pipeline")}
           />
           <KpiCard
             label="Forecast (weighted)"
             value={formatAed(forecast, true)}
             hint="Weighted by probability"
             accent="success"
-            spark={monthlyTrend.map((entry) => Math.max(0, entry.target - 1))}
             icon={<Target size={16} color={colors.text2} strokeWidth={2.2} />}
+            onPress={() => setKpiDetail("forecast")}
           />
           <KpiCard
             label="MTD won"
@@ -218,19 +232,20 @@ export default function HomeScreen() {
             accent="warning"
             spark={monthlyTrend.map((entry) => entry.achieved)}
             icon={<Trophy size={16} color={colors.text2} strokeWidth={2.2} />}
+            onPress={() => setKpiDetail("won")}
           />
           <KpiCard
             label="Overdue follow-ups"
             value={String(overdueFollowUps.length)}
             hint={`${followUps.filter((followUp) => followUp.status !== "Done").length} open`}
             accent="danger"
-            spark={monthlyTrend.map((entry) => Math.max(0, entry.target - entry.achieved))}
             icon={<Bell size={16} color={colors.text2} strokeWidth={2.2} />}
+            onPress={() => setKpiDetail("overdue")}
           />
         </View>
 
         <Card style={styles.sectionCard}>
-          <CardHeader title="Sales target vs achieved" subtitle="Last 6 months · AED in millions" />
+          <CardHeader title="Sales target vs achieved" subtitle="Monthly target (yearly ÷ 12) · last 6 months · AED M" />
           <View style={styles.chartBody}>
             <TrendChart data={monthlyTrend} />
           </View>
@@ -390,6 +405,23 @@ export default function HomeScreen() {
           </View>
         </Card>
       </ScrollView>
+
+      <DashboardKpiDetailModal
+        kind={kpiDetail}
+        activeProjects={activeProjects}
+        wonProjects={wonProjects}
+        overdueFollowUps={overdueFollowUps}
+        viewerRole={user?.role}
+        onClose={() => setKpiDetail(null)}
+        onOpenProject={(projectId) => router.push(`/project/${projectId}`)}
+        onViewMore={(kind) => {
+          if (kind === "overdue") {
+            router.push("/(tabs)/follow-ups");
+            return;
+          }
+          router.push("/(tabs)/pipeline");
+        }}
+      />
     </View>
   );
 }

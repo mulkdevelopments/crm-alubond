@@ -25,6 +25,12 @@ export async function validateCredentials(email: string, password: string): Prom
     return null;
   }
 
+  const now = new Date();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastSeenAt: now },
+  });
+
   return {
     token: signToken(user),
     user: toAuthUser(user)

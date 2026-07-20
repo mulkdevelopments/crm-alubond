@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Defs, Polyline, RadialGradient, Stop } from "react-native-svg";
 
 import { Card } from "@/components/ui/Card";
@@ -26,6 +26,7 @@ export function KpiCard({
   icon,
   accent = "brand",
   spark,
+  onPress,
 }: {
   label: string;
   value: ReactNode;
@@ -33,14 +34,15 @@ export function KpiCard({
   icon?: ReactNode;
   accent?: KpiAccent;
   spark?: number[];
+  onPress?: () => void;
 }) {
   const colors = useThemeColors();
   const styles = createStyles(colors);
   const glowColor = accentColors[accent];
   const gradientId = `kpi-glow-${accent}`;
 
-  return (
-    <Card style={styles.card}>
+  const body = (
+    <>
       <View style={styles.glowOrb} pointerEvents="none">
         <Svg width={GLOW_SIZE} height={GLOW_SIZE}>
           <Defs>
@@ -80,6 +82,18 @@ export function KpiCard({
           </View>
         ) : null}
       </View>
+    </>
+  );
+
+  return (
+    <Card style={styles.card}>
+      {onPress ? (
+        <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => (pressed ? { opacity: 0.88 } : null)}>
+          {body}
+        </Pressable>
+      ) : (
+        body
+      )}
     </Card>
   );
 }

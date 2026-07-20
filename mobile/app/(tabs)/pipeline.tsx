@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { ChevronDown, Layers, Plus, Search } from "lucide-react-native";
+import { Filter, Layers, Plus, Search } from "lucide-react-native";
 
 import { OptionSheet } from "@/components/pipeline/OptionSheet";
 import {
@@ -24,6 +24,12 @@ import {
   LossStagePrompt,
   type LossPromptState,
 } from "@/components/pipeline/LossStagePrompt";
+import {
+  WinStagePrompt,
+  buildConverterOptions,
+  createWinPromptState,
+  type WinPromptState,
+} from "@/components/pipeline/WinStagePrompt";
 import { PipelineProjectCard } from "@/components/pipeline/PipelineProjectCard";
 import { PipelineCustomerGroupList } from "@/components/pipeline/PipelineCustomerGroupList";
 import { EmptyState, ScreenLoader } from "@/components/ScreenLoader";
@@ -101,13 +107,24 @@ export default function PipelineScreen() {
     project: ApiProject;
     prompt: LossPromptState;
   } | null>(null);
+  const [winPrompt, setWinPrompt] = useState<{
+    project: ApiProject;
+    commercial: {
+      value: number;
+      currencyCode: string;
+      itemQuantity: number;
+      specThickness: string;
+      specCore: string;
+      specPaintType: string;
+    };
+    prompt: WinPromptState;
+  } | null>(null);
   const [groupByCustomer, setGroupByCustomer] = useState(false);
   const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
   const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
 
   const canCreate = canManageProjects(user?.role);
   const canSetDivision = canSetBusinessDivision(user);
-  const isAdmin = user?.role === "ADMIN";
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -180,15 +197,15 @@ export default function PipelineScreen() {
     }
   }
 
-  function onDelete(project: ApiProject) {
-    if (!token || !isAdmin) return;
+  function onTrash(project: ApiProject) {
+    if (!token) return;
     Alert.alert(
-      "Delete project",
-      `Delete "${project.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`,
+      "Move to trash",
+      `Move "${project.name}" to trash? You can restore it later from Trash.`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: "Move to trash",
           style: "destructive",
           onPress: () =>
             void (async () => {
@@ -196,7 +213,7 @@ export default function PipelineScreen() {
                 await deleteProject(token, project.id);
                 await load();
               } catch (err) {
-                Alert.alert("Delete failed", err instanceof Error ? err.message : "Please try again.");
+                Alert.alert("Trash failed", err instanceof Error ? err.message : "Please try again.");
               }
             })(),
         },
@@ -215,6 +232,7 @@ export default function PipelineScreen() {
       specCore: string;
       specPaintType: string;
     },
+    convertedById?: string | null,
   ) {
     if (!token) return;
 
@@ -226,6 +244,12 @@ export default function PipelineScreen() {
     )
       ? formatProjectSpecs(commercial.specThickness, commercial.specCore, commercial.specPaintType)
       : project.itemName;
+    const nextConvertedById = nextStage === "Won" ? convertedById ?? project.convertedById : null;
+    const nextConvertedByName =
+      nextStage === "Won"
+        ? buildConverterOptions(project).find((option) => option.id === nextConvertedById)?.name ??
+          project.convertedByName
+        : null;
 
     setProjects((current) =>
       current.map((entry) =>
@@ -241,6 +265,8 @@ export default function PipelineScreen() {
               specCore: commercial.specCore,
               specPaintType: commercial.specPaintType,
               itemName,
+              convertedById: nextConvertedById,
+              convertedByName: nextConvertedByName,
             }
           : entry,
       ),
@@ -269,6 +295,7 @@ export default function PipelineScreen() {
       regionalManagerId: project.regionalManagerId,
       managerId: project.managerId,
       salesRepIds: project.salesRepIds,
+      convertedById: nextConvertedById,
     });
   }
 
@@ -404,20 +431,51 @@ export default function PipelineScreen() {
       return;
     }
 
+    const commercial = {
+      value: parseFormattedNumber(commercialPrompt.prompt.value),
+      currencyCode: commercialPrompt.prompt.currencyCode,
+      itemQuantity: parseFormattedNumber(commercialPrompt.prompt.itemQuantity),
+      specThickness: commercialPrompt.prompt.specThickness,
+      specCore: commercialPrompt.prompt.specCore,
+      specPaintType: commercialPrompt.prompt.specPaintType,
+    };
+
+    if (commercialPrompt.prompt.targetStage === "Won") {
+      const options = buildConverterOptions(commercialPrompt.project);
+      if (options.length === 0) {
+        setCommercialPrompt({
+          ...commercialPrompt,
+          prompt: {
+            ...commercialPrompt.prompt,
+            error: "Assign a sales rep, manager, or regional manager before marking Won.",
+          },
+        });
+        return;
+      }
+      const project = commercialPrompt.project;
+      setCommercialPrompt(null);
+      setWinPrompt({
+        project,
+        commercial,
+        prompt: createWinPromptState({
+          convertedById:
+            project.convertedById && options.some((option) => option.id === project.convertedById)
+              ? project.convertedById
+              : options.length === 1
+                ? options[0]!.id
+                : null,
+        }),
+      });
+      return;
+    }
+
     setCommercialPrompt({
       ...commercialPrompt,
       prompt: { ...commercialPrompt.prompt, error: null, saving: true },
     });
 
     try {
-      await persistStageChange(commercialPrompt.project, commercialPrompt.prompt.targetStage, {
-        value: parseFormattedNumber(commercialPrompt.prompt.value),
-        currencyCode: commercialPrompt.prompt.currencyCode,
-        itemQuantity: parseFormattedNumber(commercialPrompt.prompt.itemQuantity),
-        specThickness: commercialPrompt.prompt.specThickness,
-        specCore: commercialPrompt.prompt.specCore,
-        specPaintType: commercialPrompt.prompt.specPaintType,
-      });
+      await persistStageChange(commercialPrompt.project, commercialPrompt.prompt.targetStage, commercial);
       setCommercialPrompt(null);
     } catch {
       setCommercialPrompt({
@@ -426,6 +484,36 @@ export default function PipelineScreen() {
           ...commercialPrompt.prompt,
           saving: false,
           error: "Failed to update stage. Please retry.",
+        },
+      });
+    }
+  }
+
+  async function submitWinPrompt() {
+    if (!winPrompt) return;
+    if (!winPrompt.prompt.convertedById) {
+      setWinPrompt({
+        ...winPrompt,
+        prompt: { ...winPrompt.prompt, error: "Select who converted this project." },
+      });
+      return;
+    }
+
+    setWinPrompt({
+      ...winPrompt,
+      prompt: { ...winPrompt.prompt, error: null, saving: true },
+    });
+
+    try {
+      await persistStageChange(winPrompt.project, "Won", winPrompt.commercial, winPrompt.prompt.convertedById);
+      setWinPrompt(null);
+    } catch (err) {
+      setWinPrompt({
+        ...winPrompt,
+        prompt: {
+          ...winPrompt.prompt,
+          saving: false,
+          error: err instanceof Error ? err.message : "Failed to update stage. Please retry.",
         },
       });
     }
@@ -460,11 +548,49 @@ export default function PipelineScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search in this stage..."
+              placeholder="Search…"
               placeholderTextColor={colors.text3}
               style={[styles.searchInput, { color: colors.text }]}
             />
           </View>
+
+          <Pressable
+            style={[
+              styles.iconBtn,
+              {
+                backgroundColor: groupByCustomer ? colors.brand : colors.surface2,
+                borderColor: groupByCustomer ? colors.brand : colors.border,
+              },
+            ]}
+            onPress={() => setGroupByCustomer((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: groupByCustomer }}
+            accessibilityLabel={groupByCustomer ? "Ungroup by customer" : "Group by customer"}
+          >
+            <Layers size={16} color={groupByCustomer ? "#fff" : colors.text3} strokeWidth={2.2} />
+          </Pressable>
+
+          {canSetDivision ? (
+            <Pressable
+              style={[
+                styles.iconBtn,
+                {
+                  backgroundColor: divisionFilter !== "ALL" ? colors.brand : colors.surface2,
+                  borderColor: divisionFilter !== "ALL" ? colors.brand : colors.border,
+                },
+              ]}
+              onPress={() => setDivisionSheetOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Filter by business division"
+            >
+              <Filter
+                size={16}
+                color={divisionFilter !== "ALL" ? "#fff" : colors.text3}
+                strokeWidth={2.2}
+              />
+            </Pressable>
+          ) : null}
+
           {canCreate ? (
             <Pressable
               style={[styles.addButton, { backgroundColor: colors.brand }]}
@@ -475,34 +601,6 @@ export default function PipelineScreen() {
             </Pressable>
           ) : null}
         </View>
-
-        {canSetDivision ? (
-          <Pressable
-            style={[styles.divisionSelect, { backgroundColor: colors.surface2, borderColor: colors.border }]}
-            onPress={() => setDivisionSheetOpen(true)}
-          >
-            <Text style={[styles.divisionSelectText, { color: colors.text }]}>
-              {divisionOptions.find((option) => option.value === divisionFilter)?.label ?? "All divisions"}
-            </Text>
-            <ChevronDown size={16} color={colors.text3} strokeWidth={2.2} />
-          </Pressable>
-        ) : null}
-
-        <Pressable
-          style={[
-            styles.groupToggle,
-            {
-              backgroundColor: groupByCustomer ? colors.brand : colors.surface,
-              borderColor: groupByCustomer ? colors.brand : colors.border,
-            },
-          ]}
-          onPress={() => setGroupByCustomer((prev) => !prev)}
-        >
-          <Layers size={16} color={groupByCustomer ? "#fff" : colors.text3} strokeWidth={2.2} />
-          <Text style={[styles.groupToggleText, { color: groupByCustomer ? "#fff" : colors.text }]}>
-            {groupByCustomer ? "Grouped by customer" : "Group by customer"}
-          </Text>
-        </Pressable>
 
         <ScrollView
           horizontal
@@ -569,11 +667,11 @@ export default function PipelineScreen() {
                 project={project}
                 viewerRole={user?.role}
                 canEdit={canCreate}
-                isAdmin={isAdmin}
+                canTrash={canCreate}
                 showCustomer={false}
                 onPress={() => router.push(`/project/${project.id}`)}
                 onEdit={() => router.push(`/project/form?id=${project.id}`)}
-                onDelete={() => onDelete(project)}
+                onTrash={() => onTrash(project)}
                 onMoveStagePress={() => setStageMoveProject(project)}
                 stageMovesEnabled={true}
               />
@@ -587,10 +685,10 @@ export default function PipelineScreen() {
                 project={project}
                 viewerRole={user?.role}
                 canEdit={canCreate}
-                isAdmin={isAdmin}
+                canTrash={canCreate}
                 onPress={() => router.push(`/project/${project.id}`)}
                 onEdit={() => router.push(`/project/form?id=${project.id}`)}
-                onDelete={() => onDelete(project)}
+                onTrash={() => onTrash(project)}
                 onMoveStagePress={() => setStageMoveProject(project)}
                 stageMovesEnabled={true}
               />
@@ -656,6 +754,22 @@ export default function PipelineScreen() {
         }}
         onSubmit={() => void submitLossPrompt()}
       />
+
+      <WinStagePrompt
+        visible={Boolean(winPrompt)}
+        prompt={winPrompt?.prompt ?? null}
+        options={winPrompt ? buildConverterOptions(winPrompt.project) : []}
+        onChange={(prompt) => {
+          if (winPrompt) {
+            setWinPrompt({ ...winPrompt, prompt });
+          }
+        }}
+        onClose={() => {
+          if (winPrompt?.prompt.saving) return;
+          setWinPrompt(null);
+        }}
+        onSubmit={() => void submitWinPrompt()}
+      />
     </View>
   );
 }
@@ -704,32 +818,13 @@ function createStyles(colors: ThemeColors) {
       fontSize: 14,
       fontWeight: "700",
     },
-    divisionSelect: {
+    iconBtn: {
+      width: 40,
       height: 40,
       borderRadius: 12,
       borderWidth: 1,
-      paddingHorizontal: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    divisionSelectText: {
-      fontSize: 14,
-      fontWeight: "600",
-    },
-    groupToggle: {
-      flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      gap: 8,
-      borderWidth: 1,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-    },
-    groupToggleText: {
-      fontSize: 13,
-      fontWeight: "600",
     },
     moveToggleRow: {
       flexDirection: "row",

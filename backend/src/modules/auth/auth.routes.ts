@@ -235,16 +235,31 @@ authRouter.post("/bootstrap-admin", async (req, res) => {
 });
 
 authRouter.get("/me", authenticate, async (req, res) => {
-  const user = await prisma.user.findUnique({
+  const user = await prisma.user.update({
     where: { id: req.user!.id },
+    data: { lastSeenAt: new Date() },
     select: {
       id: true,
       email: true,
       role: true,
       managerId: true,
       firstName: true,
-      lastName: true
+      lastName: true,
+      canSetBusinessDivision: true,
     }
+  }).catch(async () => {
+    return prisma.user.findUnique({
+      where: { id: req.user!.id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        managerId: true,
+        firstName: true,
+        lastName: true,
+        canSetBusinessDivision: true,
+      }
+    });
   });
 
   if (!user) {

@@ -56,7 +56,6 @@ export default function ProjectDetailScreen() {
   const messageRef = useRef<TextInput>(null);
   const activitySectionY = useRef(0);
   const canManage = canManageProjects(user?.role);
-  const isAdmin = user?.role === "ADMIN";
   const [project, setProject] = useState<ApiProject | null>(null);
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
   const [stakeholders, setStakeholders] = useState<ProjectStakeholder[]>([]);
@@ -216,15 +215,15 @@ export default function ProjectDetailScreen() {
     }
   }
 
-  async function onDeleteProject() {
-    if (!token || !id || !project || !isAdmin) return;
+  async function onTrashProject() {
+    if (!token || !id || !project || !canManage) return;
     Alert.alert(
-      "Delete project",
-      `Delete "${project.name}"? This cannot be undone.`,
+      "Move to trash",
+      `Move "${project.name}" to trash? You can restore it later from Trash.`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete",
+          text: "Move to trash",
           style: "destructive",
           onPress: () => void (async () => {
             await deleteProject(token, id);
@@ -249,8 +248,8 @@ export default function ProjectDetailScreen() {
                   <Ionicons name="create-outline" size={22} color={colors.brand} />
                 </Pressable>
               ) : null}
-              {isAdmin ? (
-                <Pressable onPress={() => void onDeleteProject()} style={styles.headerBtn}>
+              {canManage ? (
+                <Pressable onPress={() => void onTrashProject()} style={styles.headerBtn}>
                   <Ionicons name="trash-outline" size={22} color={colors.danger} />
                 </Pressable>
               ) : null}

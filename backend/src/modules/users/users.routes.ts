@@ -555,6 +555,7 @@ usersRouter.get("/", async (req, res) => {
       isActive: true,
       canSetBusinessDivision: true,
       createdAt: true,
+      lastSeenAt: true,
       locationPings: {
         select: { recordedAt: true },
         orderBy: { recordedAt: "desc" },
@@ -606,15 +607,17 @@ usersRouter.get("/", async (req, res) => {
     manager: user.manager,
     regionalManager: user.regionalManager,
     reportsTo: user.reportsTo,
-    lastLocationPingAt: user.locationPings[0]?.recordedAt ?? null
+    lastLocationPingAt: user.locationPings[0]?.recordedAt ?? null,
+    lastSeenAt: user.lastSeenAt ?? null,
   }));
 
   res.status(200).json({ items });
 });
 
 usersRouter.get("/me", async (req, res) => {
-  const user = await prisma.user.findUnique({
+  const user = await prisma.user.update({
     where: { id: req.user!.id },
+    data: { lastSeenAt: new Date() },
     select: {
       id: true,
       email: true,
@@ -627,7 +630,7 @@ usersRouter.get("/me", async (req, res) => {
       canSetBusinessDivision: true,
       createdAt: true
     }
-  });
+  }).catch(async () => null);
 
   if (!user) {
     res.status(404).json({ message: "User not found" });
@@ -998,12 +1001,12 @@ usersRouter.get("/:userId/location-route", authorize(UserRole.ADMIN, UserRole.RE
 
   const assignedProjectWhere =
     targetUser.role === UserRole.REGIONAL_MANAGER
-      ? { manager: { regionalManagerId: targetUser.id } }
+      ? { deletedAt: null, manager: { regionalManagerId: targetUser.id } }
       : targetUser.role === UserRole.MANAGER
-      ? { managerId: targetUser.id }
+      ? { deletedAt: null, managerId: targetUser.id }
       : targetUser.role === UserRole.SALES_REP
-        ? { salesRepIds: { has: targetUser.id } }
-        : undefined;
+        ? { deletedAt: null, salesRepIds: { has: targetUser.id } }
+        : { deletedAt: null };
 
   const [pings, projects] = await Promise.all([
     locationModel.findMany({

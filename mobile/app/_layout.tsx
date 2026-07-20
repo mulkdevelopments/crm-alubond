@@ -89,6 +89,14 @@ export default function RootLayout() {
     await saveSession(token, fresh);
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    const heartbeat = setInterval(() => {
+      void fetchMe(token).catch(() => undefined);
+    }, 60_000);
+    return () => clearInterval(heartbeat);
+  }, [token]);
+
   const authValue = useMemo(
     () => ({
       user,

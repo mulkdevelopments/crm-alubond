@@ -11,6 +11,7 @@ export function KpiCard({
   icon,
   accent,
   spark,
+  onClick,
 }: {
   label: string;
   value: ReactNode;
@@ -19,10 +20,28 @@ export function KpiCard({
   icon?: ReactNode;
   accent?: 'brand' | 'success' | 'warning' | 'danger';
   spark?: number[];
+  onClick?: () => void;
 }) {
   const up = (delta ?? 0) >= 0;
+  const clickable = Boolean(onClick);
   return (
-    <Card className="p-5 relative overflow-hidden">
+    <Card
+      className="p-5 relative overflow-hidden"
+      interactive={clickable}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+    >
       {accent && (
         <span className={cn(
           'absolute -top-12 -right-12 h-28 w-28 rounded-full blur-2xl opacity-30',
@@ -53,7 +72,7 @@ export function KpiCard({
             <span className="text-3 font-normal ml-0.5">vs last month</span>
           </span>
         )}
-        {spark && <Sparkline values={spark} positive={up} />}
+        {spark && spark.length > 1 ? <Sparkline values={spark} positive={delta !== undefined ? up : undefined} /> : null}
       </div>
     </Card>
   );
@@ -65,13 +84,15 @@ function Sparkline({ values, positive }: { values: number[]; positive?: boolean 
   const range = max - min || 1;
   const w = 80;
   const h = 28;
-  const step = w / (values.length - 1);
+  const step = values.length > 1 ? w / (values.length - 1) : 0;
   const points = values
     .map((v, i) => `${i * step},${h - ((v - min) / range) * h}`)
     .join(' ');
-  const stroke = positive === false ? '#EF4444' : '#E30613';
+  const trendingUp = (values[values.length - 1] ?? 0) >= (values[0] ?? 0);
+  const isPositive = positive ?? trendingUp;
+  const stroke = isPositive ? '#E30613' : '#EF4444';
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-7 w-20">
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-7 w-20" aria-hidden>
       <polyline points={points} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );

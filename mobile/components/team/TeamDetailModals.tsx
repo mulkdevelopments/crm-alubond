@@ -75,17 +75,20 @@ export function TeamPipelineModal({
   ownerName,
   projects,
   viewerRole,
+  kind = "pipeline",
   onClose,
 }: {
   visible: boolean;
   ownerName: string;
   projects: ApiProject[];
   viewerRole?: string;
+  kind?: "pipeline" | "won";
   onClose: () => void;
 }) {
   const colors = useThemeColors();
   const styles = createStyles(colors);
   const totalValue = projects.reduce((sum, project) => sum + project.valueAed, 0);
+  const isWon = kind === "won";
 
   const stageLegend = Array.from(
     projects.reduce((acc, project) => {
@@ -103,9 +106,11 @@ export function TeamPipelineModal({
         <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <View style={styles.headerText}>
-              <Text style={[styles.title, { color: colors.text }]}>{ownerName} · Pipeline details</Text>
+              <Text style={[styles.title, { color: colors.text }]}>
+                {ownerName} · {isWon ? "Won projects" : "Pipeline details"}
+              </Text>
               <Text style={[styles.subtitle, { color: colors.text3 }]}>
-                {projects.length} active project(s) · {formatAed(totalValue, true)}
+                {projects.length} {isWon ? "won" : "active"} project(s) · {formatAed(totalValue, true)}
               </Text>
             </View>
             <Pressable style={[styles.closeButton, { backgroundColor: colors.surface2 }]} onPress={onClose}>
@@ -114,25 +119,29 @@ export function TeamPipelineModal({
           </View>
           <ScrollView contentContainerStyle={styles.content}>
             {projects.length === 0 ? (
-              <Text style={[styles.empty, { color: colors.text3 }]}>No active pipeline projects.</Text>
+              <Text style={[styles.empty, { color: colors.text3 }]}>
+                {isWon ? "No won projects." : "No active pipeline projects."}
+              </Text>
             ) : (
               <>
-                <View style={[styles.legendBox, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
-                  <Text style={[styles.legendTitle, { color: colors.text }]}>Legend by stage</Text>
-                  <View style={styles.legendGrid}>
-                    {stageLegend.map(([stage, stats]) => (
-                      <View
-                        key={stage}
-                        style={[styles.legendItem, { borderColor: colors.border, backgroundColor: colors.surface }]}
-                      >
-                        <Text style={[styles.legendStage, { color: colors.text }]}>{stage}</Text>
-                        <Text style={[styles.legendMeta, { color: colors.text3 }]}>
-                          {stats.count} project(s) · {formatAed(stats.value, true)}
-                        </Text>
-                      </View>
-                    ))}
+                {!isWon ? (
+                  <View style={[styles.legendBox, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
+                    <Text style={[styles.legendTitle, { color: colors.text }]}>By stage</Text>
+                    <View style={styles.legendGrid}>
+                      {stageLegend.map(([stage, stats]) => (
+                        <View
+                          key={stage}
+                          style={[styles.legendItem, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                        >
+                          <Text style={[styles.legendStage, { color: colors.text }]}>{stage}</Text>
+                          <Text style={[styles.legendMeta, { color: colors.text3 }]}>
+                            {stats.count} project(s) · {formatAed(stats.value, true)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                </View>
+                ) : null}
 
                 {[...projects]
                   .sort((a, b) => b.valueAed - a.valueAed)
@@ -146,6 +155,10 @@ export function TeamPipelineModal({
                           <Text style={[styles.itemTitle, { color: colors.text }]}>{project.name}</Text>
                           <Text style={[styles.itemMeta, { color: colors.text3 }]}>
                             {project.stage} · {project.city}, {project.country}
+                            {project.managerName ? ` · Mgr: ${project.managerName}` : ""}
+                            {project.salesRepNames?.length
+                              ? ` · Reps: ${project.salesRepNames.join(", ")}`
+                              : " · No sales rep"}
                           </Text>
                         </View>
                         <Text style={[styles.pipelineValue, { color: colors.text }]}>

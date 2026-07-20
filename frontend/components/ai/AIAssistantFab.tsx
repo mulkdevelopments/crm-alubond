@@ -41,6 +41,7 @@ export function AIAssistantFab() {
   const [listening, setListening] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceEnabledRef = useRef(false);
   const [messages, setMessages] = useState<AssistantMessage[]>([
@@ -49,6 +50,19 @@ export function AIAssistantFab() {
       content: 'I am your CRM AI assistant. Ask about projects, follow-ups, activities, and performance.',
     },
   ]);
+
+  useEffect(() => {
+    function onComposer(event: Event) {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      const isOpen = Boolean(detail?.open);
+      setComposerOpen(isOpen);
+      if (isOpen) setOpen(false);
+    }
+    window.addEventListener('project:activity-composer', onComposer as EventListener);
+    return () => {
+      window.removeEventListener('project:activity-composer', onComposer as EventListener);
+    };
+  }, []);
 
   const historyForApi = useMemo(
     () => messages.filter((msg) => msg.role === 'user' || msg.role === 'assistant').slice(-12),
@@ -241,13 +255,15 @@ export function AIAssistantFab() {
         </div>
       )}
 
-      <button
-        onClick={() => setOpen((prev) => !prev)}
-        className="fixed bottom-20 right-4 z-[65] h-12 w-12 rounded-full bg-brand-600 text-white shadow-brand hover:bg-brand-700 inline-flex items-center justify-center"
-        aria-label="Open AI assistant"
-      >
-        <MessageSquare className="h-5 w-5" />
-      </button>
+      {!composerOpen && (
+        <button
+          onClick={() => setOpen((prev) => !prev)}
+          className="fixed bottom-20 right-4 z-[65] h-12 w-12 rounded-full bg-brand-600 text-white shadow-brand hover:bg-brand-700 inline-flex items-center justify-center"
+          aria-label="Open AI assistant"
+        >
+          <MessageSquare className="h-5 w-5" />
+        </button>
+      )}
     </>
   );
 }

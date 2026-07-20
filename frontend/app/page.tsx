@@ -14,10 +14,11 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { STAGES } from '@/lib/data';
+import { STAGES, STAGE_TONES, type Stage } from '@/lib/data';
 import { listFollowUps, type ApiFollowUp } from '@/lib/followups-api';
 import { listUsers, type UserListItem } from '@/lib/auth-api';
-import { formatAED, formatProjectValue } from '@/lib/utils';
+import { buildMonthlyTrend } from '@/lib/sales-target-trend';
+import { cn, formatAED, formatProjectValue } from '@/lib/utils';
 import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
 
 type ActivityFeedItem = {
@@ -28,6 +29,8 @@ type ActivityFeedItem = {
   whenIso: string;
 };
 
+type KpiDetailKind = 'pipeline' | 'forecast' | 'won' | 'overdue';
+
 export default function DashboardPage() {
   const { user, token } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -36,6 +39,7 @@ export default function DashboardPage() {
   const [followUps, setFollowUps] = useState<ApiFollowUp[]>([]);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
+  const [kpiDetail, setKpiDetail] = useState<KpiDetailKind | null>(null);
 
   useEffect(() => {
     async function loadDashboard() {
@@ -98,7 +102,16 @@ export default function DashboardPage() {
   const wonValue = wonProjects.reduce((sum, project) => sum + project.valueAed, 0);
   const forecast = activeProjects.reduce((sum, project) => sum + (project.valueAed * project.probability) / 100, 0);
 
-  const monthlyTrend = useMemo(() => buildMonthlyTrend(projects, users), [projects, users]);
+  const monthlyTrend = useMemo(
+    () =>
+      buildMonthlyTrend({
+        projects,
+        users,
+        currentUserId: user?.id,
+        currentUserRole: user?.role,
+      }),
+    [projects, users, user?.id, user?.role]
+  );
   const lossBreakdown = useMemo(() => buildLossBreakdown(projects), [projects]);
   const stageFunnel = useMemo(
     () =>
@@ -136,15 +149,44 @@ export default function DashboardPage() {
       )}
 
       <section className="px-4 lg:px-8 grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
-        <KpiCard label="Pipeline value" value={formatAED(pipelineValue, true)} hint={`${activeProjects.length} active`} icon={<Briefcase className="h-4 w-4" />} accent="brand" spark={monthlyTrend.map((d) => d.achieved)} />
-        <KpiCard label="Forecast (weighted)" value={formatAED(forecast, true)} hint="Weighted by probability" icon={<Target className="h-4 w-4" />} accent="success" spark={monthlyTrend.map((d) => Math.max(0, d.target - 1))} />
-        <KpiCard label="MTD won" value={formatAED(wonValue, true)} hint={`${wonProjects.length} won projects`} icon={<Trophy className="h-4 w-4" />} accent="warning" spark={monthlyTrend.map((d) => d.achieved)} />
-        <KpiCard label="Overdue follow-ups" value={overdueFollowUps.length} hint={`${followUps.filter((f) => f.status !== 'Done').length} open`} icon={<Bell className="h-4 w-4" />} accent="danger" spark={monthlyTrend.map((d) => Math.max(0, d.target - d.achieved))} />
+        <KpiCard
+          label="Pipeline value"
+          value={formatAED(pipelineValue, true)}
+          hint={`${activeProjects.length} active`}
+          icon={<Briefcase className="h-4 w-4" />}
+          accent="brand"
+          onClick={() => setKpiDetail('pipeline')}
+        />
+        <KpiCard
+          label="Forecast (weighted)"
+          value={formatAED(forecast, true)}
+          hint="Weighted by probability"
+          icon={<Target className="h-4 w-4" />}
+          accent="success"
+          onClick={() => setKpiDetail('forecast')}
+        />
+        <KpiCard
+          label="MTD won"
+          value={formatAED(wonValue, true)}
+          hint={`${wonProjects.length} won projects`}
+          icon={<Trophy className="h-4 w-4" />}
+          accent="warning"
+          spark={monthlyTrend.map((d) => d.achieved)}
+          onClick={() => setKpiDetail('won')}
+        />
+        <KpiCard
+          label="Overdue follow-ups"
+          value={overdueFollowUps.length}
+          hint={`${followUps.filter((f) => f.status !== 'Done').length} open`}
+          icon={<Bell className="h-4 w-4" />}
+          accent="danger"
+          onClick={() => setKpiDetail('overdue')}
+        />
       </section>
 
       <section className="px-4 lg:px-8 mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
-          <CardHeader title="Sales target vs achieved" subtitle="Last 6 months · AED in millions" />
+          <CardHeader title="Sales target vs achieved" subtitle="Monthly target (yearly ÷ 12) · last 6 months · AED M" />
           <div className="px-3 pb-3"><TrendChart data={monthlyTrend} /></div>
         </Card>
         <Card>
@@ -249,39 +291,244 @@ export default function DashboardPage() {
           </div>
         </Card>
       </section>
+
+      {kpiDetail && (
+        <KpiDetailModal
+          kind={kpiDetail}
+          activeProjects={activeProjects}
+          wonProjects={wonProjects}
+          overdueFollowUps={overdueFollowUps}
+          viewerRole={user?.role}
+          onClose={() => setKpiDetail(null)}
+        />
+      )}
     </>
   );
 }
 
+function KpiDetailModal({
+  kind,
+  activeProjects,
+  wonProjects,
+  overdueFollowUps,
+  viewerRole,
+  onClose,
+}: {
+  kind: KpiDetailKind;
+  activeProjects: ApiProject[];
+  wonProjects: ApiProject[];
+  overdueFollowUps: ApiFollowUp[];
+  viewerRole?: string;
+  onClose: () => void;
+}) {
+  const title =
+    kind === 'pipeline'
+      ? 'Pipeline value'
+      : kind === 'forecast'
+        ? 'Forecast (weighted)'
+        : kind === 'won'
+          ? 'Won projects'
+          : 'Overdue follow-ups';
 
-function buildMonthlyTrend(projects: ApiProject[], users: UserListItem[]) {
-  const now = new Date();
-  const labels = Array.from({ length: 6 }).map((_, i) => {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - i), 1));
-    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-    return { key, month: d.toLocaleString('en', { month: 'short' }) };
-  });
-  const fallbackTargetM =
-    users
-      .filter((u) => u.role === 'SALES_REP')
-      .reduce((sum, u) => sum + ((u.yearlyTarget ?? 0) / 12), 0) / 1_000_000;
+  const subtitle =
+    kind === 'pipeline'
+      ? `${activeProjects.length} active · ${formatAED(
+          activeProjects.reduce((sum, project) => sum + project.valueAed, 0),
+          true
+        )}`
+      : kind === 'forecast'
+        ? `${activeProjects.length} active · weighted ${formatAED(
+            activeProjects.reduce((sum, project) => sum + (project.valueAed * project.probability) / 100, 0),
+            true
+          )}`
+        : kind === 'won'
+          ? `${wonProjects.length} won · ${formatAED(
+              wonProjects.reduce((sum, project) => sum + project.valueAed, 0),
+              true
+            )}`
+          : `${overdueFollowUps.length} overdue`;
 
-  return labels.map((entry) => {
-    const achievedM =
-      projects
-        .filter((project) => {
-          if (project.stage !== 'Won') return false;
-          const date = new Date(project.updatedAt);
-          const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-          return key === entry.key;
-        })
-        .reduce((sum, project) => sum + project.valueAed, 0) / 1_000_000;
-    return {
-      month: entry.month,
-      target: Number((fallbackTargetM > 0 ? fallbackTargetM : Math.max(1, achievedM * 1.1)).toFixed(1)),
-      achieved: Number(achievedM.toFixed(1)),
-    };
-  });
+  const stageStats =
+    kind === 'pipeline' || kind === 'forecast'
+      ? Array.from(
+          activeProjects.reduce((acc, project) => {
+            const current = acc.get(project.stage) ?? { count: 0, value: 0 };
+            current.count += 1;
+            current.value +=
+              kind === 'forecast' ? (project.valueAed * project.probability) / 100 : project.valueAed;
+            acc.set(project.stage, current);
+            return acc;
+          }, new Map<string, { count: number; value: number }>())
+        ).sort((a, b) => b[1].value - a[1].value)
+      : [];
+
+  const byLatest = (a: { updatedAt: string }, b: { updatedAt: string }) =>
+    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+
+  const allProjectRows =
+    kind === 'won'
+      ? [...wonProjects].sort(byLatest)
+      : kind === 'pipeline' || kind === 'forecast'
+        ? [...activeProjects].sort(byLatest)
+        : [];
+  const allOverdueRows =
+    kind === 'overdue' ? [...overdueFollowUps].sort(byLatest) : [];
+
+  const projectRows = allProjectRows.slice(0, 10);
+  const overdueRows = allOverdueRows.slice(0, 10);
+  const totalCount =
+    kind === 'overdue' ? allOverdueRows.length : allProjectRows.length;
+  const hasMore = totalCount > 10;
+  const viewMoreHref = kind === 'overdue' ? '/follow-ups' : '/pipeline';
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center bg-black/55 p-0 sm:px-4 sm:py-8"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3 sm:px-5 sm:pt-5 border-b border-[var(--border)] shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold">{title}</h3>
+            <p className="text-xs text-3 mt-0.5">
+              {subtitle}
+              {totalCount > 0 ? ` · showing latest ${Math.min(10, totalCount)}` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 px-3 rounded-lg border border-[var(--border)] text-xs shrink-0"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-4 py-4 sm:px-5 overscroll-contain">
+        {kind === 'overdue' ? (
+          overdueRows.length === 0 ? (
+            <p className="text-sm text-3">No overdue follow-ups.</p>
+          ) : (
+            <div className="space-y-2">
+              {overdueRows.map((followUp) => (
+                  <Link
+                    key={followUp.id}
+                    href={`/projects/${followUp.projectId}`}
+                    onClick={onClose}
+                    className="block rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 hover:bg-[var(--surface)] transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{followUp.projectName}</p>
+                        <p className="text-xs text-3 mt-0.5">
+                          {followUp.contact}
+                          {followUp.contactRole ? ` · ${followUp.contactRole}` : ''} · {followUp.channel}
+                        </p>
+                      </div>
+                      <span className="text-[11px] text-rose-600 dark:text-rose-400 shrink-0">
+                        Due {new Date(followUp.dueAt).toLocaleDateString('en-AE', { month: 'short', day: '2-digit' })}
+                      </span>
+                    </div>
+                    {followUp.note?.trim() ? (
+                      <p className="text-xs text-3 mt-2 line-clamp-2">{followUp.note}</p>
+                    ) : null}
+                  </Link>
+                ))}
+            </div>
+          )
+        ) : projectRows.length === 0 ? (
+          <p className="text-sm text-3">
+            {kind === 'won' ? 'No won projects yet.' : 'No active pipeline projects.'}
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {stageStats.length > 0 ? (
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <p className="text-xs font-semibold tracking-tight">By stage</p>
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {stageStats.map(([stage, stats]) => (
+                    <div key={stage} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2.5 py-2">
+                      <p className="text-xs font-semibold">{stage}</p>
+                      <p className="text-[11px] text-3 mt-0.5">
+                        {stats.count} project(s) · {formatAED(stats.value, true)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="space-y-2">
+              {projectRows.map((project) => {
+                const weighted = (project.valueAed * project.probability) / 100;
+                return (
+                  <Link
+                    key={project.id}
+                    href={`/projects/${project.id}`}
+                    onClick={onClose}
+                    className="block rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 hover:bg-[var(--surface)] transition-colors"
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{project.name}</p>
+                        <p className="text-xs text-3 mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                          <span>{[project.city, project.country].filter(Boolean).join(', ') || 'No location'}</span>
+                          {kind === 'forecast' ? (
+                            <span className="inline-flex items-center rounded-full bg-brand-600/10 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-brand-600 dark:text-brand-400">
+                              {project.probability}%
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                      <div className="flex flex-row items-center justify-between gap-2 sm:flex-col sm:items-end sm:justify-start sm:gap-1 shrink-0">
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-tight',
+                            STAGE_TONES[project.stage as Stage] ??
+                              'bg-[var(--surface)] text-2 border border-[var(--border)]'
+                          )}
+                        >
+                          {project.stage}
+                        </span>
+                        <div className="text-right">
+                          <p className="text-xs font-semibold">
+                            {kind === 'forecast'
+                              ? formatAED(weighted, true)
+                              : formatProjectValue(project, viewerRole, true)}
+                          </p>
+                          {kind === 'forecast' ? (
+                            <p className="text-[10px] text-3">
+                              of {formatProjectValue(project, viewerRole, true)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        </div>
+
+        {hasMore ? (
+          <div className="shrink-0 border-t border-[var(--border)] px-4 py-3 sm:px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <Link
+              href={viewMoreHref}
+              onClick={onClose}
+              className="inline-flex h-10 w-full sm:w-auto sm:ml-auto sm:float-right items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 text-xs font-semibold text-brand-600 hover:bg-[var(--surface)] transition-colors"
+            >
+              View more ({totalCount - 10} more)
+            </Link>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function buildLossBreakdown(projects: ApiProject[]) {

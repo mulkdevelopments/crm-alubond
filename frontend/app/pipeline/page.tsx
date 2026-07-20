@@ -3,19 +3,26 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { GripVertical, Filter, Plus, Search, Flame, Clock, Pencil, Trash2, X, MapPin, Lock, LockOpen, Layers } from 'lucide-react';
+import { GripVertical, Filter, Search, Flame, Clock, Pencil, Trash2, X, MapPin, Lock, LockOpen, Layers } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthContext';
 import { LocationPickerMap } from '@/components/map/LocationPickerMap';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { LossStagePrompt, createLossPromptState, type LossPromptState } from '@/components/pipeline/LossStagePrompt';
+import {
+  WinStagePrompt,
+  buildConverterOptions,
+  createWinPromptState,
+  type WinPromptState,
+} from '@/components/pipeline/WinStagePrompt';
 import { PipelineCustomerGroupList } from '@/components/pipeline/PipelineCustomerGroupList';
 import { Badge } from '@/components/ui/Badge';
 import { STAGES, type Stage } from '@/lib/data';
 import { listManagers, listMyTeam, listRegionalManagers, listUsers, type TeamMember, type UserListItem } from '@/lib/auth-api';
 import {
   createProject as createProjectApi,
-  deleteProject as deleteProjectApi,
+  trashProject as trashProjectApi,
   listProjects as listProjectsApi,
   updateProject as updateProjectApi,
   type ApiProject,
@@ -26,11 +33,14 @@ import { suggestCurrencyCode } from '@/lib/currency-defaults';
 import { validateLossPrompt } from '@/lib/loss-reasons';
 import { listActiveCurrencies, listActiveRegionDefaults, type ActiveCurrencyItem } from '@/lib/master-data-api';
 import { ProjectCommercialFields } from '@/components/projects/ProjectCommercialFields';
+import { CustomerSelect, isKnownCustomer } from '@/components/projects/CustomerSelect';
+import { StagePicker } from '@/components/projects/StagePicker';
 import {
   commercialSpecsComplete,
   formatProjectSpecs,
   formatSpecsSummary,
 } from '@/lib/project-specs';
+import { listCustomers } from '@/lib/customers-api';
 import { canSetBusinessDivision } from '@/lib/permissions';
 import {
   citiesForCountry,
@@ -69,6 +79,7 @@ type ProjectFormState = {
   regionalManagerId: string;
   managerId: string;
   salesRepIds: string[];
+  convertedById: string;
 };
 
 type PipelineProject = {
@@ -101,6 +112,8 @@ type PipelineProject = {
   managerName: string;
   salesRepIds: string[];
   salesRepNames: string[];
+  convertedById: string | null;
+  convertedByName: string | null;
   updatedAt: string;
 };
 
@@ -132,6 +145,7 @@ const EMPTY_FORM: ProjectFormState = {
   regionalManagerId: '',
   managerId: '',
   salesRepIds: [],
+  convertedById: '',
 };
 
 export default function PipelinePage() {
@@ -177,7 +191,19 @@ export default function PipelinePage() {
     projectId: string;
     prompt: LossPromptState;
   } | null>(null);
-  const [projectPendingDelete, setProjectPendingDelete] = useState<PipelineProject | null>(null);
+  const [winPrompt, setWinPrompt] = useState<{
+    projectId: string;
+    commercial: {
+      value: number;
+      currencyCode: string;
+      itemQuantity: number;
+      specThickness: string;
+      specCore: string;
+      specPaintType: string;
+    };
+    prompt: WinPromptState;
+  } | null>(null);
+  const [projectPendingTrash, setProjectPendingTrash] = useState<PipelineProject | null>(null);
   const [deletingProject, setDeletingProject] = useState(false);
   const [currencies, setCurrencies] = useState<ActiveCurrencyItem[]>([]);
   const [regionDefaults, setRegionDefaults] = useState<Record<string, string>>({});
@@ -266,7 +292,44 @@ export default function PipelinePage() {
     return true;
   });
 
-  const customerSuggestions = useMemo(() => uniqueCustomerNames(items), [items]);
+  const formConverterOptions = useMemo(
+    () =>
+      buildConverterOptions({
+        salesRepIds: form.salesRepIds,
+        salesRepNames: form.salesRepIds.map((id) => {
+          const rep = salesReps.find((entry) => entry.id === id);
+          return rep ? `${rep.firstName} ${rep.lastName}`.trim() : 'Sales rep';
+        }),
+        managerId: managerForForm || null,
+        managerName: selectedManager
+          ? `${selectedManager.firstName} ${selectedManager.lastName}`.trim()
+          : '',
+        regionalManagerId: regionalManagerForForm || null,
+        regionalManagerName: selectedRegionalManager
+          ? `${selectedRegionalManager.firstName} ${selectedRegionalManager.lastName}`.trim()
+          : '',
+      }),
+    [
+      form.salesRepIds,
+      managerForForm,
+      regionalManagerForForm,
+      salesReps,
+      selectedManager,
+      selectedRegionalManager,
+    ],
+  );
+
+  const [catalogCustomers, setCatalogCustomers] = useState<string[]>([]);
+  const [extraCustomers, setExtraCustomers] = useState<string[]>([]);
+  const customerSuggestions = useMemo(
+    () =>
+      uniqueCustomerNames([
+        ...catalogCustomers.map((developer) => ({ developer })),
+        ...extraCustomers.map((developer) => ({ developer })),
+        ...(form.developer.trim() ? [{ developer: form.developer }] : []),
+      ]),
+    [catalogCustomers, extraCustomers, form.developer],
+  );
   const countryOptionList = useMemo(() => countryOptions(form.country), [form.country]);
   const citySuggestions = useMemo(
     () =>
@@ -339,9 +402,16 @@ export default function PipelinePage() {
       specCore: string;
       specPaintType: string;
     },
+    convertedById?: string | null,
   ) {
     const itemName = formatProjectSpecs(commercial.specThickness, commercial.specCore, commercial.specPaintType);
     const nextDaysInStage = project.stage === nextStage ? project.daysInStage : 1;
+    const nextConvertedById = nextStage === 'Won' ? convertedById ?? project.convertedById : null;
+    const nextConvertedByName =
+      nextStage === 'Won'
+        ? buildConverterOptions(project).find((option) => option.id === nextConvertedById)?.name ??
+          project.convertedByName
+        : null;
     setItems((prev) =>
       prev.map((p) =>
         p.id === project.id
@@ -358,6 +428,8 @@ export default function PipelinePage() {
               specCore: commercial.specCore,
               specPaintType: commercial.specPaintType,
               itemName,
+              convertedById: nextConvertedById,
+              convertedByName: nextConvertedByName,
             }
           : p,
       ),
@@ -386,12 +458,24 @@ export default function PipelinePage() {
       regionalManagerId: project.regionalManagerId,
       managerId: project.managerId,
       salesRepIds: project.salesRepIds,
+      convertedById: nextConvertedById,
     });
+  }
+
+  async function refreshCustomers(activeToken: string) {
+    try {
+      const rows = await listCustomers(activeToken);
+      setCatalogCustomers(rows.map((row) => row.name));
+    } catch {
+      // Keep last known catalog; project forms still work with current value.
+    }
   }
 
   async function refreshProjects(activeToken: string) {
     setProjectsLoading(true);
     setProjectsError(null);
+    // Customers catalog is non-blocking — don't stall the board on it.
+    void refreshCustomers(activeToken);
     try {
       const data = await listProjectsApi(activeToken);
       const mapped = data.map(toPipelineProject);
@@ -455,6 +539,7 @@ export default function PipelinePage() {
                   canSetBusinessDivision: false,
                   createdAt: new Date(0).toISOString(),
                   lastLocationPingAt: null,
+                  lastSeenAt: null,
                   manager: null,
                   regionalManager: null,
                   reportsTo: null,
@@ -480,6 +565,7 @@ export default function PipelinePage() {
                   canSetBusinessDivision: false,
                   createdAt: new Date(0).toISOString(),
                   lastLocationPingAt: null,
+                  lastSeenAt: null,
                   manager: null,
                   regionalManager: null,
                   reportsTo: null,
@@ -532,6 +618,7 @@ export default function PipelinePage() {
                   canSetBusinessDivision: false,
                   createdAt: new Date(0).toISOString(),
                   lastLocationPingAt: null,
+                  lastSeenAt: null,
                   manager: null,
                   regionalManager: null,
                   reportsTo: null,
@@ -558,6 +645,7 @@ export default function PipelinePage() {
                   canSetBusinessDivision: false,
                   createdAt: new Date(0).toISOString(),
                   lastLocationPingAt: null,
+                  lastSeenAt: null,
                   manager: null,
                   regionalManager: null,
                   reportsTo: null,
@@ -582,6 +670,7 @@ export default function PipelinePage() {
             canSetBusinessDivision: false,
             createdAt: new Date(0).toISOString(),
             lastLocationPingAt: null,
+                  lastSeenAt: null,
             manager: null,
             regionalManager: null,
             reportsTo: null,
@@ -752,21 +841,90 @@ export default function PipelinePage() {
 
     const nextValue = parseFormattedNumber(commercialPrompt.value);
     const nextItemQuantity = parseFormattedNumber(commercialPrompt.itemQuantity);
+    const commercial = {
+      value: nextValue,
+      currencyCode: commercialPrompt.currencyCode,
+      itemQuantity: nextItemQuantity,
+      specThickness: commercialPrompt.specThickness,
+      specCore: commercialPrompt.specCore,
+      specPaintType: commercialPrompt.specPaintType,
+    };
+
+    if (commercialPrompt.targetStage === 'Won') {
+      const options = buildConverterOptions(project);
+      if (options.length === 0) {
+        setCommercialPrompt((prev) =>
+          prev
+            ? {
+                ...prev,
+                error: 'Assign a sales rep, manager, or regional manager before marking Won.',
+              }
+            : prev,
+        );
+        return;
+      }
+      setCommercialPrompt(null);
+      setWinPrompt({
+        projectId: project.id,
+        commercial,
+        prompt: createWinPromptState({
+          convertedById:
+            project.convertedById && options.some((option) => option.id === project.convertedById)
+              ? project.convertedById
+              : options.length === 1
+                ? options[0]!.id
+                : null,
+        }),
+      });
+      return;
+    }
 
     setCommercialPrompt((prev) => (prev ? { ...prev, error: null, saving: true } : prev));
     try {
-      await persistProjectStageUpdate(project, commercialPrompt.targetStage, {
-        value: nextValue,
-        currencyCode: commercialPrompt.currencyCode,
-        itemQuantity: nextItemQuantity,
-        specThickness: commercialPrompt.specThickness,
-        specCore: commercialPrompt.specCore,
-        specPaintType: commercialPrompt.specPaintType,
-      });
+      await persistProjectStageUpdate(project, commercialPrompt.targetStage, commercial);
       closeCommercialPrompt();
     } catch {
       setCommercialPrompt((prev) =>
         prev ? { ...prev, saving: false, error: 'Failed to update stage. Please retry.' } : prev,
+      );
+    }
+  }
+
+  function closeWinPrompt() {
+    setWinPrompt(null);
+    setDragging(null);
+  }
+
+  async function submitWinPrompt() {
+    if (!winPrompt) return;
+    const project = items.find((item) => item.id === winPrompt.projectId);
+    if (!project) {
+      closeWinPrompt();
+      return;
+    }
+    if (!winPrompt.prompt.convertedById) {
+      setWinPrompt((prev) =>
+        prev ? { ...prev, prompt: { ...prev.prompt, error: 'Select who converted this project.' } } : prev,
+      );
+      return;
+    }
+
+    setWinPrompt((prev) => (prev ? { ...prev, prompt: { ...prev.prompt, error: null, saving: true } } : prev));
+    try {
+      await persistProjectStageUpdate(project, 'Won', winPrompt.commercial, winPrompt.prompt.convertedById);
+      closeWinPrompt();
+    } catch (error) {
+      setWinPrompt((prev) =>
+        prev
+          ? {
+              ...prev,
+              prompt: {
+                ...prev.prompt,
+                saving: false,
+                error: error instanceof Error ? error.message : 'Failed to update stage. Please retry.',
+              },
+            }
+          : prev,
       );
     }
   }
@@ -825,6 +983,7 @@ function buildProjectAssignmentPayload(
     setFormError(null);
     setLocationQuery('');
     setLocationSearchError(null);
+    setExtraCustomers([]);
     setForm({
       ...EMPTY_FORM,
       regionalManagerId: isRegionalManager && user?.id ? user.id : '',
@@ -832,6 +991,21 @@ function buildProjectAssignmentPayload(
       salesRepIds: isSalesRep && user?.id ? [user.id] : [],
     });
     setIsFormOpen(true);
+  }
+
+  function closeForm() {
+    setIsFormOpen(false);
+    setEditingId(null);
+    setFormError(null);
+    setLocationQuery('');
+    setLocationSearchError(null);
+    setExtraCustomers([]);
+    setForm({
+      ...EMPTY_FORM,
+      regionalManagerId: isRegionalManager && user?.id ? user.id : '',
+      managerId: isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : '',
+      salesRepIds: isSalesRep && user?.id ? [user.id] : [],
+    });
   }
 
   useEffect(() => {
@@ -848,6 +1022,7 @@ function buildProjectAssignmentPayload(
     setFormError(null);
     setLocationQuery(project.city);
     setLocationSearchError(null);
+    setExtraCustomers([]);
     setForm({
       name: project.name,
       city: project.city,
@@ -869,43 +1044,30 @@ function buildProjectAssignmentPayload(
       regionalManagerId: existing?.regionalManagerId ?? (isRegionalManager && user?.id ? user.id : ''),
       managerId: existing?.managerId ?? (isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : ''),
       salesRepIds: existing?.salesRepIds ?? (isSalesRep && user?.id ? [user.id] : []),
+      convertedById: project.convertedById ?? '',
     });
     setIsFormOpen(true);
   }
 
-  function closeForm() {
-    setIsFormOpen(false);
-    setEditingId(null);
-    setFormError(null);
-    setLocationQuery('');
-    setLocationSearchError(null);
-    setForm({
-      ...EMPTY_FORM,
-      regionalManagerId: isRegionalManager && user?.id ? user.id : '',
-      managerId: isManager && user?.id ? user.id : isSalesRep ? (user?.managerId ?? '') : '',
-      salesRepIds: isSalesRep && user?.id ? [user.id] : [],
-    });
+  function requestTrashProject(project: PipelineProject) {
+    if (!canCreateProject) return;
+    setProjectPendingTrash(project);
   }
 
-  function requestDeleteProject(project: PipelineProject) {
-    if (!isAdmin) return;
-    setProjectPendingDelete(project);
-  }
-
-  async function confirmDeleteProject() {
-    if (!isAdmin || !token || !projectPendingDelete) return;
+  async function confirmTrashProject() {
+    if (!token || !projectPendingTrash) return;
 
     setDeletingProject(true);
     setProjectsError(null);
     try {
-      await deleteProjectApi(token, projectPendingDelete.id);
-      if (editingId === projectPendingDelete.id) {
+      await trashProjectApi(token, projectPendingTrash.id);
+      if (editingId === projectPendingTrash.id) {
         closeForm();
       }
-      setProjectPendingDelete(null);
+      setProjectPendingTrash(null);
       await refreshProjects(token);
     } catch (error) {
-      setProjectsError(error instanceof Error ? error.message : 'Failed to delete project.');
+      setProjectsError(error instanceof Error ? error.message : 'Failed to move project to trash.');
     } finally {
       setDeletingProject(false);
     }
@@ -1027,6 +1189,10 @@ function buildProjectAssignmentPayload(
       setFormError('Fill project name, country, and city.');
       return;
     }
+    if (!developer || !isKnownCustomer(developer, customerSuggestions)) {
+      setFormError('Select a customer from the list, or add a new one.');
+      return;
+    }
     if (requiresCommercialDetails(form.stage)) {
       const commercialError = validateCommercialInput({
         value: form.value,
@@ -1047,6 +1213,10 @@ function buildProjectAssignmentPayload(
         return;
       }
     }
+    if (form.stage === 'Won' && !form.convertedById) {
+      setFormError('Select who converted this project.');
+      return;
+    }
 
     const normalizedLat = Number.isFinite(lat) ? lat : 0;
     const normalizedLng = Number.isFinite(lng) ? lng : 0;
@@ -1054,6 +1224,7 @@ function buildProjectAssignmentPayload(
       form.stage === 'Lost' ? 0 : Number.isFinite(probability) ? probability : 0;
     const normalizedLossReason = form.stage === 'Lost' ? form.lossReason.trim() : null;
     const normalizedCompetitor = form.competitor.trim() || null;
+    const normalizedConvertedById = form.stage === 'Won' ? form.convertedById || null : null;
 
     if (editingProject) {
       const nextDaysInStage = editingProject.stage === form.stage ? editingProject.daysInStage : 1;
@@ -1080,6 +1251,7 @@ function buildProjectAssignmentPayload(
           lossReason: normalizedLossReason,
           ...assignmentPayload,
           salesRepIds: form.salesRepIds,
+          convertedById: normalizedConvertedById,
         });
         await refreshProjects(token);
         closeForm();
@@ -1111,6 +1283,7 @@ function buildProjectAssignmentPayload(
         lossReason: normalizedLossReason,
         ...assignmentPayload,
         salesRepIds: form.salesRepIds,
+        convertedById: normalizedConvertedById,
       });
       await refreshProjects(token);
       closeForm();
@@ -1219,9 +1392,6 @@ function buildProjectAssignmentPayload(
             {stageMovesEnabled ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
             {stageMovesEnabled ? 'Moving on' : 'Enable moves'}
           </button>
-          {canCreateProject && (
-            <Button variant="primary" size="sm" icon={<Plus className="h-4 w-4" />} onClick={openCreateForm}>Add project</Button>
-          )}
         </div>
       </div>
 
@@ -1233,58 +1403,73 @@ function buildProjectAssignmentPayload(
 
       <div className="md:hidden px-4 pt-6 pb-8 space-y-3">
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-3" />
             <input
               value={mobileQuery}
               onChange={(event) => setMobileQuery(event.target.value)}
-              placeholder="Search in this stage..."
+              placeholder="Search…"
               className="w-full h-10 pl-9 pr-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
             />
           </div>
-          {canCreateProject && (
-            <Button variant="primary" size="sm" onClick={openCreateForm} icon={<Plus className="h-4 w-4" />}>
-              Add
-            </Button>
-          )}
-        </div>
 
-        <button
-          type="button"
-          onClick={() => setGroupByCustomer((prev) => !prev)}
-          className={cn(
-            'w-full h-10 px-3 rounded-xl border text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors',
-            groupByCustomer
-              ? 'bg-brand-600 text-white border-brand-600'
-              : 'bg-[var(--surface-2)] text-2 border-[var(--border)]',
-          )}
-          aria-pressed={groupByCustomer}
-        >
-          <Layers className="h-4 w-4" />
-          {groupByCustomer ? 'Grouped by customer' : 'Group by customer'}
-        </button>
-
-
-        {canSetDivision ? (
-          <select
-            value={businessDivisionFilter}
-            onChange={(event) =>
-              setBusinessDivisionFilter(
-                event.target.value as 'ALL' | 'UNASSIGNED' | (typeof BUSINESS_DIVISIONS)[number],
-              )
-            }
-            className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm"
-            aria-label="Filter by business division"
+          <button
+            type="button"
+            onClick={() => setGroupByCustomer((prev) => !prev)}
+            className={cn(
+              'h-10 w-10 shrink-0 rounded-xl border inline-flex items-center justify-center transition-colors',
+              groupByCustomer
+                ? 'bg-brand-600 text-white border-brand-600'
+                : 'bg-[var(--surface-2)] text-2 border-[var(--border)]',
+            )}
+            aria-pressed={groupByCustomer}
+            aria-label={groupByCustomer ? 'Ungroup by customer' : 'Group by customer'}
+            title={groupByCustomer ? 'Grouped by customer' : 'Group by customer'}
           >
-            <option value="ALL">All divisions</option>
-            <option value="UNASSIGNED">Unassigned</option>
-            {BUSINESS_DIVISIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        ) : null}
+            <Layers className="h-4 w-4" />
+          </button>
+
+          {canSetDivision ? (
+            <div className="relative shrink-0">
+              <span
+                className={cn(
+                  'h-10 w-10 rounded-xl border inline-flex items-center justify-center pointer-events-none',
+                  businessDivisionFilter !== 'ALL'
+                    ? 'bg-brand-600 text-white border-brand-600'
+                    : 'bg-[var(--surface-2)] text-2 border-[var(--border)]',
+                )}
+                aria-hidden
+              >
+                <Filter className="h-4 w-4" />
+              </span>
+              <select
+                value={businessDivisionFilter}
+                onChange={(event) =>
+                  setBusinessDivisionFilter(
+                    event.target.value as 'ALL' | 'UNASSIGNED' | (typeof BUSINESS_DIVISIONS)[number],
+                  )
+                }
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                aria-label="Filter by business division"
+                title={
+                  businessDivisionFilter === 'ALL'
+                    ? 'All divisions'
+                    : businessDivisionFilter === 'UNASSIGNED'
+                      ? 'Unassigned'
+                      : businessDivisionFilter
+                }
+              >
+                <option value="ALL">All divisions</option>
+                <option value="UNASSIGNED">Unassigned</option>
+                {BUSINESS_DIVISIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </div>
 
         <div className="overflow-x-auto -mx-4 px-4 pb-1">
           <div className="inline-flex gap-2 min-w-max">
@@ -1343,12 +1528,12 @@ function buildProjectAssignmentPayload(
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {isAdmin && (
+                    {canCreateProject && (
                       <button
                         type="button"
-                        onClick={() => requestDeleteProject(project)}
+                        onClick={() => requestTrashProject(project)}
                         className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
-                        aria-label={`Delete ${project.name}`}
+                        aria-label={`Move ${project.name} to trash`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1418,12 +1603,12 @@ function buildProjectAssignmentPayload(
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {isAdmin && (
+                    {canCreateProject && (
                       <button
                         type="button"
-                        onClick={() => requestDeleteProject(project)}
+                        onClick={() => requestTrashProject(project)}
                         className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
-                        aria-label={`Delete ${project.name}`}
+                        aria-label={`Move ${project.name} to trash`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1566,12 +1751,12 @@ function buildProjectAssignmentPayload(
                                         <Pencil className="h-3.5 w-3.5" />
                                       </button>
                                     )}
-                                    {isAdmin && (
+                                    {canCreateProject && (
                                       <button
                                         type="button"
-                                        onClick={() => requestDeleteProject(p)}
+                                        onClick={() => requestTrashProject(p)}
                                         className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
-                                        aria-label={`Delete ${p.name}`}
+                                        aria-label={`Move ${p.name} to trash`}
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
                                       </button>
@@ -1661,12 +1846,12 @@ function buildProjectAssignmentPayload(
                                       <Pencil className="h-3.5 w-3.5" />
                                     </button>
                                   )}
-                                  {isAdmin && (
+                                  {canCreateProject && (
                                     <button
                                       type="button"
-                                      onClick={() => requestDeleteProject(p)}
+                                      onClick={() => requestTrashProject(p)}
                                       className="h-6 w-6 rounded-md inline-flex items-center justify-center text-3 hover:text-rose-600 hover:bg-rose-500/10"
-                                      aria-label={`Delete ${p.name}`}
+                                      aria-label={`Move ${p.name} to trash`}
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </button>
@@ -1731,6 +1916,25 @@ function buildProjectAssignmentPayload(
           onChange={(prompt) => setLossPrompt((prev) => (prev ? { ...prev, prompt } : prev))}
           onClose={closeLossPrompt}
           onSubmit={() => void submitLossPrompt()}
+        />
+      )}
+
+      {winPrompt && (
+        <WinStagePrompt
+          prompt={winPrompt.prompt}
+          options={buildConverterOptions(
+            items.find((item) => item.id === winPrompt.projectId) ?? {
+              salesRepIds: [],
+              salesRepNames: [],
+              managerId: null,
+              managerName: '',
+              regionalManagerId: null,
+              regionalManagerName: '',
+            },
+          )}
+          onChange={(prompt) => setWinPrompt((prev) => (prev ? { ...prev, prompt } : prev))}
+          onClose={closeWinPrompt}
+          onSubmit={() => void submitWinPrompt()}
         />
       )}
 
@@ -1817,54 +2021,68 @@ function buildProjectAssignmentPayload(
                   required
                   className={FORM_FIELD_CLASS}
                 />
-                <input
-                  list="project-country-options"
-                  value={form.country}
-                  onChange={(e) => handleCountryChange(e.target.value)}
-                  onBlur={(e) => {
-                    const normalized = normalizeCountryName(e.target.value);
-                    if (normalized && normalized !== e.target.value) {
-                      handleCountryChange(normalized);
-                    }
+                <StagePicker
+                  value={form.stage}
+                  options={PIPELINE_VISIBLE_STAGES}
+                  labelFor={stageTitle}
+                  onChange={(stage) => {
+                    setFormError(null);
+                    setForm((prev) => ({ ...prev, stage }));
                   }}
-                  placeholder="Select country"
-                  required
-                  autoComplete="off"
-                  className={FORM_FIELD_CLASS}
                 />
-                <datalist id="project-country-options">
-                  {countryOptionList.map((country) => (
-                    <option key={country} value={country} />
-                  ))}
-                </datalist>
-                <input
-                  list="project-city-options"
+                <SearchableSelect
+                  value={form.country}
+                  options={countryOptionList}
+                  placeholder="Select country"
+                  searchPlaceholder="Search country…"
+                  required
+                  onChange={(next) => handleCountryChange(normalizeCountryName(next) || next)}
+                />
+                <SearchableSelect
                   value={form.city}
-                  onChange={(e) => handleCityChange(e.target.value)}
+                  options={citySuggestions}
                   placeholder={form.country.trim() ? 'Select or search city' : 'Select country first'}
+                  searchPlaceholder="Search city…"
                   required
                   disabled={!form.country.trim()}
-                  autoComplete="off"
-                  className={`${FORM_FIELD_CLASS} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  allowCustom
+                  onChange={handleCityChange}
                 />
-                <datalist id="project-city-options">
-                  {citySuggestions.map((city) => (
-                    <option key={city} value={city} />
-                  ))}
-                </datalist>
-                <input
-                  list="project-customer-options"
+                <CustomerSelect
                   value={form.developer}
-                  onChange={(e) => setForm((prev) => ({ ...prev, developer: e.target.value }))}
-                  placeholder="Customer"
-                  autoComplete="off"
-                  className={FORM_FIELD_CLASS}
+                  options={customerSuggestions}
+                  required
+                  canManage={canCreateProject}
+                  token={token}
+                  onChange={(next) => setForm((prev) => ({ ...prev, developer: next }))}
+                  onCustomerAdded={(name) =>
+                    setExtraCustomers((prev) =>
+                      prev.some((entry) => entry.toLowerCase() === name.toLowerCase())
+                        ? prev
+                        : [...prev, name],
+                    )
+                  }
+                  isPersistedCustomer={(name) =>
+                    catalogCustomers.some(
+                      (entry) => entry.trim().toLowerCase() === name.trim().toLowerCase(),
+                    )
+                  }
+                  onLocalRename={(from, to) =>
+                    setExtraCustomers((prev) =>
+                      prev.map((entry) =>
+                        entry.toLowerCase() === from.toLowerCase() ? to : entry,
+                      ),
+                    )
+                  }
+                  onLocalRemove={(name) =>
+                    setExtraCustomers((prev) =>
+                      prev.filter((entry) => entry.toLowerCase() !== name.toLowerCase()),
+                    )
+                  }
+                  onCatalogChanged={async () => {
+                    if (token) await refreshProjects(token);
+                  }}
                 />
-                <datalist id="project-customer-options">
-                  {customerSuggestions.map((customer) => (
-                    <option key={customer} value={customer} />
-                  ))}
-                </datalist>
                 {canSetDivision ? (
                   <select
                     value={form.businessDivision}
@@ -1884,17 +2102,6 @@ function buildProjectAssignmentPayload(
                     ))}
                   </select>
                 ) : null}
-                <select
-                  value={form.stage}
-                  onChange={(e) => setForm((prev) => ({ ...prev, stage: e.target.value as Stage }))}
-                  className="h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-transparent focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none text-sm w-full"
-                >
-                  {PIPELINE_VISIBLE_STAGES.map((stage) => (
-                    <option key={stage} value={stage}>
-                      {stageTitle(stage)}
-                    </option>
-                  ))}
-                </select>
                 {form.stage === 'Lost' ? (
                   <div className="space-y-3 rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
                     <label className="block">
@@ -1919,6 +2126,41 @@ function buildProjectAssignmentPayload(
                         className="mt-1 h-10 w-full rounded-xl border border-transparent bg-[var(--surface-2)] px-3 text-sm focus:border-[var(--border-strong)] focus:bg-[var(--surface)] focus:outline-none"
                       />
                     </label>
+                  </div>
+                ) : null}
+                {form.stage === 'Won' ? (
+                  <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                    <p className="text-xs font-semibold text-2">Who converted this project? *</p>
+                    <p className="text-[11px] text-3">This person gets the win credit on Field Team.</p>
+                    {formConverterOptions.length === 0 ? (
+                      <p className="text-xs text-rose-600">
+                        Assign a sales rep, manager, or regional manager first.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {formConverterOptions.map((option) => {
+                          const selected = form.convertedById === option.id;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() => {
+                                setFormError(null);
+                                setForm((prev) => ({ ...prev, convertedById: option.id }));
+                              }}
+                              className={`w-full text-left rounded-lg border px-2.5 py-2 transition-colors ${
+                                selected
+                                  ? 'border-brand-600 bg-brand-600/10'
+                                  : 'border-[var(--border)] bg-[var(--surface)] hover:border-brand-600/40'
+                              }`}
+                            >
+                              <p className="text-sm font-medium">{option.name}</p>
+                              <p className="text-[11px] text-3">{option.roleLabel}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 ) : null}
                 <ProjectCommercialFields
@@ -2111,22 +2353,22 @@ function buildProjectAssignmentPayload(
       )}
 
       <ConfirmDialog
-        open={Boolean(projectPendingDelete)}
-        title="Delete project?"
+        open={Boolean(projectPendingTrash)}
+        title="Move to trash?"
         description={
-          projectPendingDelete
-            ? `Delete "${projectPendingDelete.name}"? This will remove all activities, stakeholders, and follow-ups. This cannot be undone.`
+          projectPendingTrash
+            ? `Move "${projectPendingTrash.name}" to trash? You can restore it later from Trash.`
             : ''
         }
-        confirmLabel="Delete project"
+        confirmLabel="Move to trash"
         cancelLabel="Cancel"
         destructive
         loading={deletingProject}
         onCancel={() => {
           if (deletingProject) return;
-          setProjectPendingDelete(null);
+          setProjectPendingTrash(null);
         }}
-        onConfirm={() => void confirmDeleteProject()}
+        onConfirm={() => void confirmTrashProject()}
       />
     </>
   );
@@ -2187,6 +2429,8 @@ function toPipelineProject(project: ApiProject): PipelineProject {
     managerName: project.managerName,
     salesRepIds: project.salesRepIds,
     salesRepNames: project.salesRepNames,
+    convertedById: project.convertedById,
+    convertedByName: project.convertedByName,
     updatedAt: project.updatedAt,
   };
 }

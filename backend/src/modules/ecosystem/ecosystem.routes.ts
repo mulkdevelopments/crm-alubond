@@ -8,17 +8,20 @@ ecosystemRouter.use(ecosystemBridgeAuth);
 
 ecosystemRouter.get("/summary", async (_req, res) => {
   try {
+    const active = { deletedAt: null };
     const [users, activeUsers, projects, projectsByStage] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { isActive: true } }),
-      prisma.project.count(),
+      prisma.project.count({ where: active }),
       prisma.project.groupBy({
         by: ["stage"],
+        where: active,
         _count: { _all: true },
       }),
     ]);
 
     const pipelineValue = await prisma.project.aggregate({
+      where: active,
       _sum: { valueAed: true },
     });
 

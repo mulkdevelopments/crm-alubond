@@ -27,6 +27,7 @@ export default function TabLayout() {
         <Tabs.Screen name="map" options={{ title: "Map" }} />
         <Tabs.Screen name="follow-ups" options={{ title: "Tasks" }} />
         <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+        <Tabs.Screen name="trash" options={{ href: null, title: "Trash" }} />
         <Tabs.Screen name="team" options={{ href: null, title: "Field Team" }} />
         <Tabs.Screen name="users" options={{ href: null, title: "Users" }} />
         <Tabs.Screen name="master-data" options={{ href: null, title: "Master Data" }} />
