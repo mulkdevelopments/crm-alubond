@@ -1,4 +1,4 @@
-export const SPEC_THICKNESS_OPTIONS = ["2mm", "2.5mm", "3mm", "4mm", "6mm"] as const;
+export const SPEC_THICKNESS_OPTIONS = ["2mm", "2.5mm", "3mm", "4mm", "5mm", "6mm"] as const;
 export const SPEC_CORE_OPTIONS = ["LDPE", "FRB2", "FRB1", "FRA2"] as const;
 export const SPEC_PAINT_TYPE_OPTIONS = ["PE", "HDPE", "PVDF", "FEVE"] as const;
 
