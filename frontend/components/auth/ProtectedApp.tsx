@@ -83,12 +83,17 @@ export function ProtectedApp({ children }: ProtectedAppProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [locationTelemetry, setLocationTelemetry] = useState(readStoredTelemetry);
+  const canSeeFieldTeam =
+    user?.role === "MANAGER" ||
+    user?.role === "REGIONAL_MANAGER" ||
+    user?.role === "CEO" ||
+    user?.role === "ADMIN";
   const mobileMenuItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
     { href: "/map", label: "Geo Intel", icon: MapPin },
     { href: "/follow-ups", label: "Follow-ups", icon: Bell },
-    { href: "/team", label: "Field Team", icon: Users },
+    ...(canSeeFieldTeam ? [{ href: "/team", label: "Field Team", icon: Users }] : []),
     { href: "/trash", label: "Trash", icon: Trash2 },
     { href: "/docs", label: "Docs", icon: BookOpen },
     { href: FEEDBACK_WHATSAPP_URL, label: "Report issue", icon: MessageCircle, external: true },

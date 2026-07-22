@@ -500,52 +500,13 @@ usersRouter.get("/", async (req, res) => {
       ],
     };
   } else if (req.user!.role === UserRole.MANAGER) {
-    const manager = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: { regionalManagerId: true },
-    });
-    if (manager?.regionalManagerId) {
-      where = {
-        OR: [
-          { id: req.user!.id },
-          { id: manager.regionalManagerId },
-          { regionalManagerId: manager.regionalManagerId },
-          { manager: { regionalManagerId: manager.regionalManagerId } },
-        ],
-      };
-    } else {
-      where = {
-        OR: [{ id: req.user!.id }, { managerId: req.user!.id }],
-      };
-    }
+    // Managers only see themselves and their direct sales reps.
+    where = {
+      OR: [{ id: req.user!.id }, { managerId: req.user!.id }],
+    };
   } else if (req.user!.role === UserRole.SALES_REP) {
-    const rep = await prisma.user.findUnique({
-      where: { id: req.user!.id },
-      select: {
-        managerId: true,
-        regionalManagerId: true,
-        manager: {
-          select: { regionalManagerId: true },
-        },
-      },
-    });
-    const managerId = rep?.managerId ?? null;
-    const regionalManagerId = rep?.regionalManagerId ?? rep?.manager?.regionalManagerId ?? null;
-    if (regionalManagerId) {
-      where = {
-        OR: [
-          { id: req.user!.id },
-          { id: managerId ?? undefined },
-          { id: regionalManagerId },
-          { regionalManagerId },
-          { manager: { regionalManagerId } },
-        ],
-      };
-    } else if (managerId) {
-      where = {
-        OR: [{ id: req.user!.id }, { id: managerId }, { managerId }],
-      };
-    }
+    // Sales reps have limited visibility — self only.
+    where = { id: req.user!.id };
   }
 
   const users = await prisma.user.findMany({

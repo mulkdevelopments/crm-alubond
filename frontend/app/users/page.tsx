@@ -773,7 +773,7 @@ export default function UsersPage() {
                                   ) : null}
                                   {entry.requireDailyVisit ? (
                                     <p className="mt-1 text-[10px] font-medium text-sky-700 dark:text-sky-300">
-                                      Daily visit required
+                                      Visit target required
                                     </p>
                                   ) : null}
                                 </td>
@@ -871,7 +871,7 @@ export default function UsersPage() {
                             </div>
                             {entry.requireDailyVisit ? (
                               <p className="text-[10px] font-medium text-sky-700 dark:text-sky-300">
-                                Daily visit required
+                                Visit target required
                               </p>
                             ) : null}
                             <div className="grid grid-cols-2 gap-2 text-xs text-2">
@@ -1162,10 +1162,7 @@ export default function UsersPage() {
                   className="mt-0.5"
                 />
                 <span>
-                  <span className="font-medium text-[var(--text)]">Require ≥1 visit per weekday</span>
-                  <span className="mt-1 block text-xs text-3">
-                    Counts toward Field Team monthly performance. Underperformers list anyone behind on visit days.
-                  </span>
+                  <span className="font-medium text-[var(--text)]">Require monthly visit target</span>
                 </span>
               </label>
             )}

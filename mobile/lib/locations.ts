@@ -5,6 +5,7 @@ export const OPERATING_COUNTRIES = [
   "Oman",
   "Kuwait",
   "Bahrain",
+  "Egypt",
   "India",
   "Sri Lanka",
 ] as const;
@@ -47,6 +48,7 @@ export const COUNTRY_CITIES: Record<OperatingCountry, readonly string[]> = {
   Oman: ["Muscat", "Salalah", "Sohar", "Nizwa", "Duqm"],
   Kuwait: ["Kuwait City", "Ahmadi", "Hawalli", "Jahra", "Salmiya"],
   Bahrain: ["Manama", "Muharraq", "Riffa", "Hamad Town"],
+  Egypt: ["Cairo", "Alexandria", "Giza", "New Administrative Capital", "Port Said", "Suez", "Luxor", "Aswan"],
   India: [
     "Alappuzha",
     "Bangalore",

@@ -12,6 +12,7 @@ const DEFAULT_MASTER_REGIONS = [
   "KSA",
   "Qatar",
   "GCC",
+  "Egypt",
 ];
 
 async function seedMasterRegions() {

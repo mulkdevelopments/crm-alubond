@@ -20,6 +20,7 @@ import { listFollowUps, type ApiFollowUp } from '@/lib/followups-api';
 import { listUsers, type UserListItem } from '@/lib/auth-api';
 import { monthOffsetToRange } from '@/lib/monthly-performers';
 import { buildMonthlyTrend } from '@/lib/sales-target-trend';
+import { canAccessFieldTeam } from '@/lib/team-performance';
 import { cn, formatAED, formatProjectValue } from '@/lib/utils';
 import {
   listActivities,
@@ -158,6 +159,7 @@ export default function DashboardPage() {
       }),
     [projects]
   );
+  const canViewTeam = canAccessFieldTeam(user?.role);
   const teamSummary = useMemo(() => {
     const regionalCount = users.filter((entry) => entry.role === 'REGIONAL_MANAGER').length;
     const managerCount = users.filter((entry) => entry.role === 'MANAGER').length;
@@ -217,7 +219,9 @@ export default function DashboardPage() {
           hint={`${visitsThisMonth.people} people · ${visitsThisMonth.days} days · ${visitsThisMonth.label}`}
           icon={<MapPin className="h-4 w-4" />}
           accent="brand"
-          onClick={() => router.push('/team')}
+          onClick={() => {
+            if (canViewTeam) router.push('/team');
+          }}
         />
       </section>
 
@@ -297,6 +301,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {canViewTeam ? (
       <section className="px-4 lg:px-8 mt-4">
         <Card>
           <CardHeader
@@ -328,6 +333,7 @@ export default function DashboardPage() {
           </div>
         </Card>
       </section>
+      ) : null}
 
       {kpiDetail && (
         <KpiDetailModal

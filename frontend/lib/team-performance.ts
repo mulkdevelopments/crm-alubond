@@ -404,7 +404,7 @@ export function buildHierarchy(
     });
   }
 
-  return regionalSeeds.map((regional) => {
+  const cards: RegionalCard[] = regionalSeeds.map((regional) => {
     const managerUsers = managersByRegional.get(regional.id) ?? [];
     const directRepUsers = directRepsByRegional.get(regional.id) ?? [];
     const { byManagerId, byDirectRepId, unassigned, inScope } = partitionRegionalProjects({
@@ -487,6 +487,67 @@ export function buildHierarchy(
       scopedProjects: regionalProjects,
     };
   });
+
+  // Managers with no regional parent (or only visible as self + reps) still need a card.
+  const managersInCards = new Set(
+    cards.flatMap((card) => card.managers.map((manager) => manager.id)),
+  );
+  const orphanManagers = managers.filter((manager) => !managersInCards.has(manager.id));
+  for (const manager of orphanManagers) {
+    const managerRepUsers = repsByManager.get(manager.id) ?? [];
+    const managerProjects = projects.filter(
+      (project) =>
+        project.managerId === manager.id ||
+        project.salesRepIds.some((id) => managerRepUsers.some((rep) => rep.id === id)),
+    );
+    const { byRepId, managerOnly } = partitionManagerProjectsAmongReps(
+      managerProjects,
+      managerRepUsers.map((rep) => rep.id),
+    );
+    const repCards = managerRepUsers.map((rep) =>
+      buildRepCard(rep, byRepId.get(rep.id) ?? [], activities),
+    );
+    const targetFromReps = repCards.reduce(
+      (sum, rep) => sum + (rep.metrics.assignedTargetAed ?? rep.metrics.targetAed),
+      0,
+    );
+    const managerVisits = visitsForProjects(activities, managerProjects);
+    const managerPresence = presenceForUser(manager);
+    const managerCard: ManagerCard = {
+      id: manager.id,
+      name: `${manager.firstName} ${manager.lastName}`.trim(),
+      location: formatLocations(manager.operationLocations),
+      online: managerPresence.online,
+      presenceLabel: managerPresence.presenceLabel,
+      reps: repCards,
+      unassignedProjects: managerOnly,
+      metrics: computeMetrics(
+        managerProjects,
+        manager.yearlyTarget,
+        targetFromReps || manager.yearlyTarget,
+        managerVisits,
+      ),
+      visits: managerVisits,
+      pipelineProjects: pipelineOnly(managerProjects),
+      scopedProjects: managerProjects,
+    };
+    cards.push({
+      id: `manager-root:${manager.id}`,
+      name: managerCard.name,
+      location: managerCard.location,
+      online: managerCard.online,
+      presenceLabel: managerCard.presenceLabel,
+      managers: [managerCard],
+      directReps: [],
+      unassignedProjects: [],
+      metrics: managerCard.metrics,
+      visits: managerCard.visits,
+      pipelineProjects: managerCard.pipelineProjects,
+      scopedProjects: managerCard.scopedProjects,
+    });
+  }
+
+  return cards;
 }
 
 export function progressAccent(pct: number, variant: "team" | "assigned" = "team") {
@@ -678,3 +739,70 @@ export function buildRegionHierarchy(
     } satisfies RegionalCard;
   });
 }
+
+/** Field Team visibility: CEO/Admin all; RM own tree; Manager own reps; Sales self only. */
+export function scopeUsersForTeamViewer(
+  users: UserListItem[],
+  viewer: { id: string; role: UserListItem["role"] } | null | undefined,
+): UserListItem[] {
+  if (!viewer) return [];
+  if (viewer.role === "ADMIN" || viewer.role === "CEO") return users;
+
+  if (viewer.role === "REGIONAL_MANAGER") {
+    const managerIds = new Set(
+      users
+        .filter((entry) => entry.role === "MANAGER" && entry.regionalManagerId === viewer.id)
+        .map((entry) => entry.id),
+    );
+    return users.filter((entry) => {
+      if (entry.id === viewer.id) return true;
+      if (entry.role === "MANAGER" && entry.regionalManagerId === viewer.id) return true;
+      if (entry.role === "SALES_REP") {
+        if (entry.regionalManagerId === viewer.id && !entry.managerId) return true;
+        if (entry.managerId && managerIds.has(entry.managerId)) return true;
+        if (entry.regionalManagerId === viewer.id) return true;
+      }
+      return false;
+    });
+  }
+
+  if (viewer.role === "MANAGER") {
+    return users.filter(
+      (entry) => entry.id === viewer.id || (entry.role === "SALES_REP" && entry.managerId === viewer.id),
+    );
+  }
+
+  // SALES_REP — self only
+  return users.filter((entry) => entry.id === viewer.id);
+}
+
+/** Narrow hierarchy cards to the viewer's allowed subtree. */
+export function scopeHierarchyForViewer(
+  cards: RegionalCard[],
+  viewer: { id: string; role: UserListItem["role"] } | null | undefined,
+): RegionalCard[] {
+  if (!viewer) return [];
+  if (viewer.role === "ADMIN" || viewer.role === "CEO") return cards;
+
+  if (viewer.role === "REGIONAL_MANAGER") {
+    return cards.filter((card) => card.id === viewer.id || card.managers.some((m) => m.id === viewer.id));
+  }
+
+  if (viewer.role === "MANAGER") {
+    return cards
+      .map((card) => {
+        const managers = card.managers.filter((manager) => manager.id === viewer.id);
+        if (managers.length === 0) return null;
+        return { ...card, managers, directReps: [] as SalesRepCard[] };
+      })
+      .filter((card): card is RegionalCard => card !== null);
+  }
+
+  // Sales: no regional tree
+  return [];
+}
+
+export function canAccessFieldTeam(role: UserListItem["role"] | undefined) {
+  return role === "MANAGER" || role === "REGIONAL_MANAGER" || role === "CEO" || role === "ADMIN";
+}
+

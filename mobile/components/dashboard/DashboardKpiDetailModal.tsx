@@ -2,18 +2,16 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { X } from "lucide-react-native";
 
 import { useThemeColors } from "@/constants/theme";
-import type { ApiFollowUp } from "@/lib/api/followups-api";
 import type { ApiProject } from "@/lib/api/projects-api";
 import { STAGE_META } from "@/lib/map/stages";
 import { formatAed, formatProjectValue } from "@/lib/utils";
 
-export type KpiDetailKind = "pipeline" | "forecast" | "won" | "overdue";
+export type KpiDetailKind = "pipeline" | "forecast" | "won";
 
 export function DashboardKpiDetailModal({
   kind,
   activeProjects,
   wonProjects,
-  overdueFollowUps,
   viewerRole,
   onClose,
   onOpenProject,
@@ -22,7 +20,6 @@ export function DashboardKpiDetailModal({
   kind: KpiDetailKind | null;
   activeProjects: ApiProject[];
   wonProjects: ApiProject[];
-  overdueFollowUps: ApiFollowUp[];
   viewerRole?: string;
   onClose: () => void;
   onOpenProject: (projectId: string) => void;
@@ -37,9 +34,7 @@ export function DashboardKpiDetailModal({
       ? "Pipeline value"
       : kind === "forecast"
         ? "Forecast (weighted)"
-        : kind === "won"
-          ? "Won projects"
-          : "Overdue follow-ups";
+        : "Won projects";
 
   const subtitle =
     kind === "pipeline"
@@ -52,12 +47,10 @@ export function DashboardKpiDetailModal({
             activeProjects.reduce((sum, project) => sum + (project.valueAed * project.probability) / 100, 0),
             true,
           )}`
-        : kind === "won"
-          ? `${wonProjects.length} won · ${formatAed(
-              wonProjects.reduce((sum, project) => sum + project.valueAed, 0),
-              true,
-            )}`
-          : `${overdueFollowUps.length} overdue`;
+        : `${wonProjects.length} won · ${formatAed(
+            wonProjects.reduce((sum, project) => sum + project.valueAed, 0),
+            true,
+          )}`;
 
   const stageStats =
     kind === "pipeline" || kind === "forecast"
@@ -77,16 +70,10 @@ export function DashboardKpiDetailModal({
     new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
 
   const allProjectRows =
-    kind === "won"
-      ? [...wonProjects].sort(byLatest)
-      : kind === "pipeline" || kind === "forecast"
-        ? [...activeProjects].sort(byLatest)
-        : [];
-  const allOverdueRows = kind === "overdue" ? [...overdueFollowUps].sort(byLatest) : [];
+    kind === "won" ? [...wonProjects].sort(byLatest) : [...activeProjects].sort(byLatest);
 
   const projectRows = allProjectRows.slice(0, 10);
-  const overdueRows = allOverdueRows.slice(0, 10);
-  const totalCount = kind === "overdue" ? allOverdueRows.length : allProjectRows.length;
+  const totalCount = allProjectRows.length;
   const hasMore = totalCount > 10;
 
   return (
@@ -108,44 +95,7 @@ export function DashboardKpiDetailModal({
           </View>
 
           <ScrollView contentContainerStyle={styles.content}>
-            {kind === "overdue" ? (
-              overdueRows.length === 0 ? (
-                <Text style={[styles.empty, { color: colors.text3 }]}>No overdue follow-ups.</Text>
-              ) : (
-                overdueRows.map((followUp) => (
-                    <Pressable
-                      key={followUp.id}
-                      onPress={() => {
-                        onClose();
-                        onOpenProject(followUp.projectId);
-                      }}
-                      style={[styles.item, { borderColor: colors.border, backgroundColor: colors.surface2 }]}
-                    >
-                      <View style={styles.itemHeader}>
-                        <Text style={[styles.itemTitle, { color: colors.text }]} numberOfLines={1}>
-                          {followUp.projectName}
-                        </Text>
-                        <Text style={[styles.due, { color: colors.danger }]}>
-                          Due{" "}
-                          {new Date(followUp.dueAt).toLocaleDateString("en-AE", {
-                            month: "short",
-                            day: "2-digit",
-                          })}
-                        </Text>
-                      </View>
-                      <Text style={[styles.itemMeta, { color: colors.text3 }]}>
-                        {followUp.contact}
-                        {followUp.contactRole ? ` · ${followUp.contactRole}` : ""} · {followUp.channel}
-                      </Text>
-                      {followUp.note?.trim() ? (
-                        <Text style={[styles.itemBody, { color: colors.text2 }]} numberOfLines={2}>
-                          {followUp.note}
-                        </Text>
-                      ) : null}
-                    </Pressable>
-                  ))
-              )
-            ) : projectRows.length === 0 ? (
+            {projectRows.length === 0 ? (
               <Text style={[styles.empty, { color: colors.text3 }]}>
                 {kind === "won" ? "No won projects yet." : "No active pipeline projects."}
               </Text>
@@ -265,7 +215,6 @@ function createStyles() {
     },
     headerText: {
       flex: 1,
-      minWidth: 0,
     },
     title: {
       fontSize: 16,
@@ -278,7 +227,7 @@ function createStyles() {
     closeButton: {
       width: 32,
       height: 32,
-      borderRadius: 10,
+      borderRadius: 16,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -295,17 +244,19 @@ function createStyles() {
       borderWidth: 1,
       borderRadius: 14,
       padding: 12,
-      marginBottom: 4,
+      gap: 8,
     },
     legendTitle: {
       fontSize: 12,
       fontWeight: "700",
     },
     legendGrid: {
-      marginTop: 8,
+      flexDirection: "row",
+      flexWrap: "wrap",
       gap: 8,
     },
     legendItem: {
+      width: "48%",
       borderWidth: 1,
       borderRadius: 10,
       paddingHorizontal: 10,
@@ -326,52 +277,39 @@ function createStyles() {
     },
     itemHeader: {
       flexDirection: "row",
-      alignItems: "flex-start",
       justifyContent: "space-between",
       gap: 10,
     },
     itemCopy: {
       flex: 1,
       minWidth: 0,
+      gap: 4,
     },
     itemTitle: {
       fontSize: 14,
       fontWeight: "600",
-      flex: 1,
     },
     itemMeta: {
-      marginTop: 2,
       fontSize: 12,
     },
     probPill: {
       alignSelf: "flex-start",
-      marginTop: 6,
       borderRadius: 999,
       paddingHorizontal: 8,
-      paddingVertical: 3,
+      paddingVertical: 2,
     },
     probPillText: {
       fontSize: 11,
       fontWeight: "800",
     },
-    itemBody: {
-      marginTop: 8,
-      fontSize: 13,
-      lineHeight: 18,
-    },
-    due: {
-      fontSize: 11,
-      fontWeight: "600",
-    },
     valueCol: {
       alignItems: "flex-end",
       gap: 4,
-      maxWidth: "46%",
     },
     stagePill: {
       borderRadius: 999,
       paddingHorizontal: 8,
-      paddingVertical: 3,
+      paddingVertical: 2,
     },
     stagePillText: {
       fontSize: 10,
@@ -385,14 +323,14 @@ function createStyles() {
       fontSize: 10,
     },
     viewMore: {
-      marginTop: 6,
+      marginTop: 4,
       borderWidth: 1,
       borderRadius: 12,
       paddingVertical: 12,
       alignItems: "center",
     },
     viewMoreText: {
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: "700",
     },
   });

@@ -51,22 +51,27 @@ const NAV: NavItem[] = [
   },
 ];
 
+function canSeeFieldTeam(role: string | undefined) {
+  return role === 'MANAGER' || role === 'REGIONAL_MANAGER' || role === 'CEO' || role === 'ADMIN';
+}
+
 export function Sidebar() {
   const path = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout, token } = useAuth();
   const [followUpBadgeCount, setFollowUpBadgeCount] = useState<number | null>(null);
   const [accessRequestBadgeCount, setAccessRequestBadgeCount] = useState<number | null>(null);
+  const baseNav = canSeeFieldTeam(user?.role) ? NAV : NAV.filter((item) => item.href !== '/team');
   const navItems: NavItem[] =
     user?.role === 'ADMIN'
       ? [
-          ...NAV.slice(0, 5),
+          ...baseNav.slice(0, canSeeFieldTeam(user?.role) ? 5 : 4),
           { href: '/access-requests', label: 'Access requests', icon: UserPlus },
           { href: '/users', label: 'Users', icon: UserCog },
           { href: '/master-data', label: 'Master Data', icon: Database },
-          ...NAV.slice(5),
+          ...baseNav.slice(canSeeFieldTeam(user?.role) ? 5 : 4),
         ]
-      : NAV;
+      : baseNav;
   const userName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() || user?.email || 'User';
 
   useEffect(() => {

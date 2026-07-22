@@ -91,6 +91,21 @@ export function isUserLive(lastLocationPingAt: string | null, isActive: boolean)
   return Date.now() - lastSeenMs <= 150_000;
 }
 
+export function isUserOnline(lastSeenAt: string | null, isActive: boolean) {
+  if (!isActive || !lastSeenAt) return false;
+  const lastSeenMs = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeenMs)) return false;
+  // Heartbeat every ~60s while logged in; treat <=5 minutes as online.
+  return Date.now() - lastSeenMs <= 5 * 60_000;
+}
+
+export function wasSeenWithin24Hours(lastSeenAt: string | null) {
+  if (!lastSeenAt) return false;
+  const lastSeenMs = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeenMs)) return false;
+  return Date.now() - lastSeenMs <= 24 * 60 * 60_000;
+}
+
 export function formatLastSeen(timestamp: string) {
   const ts = new Date(timestamp).getTime();
   if (!Number.isFinite(ts)) return "unknown";

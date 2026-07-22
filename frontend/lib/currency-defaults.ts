@@ -9,6 +9,7 @@ export const COUNTRY_DEFAULT_CURRENCY: Record<string, string> = {
   Oman: 'OMR',
   Kuwait: 'KWD',
   Bahrain: 'BHD',
+  Egypt: 'EGP',
 };
 
 export function suggestCurrencyCode(params: {

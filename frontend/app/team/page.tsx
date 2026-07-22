@@ -16,7 +16,10 @@ import {
 import {
   buildHierarchy,
   buildRegionHierarchy,
+  canAccessFieldTeam,
   nameInitials,
+  scopeHierarchyForViewer,
+  scopeUsersForTeamViewer,
   type FlatActivity,
   type ManagerCard,
   type RegionalCard,
@@ -92,9 +95,11 @@ export default function TeamPage() {
     kind: 'pipeline' | 'won';
   } | null>(null);
 
+  const canViewTeam = canAccessFieldTeam(user?.role);
+
   useEffect(() => {
     async function load() {
-      if (!token) return;
+      if (!token || !canViewTeam) return;
       setLoading(true);
       setError(null);
       try {
@@ -126,15 +131,32 @@ export default function TeamPage() {
       }
     }
     void load();
-  }, [token]);
+  }, [token, canViewTeam]);
+
+  const scopedUsers = useMemo(
+    () => scopeUsersForTeamViewer(users, user ? { id: user.id, role: user.role } : null),
+    [users, user],
+  );
 
   const hierarchy = useMemo(() => {
     const cards =
       groupMode === 'region'
-        ? buildRegionHierarchy(users, projects, activities)
-        : buildHierarchy(users, projects, activities);
-    return [...cards].sort(byPerformanceDesc);
-  }, [users, projects, activities, groupMode]);
+        ? buildRegionHierarchy(scopedUsers, projects, activities)
+        : buildHierarchy(scopedUsers, projects, activities);
+    return scopeHierarchyForViewer(cards, user ? { id: user.id, role: user.role } : null).sort(
+      byPerformanceDesc,
+    );
+  }, [scopedUsers, projects, activities, groupMode, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === 'MANAGER' || user.role === 'REGIONAL_MANAGER') {
+      if (hierarchy.length === 1 && !selectedRegionalId) {
+        setSelectedRegionalId(hierarchy[0]!.id);
+      }
+    }
+  }, [hierarchy, selectedRegionalId, user]);
+
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const project of projects) {
@@ -151,10 +173,10 @@ export default function TeamPage() {
   const monthlyBoard = useMemo(() => {
     const cards = selectedRegional ? [selectedRegional] : hierarchy;
     const requireDailyVisitById = Object.fromEntries(
-      users.map((entry) => [entry.id, Boolean(entry.requireDailyVisit)]),
+      scopedUsers.map((entry) => [entry.id, Boolean(entry.requireDailyVisit)]),
     );
     const people = peopleFromRegionalCards(cards, {
-      includeRegionalRoots: groupMode === 'manager',
+      includeRegionalRoots: groupMode === 'manager' && user?.role !== 'MANAGER',
       requireDailyVisitById,
     });
     return rankMonthlyPerformers({
@@ -163,7 +185,7 @@ export default function TeamPage() {
       visits: activities,
       monthOffset,
     });
-  }, [hierarchy, selectedRegional, groupMode, projects, activities, monthOffset, users]);
+  }, [hierarchy, selectedRegional, groupMode, projects, activities, monthOffset, scopedUsers, user?.role]);
 
   function setMode(next: GroupMode) {
     setGroupMode(next);
@@ -171,11 +193,43 @@ export default function TeamPage() {
     setMonthOffset(0);
   }
 
+  if (!canViewTeam) {
+    return (
+      <>
+        <PageHeader eyebrow="Field Team" title="Limited visibility" />
+        <section className="px-4 lg:px-8 pb-8">
+          <Card className="p-5">
+            <p className="text-sm text-3">
+              Field Team performance is available to managers, regional managers, and leadership.
+            </p>
+          </Card>
+        </section>
+      </>
+    );
+  }
+
+  const overviewLabel =
+    user?.role === 'MANAGER'
+      ? 'My team'
+      : user?.role === 'REGIONAL_MANAGER'
+        ? 'My region'
+        : groupMode === 'region'
+          ? 'All regions'
+          : 'All regional managers';
+
   return (
     <>
       <PageHeader
         eyebrow="Field Team"
-        title={groupMode === 'region' ? 'Performance by region' : 'Performance by regional manager'}
+        title={
+          user?.role === 'MANAGER'
+            ? 'My sales team'
+            : user?.role === 'REGIONAL_MANAGER'
+              ? 'My regional team'
+              : groupMode === 'region'
+                ? 'Performance by region'
+                : 'Performance by regional manager'
+        }
       />
 
       {error && (
@@ -204,7 +258,7 @@ export default function TeamPage() {
               }`}
             >
               {selectedRegional ? <ChevronLeft className="h-3.5 w-3.5" /> : null}
-              {groupMode === 'region' ? 'All regions' : 'All regional managers'}
+              {overviewLabel}
             </button>
             {selectedRegional ? (
               <>
@@ -214,6 +268,7 @@ export default function TeamPage() {
             ) : null}
           </nav>
 
+          {user?.role === 'CEO' || user?.role === 'ADMIN' ? (
           <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5">
             <button
               type="button"
@@ -234,6 +289,7 @@ export default function TeamPage() {
               By region
             </button>
           </div>
+          ) : null}
         </div>
 
         {loading && <p className="text-sm text-3">Loading team performance...</p>}
@@ -467,7 +523,7 @@ function MonthlyPerformersBoard({
         <div>
           <p className="text-sm font-semibold">Monthly performers</p>
           <p className="text-xs text-3 mt-0.5">
-            Ranked by Won AED; visit-required users also judged on ≥1 visit per weekday
+            Ranked by Won AED; visit-required users need visits ≥ weekdays in the month (MTD)
           </p>
         </div>
         <div className="inline-flex items-center gap-2">
@@ -564,7 +620,7 @@ function PerformerList({
                   }`}
                 >
                   {row.requireDailyVisit
-                    ? `Visits ${row.visitDays}/${row.expectedVisitDays}d`
+                    ? `Visits ${row.visits}/${row.expectedVisitDays}`
                     : `Visits ${row.visits}`}
                 </p>
               </div>

@@ -19,7 +19,10 @@ import {
 import {
   buildHierarchy,
   buildRegionHierarchy,
+  canAccessFieldTeam,
   nameInitials,
+  scopeHierarchyForViewer,
+  scopeUsersForTeamViewer,
   type FlatActivity,
   type ManagerCard,
   type RegionalCard,
@@ -98,8 +101,10 @@ export default function TeamScreen() {
     kind: "pipeline" | "won";
   } | null>(null);
 
+  const canViewTeam = canAccessFieldTeam(user?.role);
+
   const loadData = useCallback(async () => {
-    if (!token) return;
+    if (!token || !canViewTeam) return;
     setError(null);
     const [usersData, projectsData, activityItems] = await Promise.all([
       listUsers(token),
@@ -122,12 +127,16 @@ export default function TeamScreen() {
       ),
     );
     return usersData;
-  }, [token]);
+  }, [token, canViewTeam]);
 
   const [usersSnapshot, setUsersSnapshot] = useState<Awaited<ReturnType<typeof listUsers>>>([]);
 
   useEffect(() => {
     void (async () => {
+      if (!canViewTeam) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const usersData = await loadData();
@@ -138,15 +147,31 @@ export default function TeamScreen() {
         setLoading(false);
       }
     })();
-  }, [loadData]);
+  }, [loadData, canViewTeam]);
+
+  const scopedUsers = useMemo(
+    () => scopeUsersForTeamViewer(usersSnapshot, user ? { id: user.id, role: user.role } : null),
+    [usersSnapshot, user],
+  );
 
   const hierarchy = useMemo(() => {
     const cards =
       groupMode === "region"
-        ? buildRegionHierarchy(usersSnapshot, projects, activities)
-        : buildHierarchy(usersSnapshot, projects, activities);
-    return [...cards].sort(byPerformanceDesc);
-  }, [usersSnapshot, projects, activities, groupMode]);
+        ? buildRegionHierarchy(scopedUsers, projects, activities)
+        : buildHierarchy(scopedUsers, projects, activities);
+    return scopeHierarchyForViewer(cards, user ? { id: user.id, role: user.role } : null).sort(
+      byPerformanceDesc,
+    );
+  }, [scopedUsers, projects, activities, groupMode, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === "MANAGER" || user.role === "REGIONAL_MANAGER") {
+      if (hierarchy.length === 1 && !selectedRegionalId) {
+        setSelectedRegionalId(hierarchy[0]!.id);
+      }
+    }
+  }, [hierarchy, selectedRegionalId, user]);
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -166,10 +191,10 @@ export default function TeamScreen() {
   const monthlyBoard = useMemo(() => {
     const cards = selectedRegional ? [selectedRegional] : hierarchy;
     const requireDailyVisitById = Object.fromEntries(
-      usersSnapshot.map((entry) => [entry.id, Boolean(entry.requireDailyVisit)]),
+      scopedUsers.map((entry) => [entry.id, Boolean(entry.requireDailyVisit)]),
     );
     const people = peopleFromRegionalCards(cards, {
-      includeRegionalRoots: groupMode === "manager",
+      includeRegionalRoots: groupMode === "manager" && user?.role !== "MANAGER",
       requireDailyVisitById,
     });
     return rankMonthlyPerformers({
@@ -178,7 +203,7 @@ export default function TeamScreen() {
       visits: activities,
       monthOffset,
     });
-  }, [hierarchy, selectedRegional, groupMode, projects, activities, monthOffset, usersSnapshot]);
+  }, [hierarchy, selectedRegional, groupMode, projects, activities, monthOffset, scopedUsers, user?.role]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -192,7 +217,40 @@ export default function TeamScreen() {
     }
   }
 
+  if (!canViewTeam) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors.bg }]}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <PageHeader eyebrow="Field Team" title="Limited visibility" />
+          <Card style={{ padding: 16 }}>
+            <Text style={{ color: colors.text3, fontSize: 14 }}>
+              Field Team performance is available to managers, regional managers, and leadership.
+            </Text>
+          </Card>
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (loading) return <ScreenLoader label="Loading team performance..." />;
+
+  const overviewLabel =
+    user?.role === "MANAGER"
+      ? "My team"
+      : user?.role === "REGIONAL_MANAGER"
+        ? "My region"
+        : groupMode === "region"
+          ? "All regions"
+          : "All regional managers";
+
+  const pageTitle =
+    user?.role === "MANAGER"
+      ? "My sales team"
+      : user?.role === "REGIONAL_MANAGER"
+        ? "My regional team"
+        : groupMode === "region"
+          ? "Performance by region"
+          : "Performance by regional manager";
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.bg }]}>
@@ -201,10 +259,7 @@ export default function TeamScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
         showsVerticalScrollIndicator={false}
       >
-        <PageHeader
-          eyebrow="Field Team"
-          title={groupMode === "region" ? "Performance by region" : "Performance by regional manager"}
-        />
+        <PageHeader eyebrow="Field Team" title={pageTitle} />
 
         {error ? (
           <Card style={styles.errorCard}>
@@ -225,7 +280,7 @@ export default function TeamScreen() {
           >
             {selectedRegional ? <ChevronLeft size={14} color={colors.text2} strokeWidth={2.2} /> : null}
             <Text style={[styles.crumbText, { color: selectedRegional ? colors.text2 : colors.text1 }]}>
-              {groupMode === "region" ? "All regions" : "All regional managers"}
+              {overviewLabel}
             </Text>
           </Pressable>
           {selectedRegional ? (
@@ -238,6 +293,7 @@ export default function TeamScreen() {
           ) : null}
         </View>
 
+        {user?.role === "CEO" || user?.role === "ADMIN" ? (
         <View style={[styles.toggleRow, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
           <Pressable
             style={[styles.toggleBtn, groupMode === "manager" && { backgroundColor: colors.surface }]}
@@ -264,6 +320,7 @@ export default function TeamScreen() {
             </Text>
           </Pressable>
         </View>
+        ) : null}
 
         {hierarchy.length === 0 ? (
           <Card style={styles.emptyCard}>
@@ -388,7 +445,7 @@ function MonthlyPerformersBoard({
         <View style={{ flex: 1 }}>
           <Text style={[styles.monthlyTitle, { color: colors.text1 }]}>Monthly performers</Text>
           <Text style={{ color: colors.text3, fontSize: 12, marginTop: 2 }}>
-            Won AED + weekday visit KPI for visit-required users
+            Won AED + monthly visit target (visits ≥ weekdays) for visit-required users
           </Text>
         </View>
         <View style={styles.monthNav}>
@@ -514,7 +571,7 @@ function PerformerList({
                     ]}
                   >
                     {row.requireDailyVisit
-                      ? `Visits ${row.visitDays}/${row.expectedVisitDays}d`
+                      ? `Visits ${row.visits}/${row.expectedVisitDays}`
                       : `Visits ${row.visits}`}
                   </Text>
                 </View>

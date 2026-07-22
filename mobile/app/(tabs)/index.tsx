@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
-import { AlertTriangle, Bell, Briefcase, Phone, Target, Trophy } from "lucide-react-native";
+import { AlertTriangle, Briefcase, MapPin, Phone, Target, Trophy } from "lucide-react-native";
 
 import { FunnelChart } from "@/components/charts/FunnelChart";
 import { LossDonut } from "@/components/charts/LossDonut";
@@ -20,6 +20,7 @@ import { ThemeColors, useThemeColors } from "@/constants/theme";
 import { listUsers } from "@/lib/api/auth-api";
 import { listFollowUps, type ApiFollowUp } from "@/lib/api/followups-api";
 import {
+  listActivities,
   listProjectActivities,
   listProjects,
   type ApiProject,
@@ -33,7 +34,9 @@ import {
   isLive,
   relativeTimeFromIso,
 } from "@/lib/dashboard";
+import { monthOffsetToRange } from "@/lib/monthly-performers";
 import { formatAed, formatProjectValue } from "@/lib/utils";
+import { canAccessFieldTeam } from "@/lib/team-performance";
 
 type ActivityFeedItem = {
   id: string;
@@ -55,18 +58,21 @@ export default function HomeScreen() {
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [followUps, setFollowUps] = useState<ApiFollowUp[]>([]);
   const [users, setUsers] = useState<Awaited<ReturnType<typeof listUsers>>>([]);
+  const [visits, setVisits] = useState<ProjectActivity[]>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
   const [kpiDetail, setKpiDetail] = useState<KpiDetailKind | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     setError(null);
-    const [projectItems, followUpItems] = await Promise.all([
+    const [projectItems, followUpItems, visitItems] = await Promise.all([
       listProjects(token),
       listFollowUps(token),
+      listActivities(token, { type: "visit" }).catch(() => [] as ProjectActivity[]),
     ]);
     setProjects(projectItems);
     setFollowUps(followUpItems);
+    setVisits(visitItems);
 
     try {
       setUsers(await listUsers(token));
@@ -119,10 +125,29 @@ export default function HomeScreen() {
     [projects]
   );
   const wonProjects = useMemo(() => projects.filter((project) => project.stage === "Won"), [projects]);
-  const overdueFollowUps = useMemo(
-    () => followUps.filter((followUp) => followUp.status === "Overdue"),
-    [followUps]
-  );
+  const visitsThisMonth = useMemo(() => {
+    const range = monthOffsetToRange(0);
+    const inMonth = visits.filter((visit) => {
+      const date = new Date(visit.createdAt);
+      if (Number.isNaN(date.getTime())) return false;
+      return date >= range.start && date < range.end;
+    });
+    const people = new Set(
+      inMonth.map((visit) => visit.createdById).filter((id): id is string => Boolean(id)),
+    );
+    const days = new Set(
+      inMonth.map((visit) => {
+        const date = new Date(visit.createdAt);
+        return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      }),
+    );
+    return {
+      count: inMonth.length,
+      people: people.size,
+      days: days.size,
+      label: range.label,
+    };
+  }, [visits]);
   const hotProjects = useMemo(
     () =>
       [...activeProjects]
@@ -162,6 +187,7 @@ export default function HomeScreen() {
       .reduce((sum, project) => sum + project.valueAed, 0);
     return { regionalCount, managerCount, repCount, liveReps, teamPipeline };
   }, [projects, users]);
+  const canViewTeam = canAccessFieldTeam(user?.role);
 
   if (loading) return <ScreenLoader label="Loading dashboard..." />;
 
@@ -235,12 +261,14 @@ export default function HomeScreen() {
             onPress={() => setKpiDetail("won")}
           />
           <KpiCard
-            label="Overdue follow-ups"
-            value={String(overdueFollowUps.length)}
-            hint={`${followUps.filter((followUp) => followUp.status !== "Done").length} open`}
-            accent="danger"
-            icon={<Bell size={16} color={colors.text2} strokeWidth={2.2} />}
-            onPress={() => setKpiDetail("overdue")}
+            label="Visits this month"
+            value={String(visitsThisMonth.count)}
+            hint={`${visitsThisMonth.people} people · ${visitsThisMonth.days} days · ${visitsThisMonth.label}`}
+            accent="brand"
+            icon={<MapPin size={16} color={colors.text2} strokeWidth={2.2} />}
+            onPress={() => {
+              if (canViewTeam) router.push("/(tabs)/team");
+            }}
           />
         </View>
 
@@ -384,6 +412,7 @@ export default function HomeScreen() {
           </View>
         </Card>
 
+        {canViewTeam ? (
         <Card style={styles.sectionCard}>
           <CardHeader
             title="Team performance"
@@ -404,23 +433,17 @@ export default function HomeScreen() {
             />
           </View>
         </Card>
+        ) : null}
       </ScrollView>
 
       <DashboardKpiDetailModal
         kind={kpiDetail}
         activeProjects={activeProjects}
         wonProjects={wonProjects}
-        overdueFollowUps={overdueFollowUps}
         viewerRole={user?.role}
         onClose={() => setKpiDetail(null)}
         onOpenProject={(projectId) => router.push(`/project/${projectId}`)}
-        onViewMore={(kind) => {
-          if (kind === "overdue") {
-            router.push("/(tabs)/follow-ups");
-            return;
-          }
-          router.push("/(tabs)/pipeline");
-        }}
+        onViewMore={() => router.push("/(tabs)/pipeline")}
       />
     </View>
   );

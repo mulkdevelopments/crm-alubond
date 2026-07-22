@@ -19,7 +19,10 @@ export type MonthlyPerformerRow = {
   wonAed: number;
   visits: number;
   visitDays: number;
+  /** Weekdays elapsed in the ranked month (Mon–Fri, MTD for current). */
   expectedVisitDays: number;
+  /** visits ÷ expected weekdays; 0 when no weekday baseline. */
+  visitAvg: number;
   requireDailyVisit: boolean;
   visitOnTrack: boolean;
   reasons: string[];
@@ -148,11 +151,14 @@ export function rankMonthlyPerformers(input: {
       const visits = visitsByPerson.get(person.id) ?? 0;
       const visitDays = visitDaysByPerson.get(person.id)?.size ?? 0;
       const requireDailyVisit = Boolean(person.requireDailyVisit);
-      const visitOnTrack = !requireDailyVisit || expectedVisitDays === 0 || visitDays >= expectedVisitDays;
+      const visitAvg = expectedVisitDays > 0 ? visits / expectedVisitDays : 0;
+      // Mandate: total visits ≥ weekdays in period (e.g. 21 weekdays → 21 visits), not 1/day.
+      const visitOnTrack =
+        !requireDailyVisit || expectedVisitDays === 0 || visits >= expectedVisitDays;
       const reasons: string[] = [];
       if (wonAed <= 0) reasons.push('No wins');
       if (requireDailyVisit && !visitOnTrack) {
-        reasons.push(`Visits ${visitDays}/${expectedVisitDays} days`);
+        reasons.push(`Visits ${visits}/${expectedVisitDays} (need ≥${expectedVisitDays})`);
       }
       return {
         id: person.id,
@@ -162,6 +168,7 @@ export function rankMonthlyPerformers(input: {
         visits,
         visitDays,
         expectedVisitDays: requireDailyVisit ? expectedVisitDays : 0,
+        visitAvg: requireDailyVisit ? visitAvg : 0,
         requireDailyVisit,
         visitOnTrack,
         reasons,
@@ -169,7 +176,7 @@ export function rankMonthlyPerformers(input: {
     })
     .sort((a, b) => {
       if (b.wonAed !== a.wonAed) return b.wonAed - a.wonAed;
-      if (b.visitDays !== a.visitDays) return b.visitDays - a.visitDays;
+      if (b.visitAvg !== a.visitAvg) return b.visitAvg - a.visitAvg;
       if (b.visits !== a.visits) return b.visits - a.visits;
       return a.name.localeCompare(b.name);
     });
@@ -192,8 +199,8 @@ export function rankMonthlyPerformers(input: {
       return false;
     })
     .sort((a, b) => {
-      const aVisitGap = a.requireDailyVisit ? a.expectedVisitDays - a.visitDays : 0;
-      const bVisitGap = b.requireDailyVisit ? b.expectedVisitDays - b.visitDays : 0;
+      const aVisitGap = a.requireDailyVisit ? Math.max(0, a.expectedVisitDays - a.visits) : 0;
+      const bVisitGap = b.requireDailyVisit ? Math.max(0, b.expectedVisitDays - b.visits) : 0;
       if (bVisitGap !== aVisitGap) return bVisitGap - aVisitGap;
       if (a.wonAed !== b.wonAed) return a.wonAed - b.wonAed;
       return a.name.localeCompare(b.name);

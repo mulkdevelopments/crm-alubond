@@ -34,9 +34,11 @@ import {
   formatOperationLocations,
   getReportsToLabel,
   isUserLive,
+  isUserOnline,
   roleBadgeTone,
   USER_ROLES,
   USERS_PAGE_SIZE,
+  wasSeenWithin24Hours,
   type UserStatusFilter,
 } from "@/lib/users";
 import { formatAed } from "@/lib/utils";
@@ -289,6 +291,18 @@ export default function UsersScreen() {
               <>
                 {paginatedUsers.map((entry) => {
                   const live = isUserLive(entry.lastLocationPingAt, entry.isActive);
+                  const online = isUserOnline(entry.lastSeenAt, entry.isActive);
+                  const recentLogin = !online && wasSeenWithin24Hours(entry.lastSeenAt);
+                  const loginLabel = online
+                    ? "Online"
+                    : entry.lastSeenAt
+                      ? `Last login ${formatLastSeen(entry.lastSeenAt)}`
+                      : "Never logged in";
+                  const loginColor = online
+                    ? colors.success
+                    : recentLogin
+                      ? colors.danger
+                      : colors.text3;
                   return (
                     <View
                       key={entry.id}
@@ -305,6 +319,10 @@ export default function UsersScreen() {
                         </View>
                         <Badge tone={roleBadgeTone(entry.role)}>{entry.role.replace("_", " ")}</Badge>
                       </View>
+
+                      {entry.requireDailyVisit ? (
+                        <Text style={styles.userVisitBadge}>Visit target required</Text>
+                      ) : null}
 
                       <View style={styles.userMetaGrid}>
                         <View style={styles.userMetaCell}>
@@ -326,13 +344,16 @@ export default function UsersScreen() {
                       </Text>
 
                       <View style={styles.userCardFooter}>
-                        <Text style={[styles.userStatus, { color: live ? colors.success : colors.danger }]}>
-                          {live
-                            ? "Live"
-                            : entry.lastLocationPingAt
-                              ? formatLastSeen(entry.lastLocationPingAt)
-                              : "No location"}
-                        </Text>
+                        <View style={styles.userStatusCol}>
+                          <Text style={[styles.userStatus, { color: loginColor }]}>{loginLabel}</Text>
+                          <Text style={[styles.userLocationStatus, { color: live ? colors.success : colors.text3 }]}>
+                            {live
+                              ? "Location live"
+                              : entry.lastLocationPingAt
+                                ? `Location ${formatLastSeen(entry.lastLocationPingAt)}`
+                                : "No location"}
+                          </Text>
+                        </View>
                         <View style={styles.userActions}>
                           <Pressable
                             style={[styles.actionButton, { backgroundColor: colors.surface2, borderColor: colors.border }]}
@@ -603,12 +624,28 @@ function createStyles(_colors: ThemeColors) {
       fontSize: 11,
       lineHeight: 15,
     },
+    userVisitBadge: {
+      fontSize: 10,
+      fontWeight: "600",
+      color: "#0369a1",
+    },
     userCardFooter: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
       gap: 10,
+    },
+    userStatusCol: {
+      flex: 1,
+      gap: 2,
+      minWidth: 0,
     },
     userStatus: {
       fontSize: 12,
       fontWeight: "600",
+    },
+    userLocationStatus: {
+      fontSize: 11,
     },
     userActions: {
       flexDirection: "row",

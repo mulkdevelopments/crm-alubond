@@ -65,6 +65,7 @@ export default function UserFormScreen() {
   const [reportsToId, setReportsToId] = useState("");
   const [regionsInput, setRegionsInput] = useState("");
   const [canSetBusinessDivision, setCanSetBusinessDivision] = useState(false);
+  const [requireDailyVisit, setRequireDailyVisit] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -92,6 +93,9 @@ export default function UserFormScreen() {
         setReportsToId(existing.reportsToId ?? "");
         setRegionsInput(existing.regions.join(", "));
         setCanSetBusinessDivision(existing.role === "REGIONAL_MANAGER" ? existing.canSetBusinessDivision : false);
+        setRequireDailyVisit(
+          existing.role !== "ADMIN" && existing.role !== "CEO" ? Boolean(existing.requireDailyVisit) : false,
+        );
         if (existing.role === "SALES_REP") {
           setManagerId(existing.managerId ? existing.managerId : DIRECT_REGIONAL);
         }
@@ -233,6 +237,7 @@ export default function UserFormScreen() {
         operationLocations: parsedOperationLocations,
         yearlyTarget: role !== "ADMIN" ? parsedYearlyTarget : null,
         canSetBusinessDivision: role === "REGIONAL_MANAGER" ? canSetBusinessDivision : false,
+        requireDailyVisit: role !== "ADMIN" && role !== "CEO" ? requireDailyVisit : false,
       };
 
       if (editing && id) {
@@ -269,6 +274,9 @@ export default function UserFormScreen() {
                 if (entry !== "REGIONAL_MANAGER") {
                   setCanSetBusinessDivision(false);
                 }
+                if (entry === "ADMIN" || entry === "CEO") {
+                  setRequireDailyVisit(false);
+                }
               }}
             />
           ))}
@@ -302,6 +310,24 @@ export default function UserFormScreen() {
         {role !== "ADMIN" ? (
           <Field label="Yearly target (AED)" value={yearlyTarget} onChangeText={setYearlyTarget} keyboardType="numeric" />
         ) : null}
+
+        {role !== "ADMIN" && role !== "CEO" ? (
+          <>
+            <Text style={styles.label}>Monthly visit target</Text>
+            <View style={styles.chips}>
+              <Chip label="Off" active={!requireDailyVisit} onPress={() => setRequireDailyVisit(false)} />
+              <Chip
+                label="Visits ≥ weekdays / month"
+                active={requireDailyVisit}
+                onPress={() => setRequireDailyVisit(true)}
+              />
+            </View>
+            <Text style={styles.helper}>
+              Example: 21 weekdays → need 21 visits total that month (not one every day).
+            </Text>
+          </>
+        ) : null}
+
         <Field
           label={editing ? "New password (optional)" : "Password"}
           value={password}
