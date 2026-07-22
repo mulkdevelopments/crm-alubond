@@ -44,6 +44,7 @@ export type UserListItem = {
   yearlyTarget: number | null;
   isActive: boolean;
   canSetBusinessDivision: boolean;
+  requireDailyVisit: boolean;
   createdAt: string;
   lastLocationPingAt: string | null;
   lastSeenAt: string | null;
@@ -278,6 +279,7 @@ export async function createUser(
     operationLocations: string[];
     yearlyTarget?: number | null;
     canSetBusinessDivision?: boolean;
+    requireDailyVisit?: boolean;
   }
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/users`, {
@@ -312,6 +314,7 @@ export async function updateUser(
     password?: string;
     isActive?: boolean;
     canSetBusinessDivision?: boolean;
+    requireDailyVisit?: boolean;
   }
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/users/${userId}`, {

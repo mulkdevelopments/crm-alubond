@@ -155,6 +155,7 @@ export default function UsersPage() {
   const [yearlyTarget, setYearlyTarget] = useState('');
   const [password, setPassword] = useState('');
   const [canSetBusinessDivision, setCanSetBusinessDivision] = useState(false);
+  const [requireDailyVisit, setRequireDailyVisit] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | Role>('ALL');
   const [regionalManagerFilter, setRegionalManagerFilter] = useState('ALL');
@@ -240,6 +241,7 @@ export default function UsersPage() {
     setYearlyTarget('');
     setPassword('');
     setCanSetBusinessDivision(false);
+    setRequireDailyVisit(false);
     setUserDialogOpen(true);
     setMessage(null);
     router.replace('/users', { scroll: false });
@@ -396,6 +398,7 @@ export default function UsersPage() {
           operationLocations: parsedOperationLocations,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
           canSetBusinessDivision: role === 'REGIONAL_MANAGER' ? canSetBusinessDivision : false,
+          requireDailyVisit: role !== 'ADMIN' && role !== 'CEO' ? requireDailyVisit : false,
           password: password.trim() ? password : undefined,
         });
       } else {
@@ -418,6 +421,7 @@ export default function UsersPage() {
           operationLocations: parsedOperationLocations,
           yearlyTarget: role !== 'ADMIN' ? parsedYearlyTarget : null,
           canSetBusinessDivision: role === 'REGIONAL_MANAGER' ? canSetBusinessDivision : false,
+          requireDailyVisit: role !== 'ADMIN' && role !== 'CEO' ? requireDailyVisit : false,
       });
       }
       setFirstName('');
@@ -427,6 +431,7 @@ export default function UsersPage() {
       setYearlyTarget('');
       setPassword('');
       setCanSetBusinessDivision(false);
+      setRequireDailyVisit(false);
       setManagerId('');
       setRegionalManagerId('');
       setReportsToId('');
@@ -470,6 +475,7 @@ export default function UsersPage() {
     setYearlyTarget('');
     setPassword('');
     setCanSetBusinessDivision(false);
+    setRequireDailyVisit(false);
     setUserDialogOpen(true);
     setMessage(null);
     setFormError(null);
@@ -502,6 +508,9 @@ export default function UsersPage() {
     setEmail(entry.email);
     setYearlyTarget(entry.yearlyTarget != null ? String(entry.yearlyTarget) : '');
     setCanSetBusinessDivision(entry.role === 'REGIONAL_MANAGER' ? entry.canSetBusinessDivision : false);
+    setRequireDailyVisit(
+      entry.role !== 'ADMIN' && entry.role !== 'CEO' ? Boolean(entry.requireDailyVisit) : false,
+    );
     setPassword('');
     setUserDialogOpen(true);
     setMessage(null);
@@ -762,6 +771,11 @@ export default function UsersPage() {
                                   {entry.role === 'REGIONAL_MANAGER' && entry.canSetBusinessDivision ? (
                                     <p className="mt-1 text-[10px] text-3">Business division access</p>
                                   ) : null}
+                                  {entry.requireDailyVisit ? (
+                                    <p className="mt-1 text-[10px] font-medium text-sky-700 dark:text-sky-300">
+                                      Daily visit required
+                                    </p>
+                                  ) : null}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-2 max-w-[180px]">{getReportsToLabel(entry)}</td>
                                 <td className="px-4 py-3 text-xs text-2 max-w-[180px]">
@@ -771,7 +785,16 @@ export default function UsersPage() {
                                   {entry.yearlyTarget != null ? `AED ${formatAed(entry.yearlyTarget)}` : '—'}
                                 </td>
                                 <td className="px-4 py-3">
-                                  <span className={cn('text-xs font-medium', online ? 'text-emerald-600' : 'text-3')}>
+                                  <span
+                                    className={cn(
+                                      'text-xs font-medium',
+                                      online
+                                        ? 'text-emerald-600'
+                                        : wasSeenWithin24Hours(entry.lastSeenAt)
+                                          ? 'text-rose-600 dark:text-rose-400'
+                                          : 'text-3',
+                                    )}
+                                  >
                                     {online
                                       ? 'Online'
                                       : entry.lastSeenAt
@@ -846,6 +869,11 @@ export default function UsersPage() {
                               </div>
                               <Badge tone={roleBadgeTone(entry.role as Role)}>{entry.role.replace('_', ' ')}</Badge>
                             </div>
+                            {entry.requireDailyVisit ? (
+                              <p className="text-[10px] font-medium text-sky-700 dark:text-sky-300">
+                                Daily visit required
+                              </p>
+                            ) : null}
                             <div className="grid grid-cols-2 gap-2 text-xs text-2">
                               <div>
                                 <p className="text-[10px] uppercase tracking-wide text-3">Reports to</p>
@@ -857,7 +885,16 @@ export default function UsersPage() {
                               </div>
                             </div>
                             <div className="flex items-center justify-between gap-2">
-                              <span className={cn('text-xs font-medium', online ? 'text-emerald-600' : 'text-3')}>
+                              <span
+                                className={cn(
+                                  'text-xs font-medium',
+                                  online
+                                    ? 'text-emerald-600'
+                                    : wasSeenWithin24Hours(entry.lastSeenAt)
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : 'text-3',
+                                )}
+                              >
                                 {online
                                   ? 'Online'
                                   : entry.lastSeenAt
@@ -988,6 +1025,9 @@ export default function UsersPage() {
                 if (nextRole !== 'REGIONAL_MANAGER') {
                   setCanSetBusinessDivision(false);
                 }
+                if (nextRole === 'ADMIN' || nextRole === 'CEO') {
+                  setRequireDailyVisit(false);
+                }
               }}
               className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
             >
@@ -1112,6 +1152,22 @@ export default function UsersPage() {
                 onChange={(event) => setYearlyTarget(event.target.value)}
                 className="w-full h-10 px-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-sm"
               />
+            )}
+            {role !== 'ADMIN' && role !== 'CEO' && (
+              <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={requireDailyVisit}
+                  onChange={(event) => setRequireDailyVisit(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium text-[var(--text)]">Require ≥1 visit per weekday</span>
+                  <span className="mt-1 block text-xs text-3">
+                    Counts toward Field Team monthly performance. Underperformers list anyone behind on visit days.
+                  </span>
+                </span>
+              </label>
             )}
               {formError ? (
                 <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
@@ -1706,6 +1762,13 @@ function isUserOnline(lastSeenAt: string | null, isActive: boolean) {
   if (!Number.isFinite(lastSeenMs)) return false;
   // Heartbeat every ~60s while logged in; treat <=5 minutes as online.
   return Date.now() - lastSeenMs <= 5 * 60_000;
+}
+
+function wasSeenWithin24Hours(lastSeenAt: string | null) {
+  if (!lastSeenAt) return false;
+  const lastSeenMs = new Date(lastSeenAt).getTime();
+  if (!Number.isFinite(lastSeenMs)) return false;
+  return Date.now() - lastSeenMs <= 24 * 60 * 60_000;
 }
 
 function isUserLive(lastLocationPingAt: string | null, isActive: boolean) {

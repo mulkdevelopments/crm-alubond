@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertTriangle, Bell, Briefcase, Phone, Target, Trophy } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { AlertTriangle, Briefcase, MapPin, Phone, Target, Trophy } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '@/components/auth/AuthContext';
@@ -17,9 +18,16 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { STAGES, STAGE_TONES, type Stage } from '@/lib/data';
 import { listFollowUps, type ApiFollowUp } from '@/lib/followups-api';
 import { listUsers, type UserListItem } from '@/lib/auth-api';
+import { monthOffsetToRange } from '@/lib/monthly-performers';
 import { buildMonthlyTrend } from '@/lib/sales-target-trend';
 import { cn, formatAED, formatProjectValue } from '@/lib/utils';
-import { listProjectActivities, listProjects, type ApiProject, type ProjectActivity } from '@/lib/projects-api';
+import {
+  listActivities,
+  listProjectActivities,
+  listProjects,
+  type ApiProject,
+  type ProjectActivity,
+} from '@/lib/projects-api';
 
 type ActivityFeedItem = {
   id: string;
@@ -29,15 +37,17 @@ type ActivityFeedItem = {
   whenIso: string;
 };
 
-type KpiDetailKind = 'pipeline' | 'forecast' | 'won' | 'overdue';
+type KpiDetailKind = 'pipeline' | 'forecast' | 'won';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user, token } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ApiProject[]>([]);
   const [followUps, setFollowUps] = useState<ApiFollowUp[]>([]);
   const [users, setUsers] = useState<UserListItem[]>([]);
+  const [visits, setVisits] = useState<ProjectActivity[]>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>([]);
   const [kpiDetail, setKpiDetail] = useState<KpiDetailKind | null>(null);
 
@@ -47,9 +57,14 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const [projectItems, followUpItems] = await Promise.all([listProjects(token), listFollowUps(token)]);
+        const [projectItems, followUpItems, visitItems] = await Promise.all([
+          listProjects(token),
+          listFollowUps(token),
+          listActivities(token, { type: 'visit' }).catch(() => [] as ProjectActivity[]),
+        ]);
         setProjects(projectItems);
         setFollowUps(followUpItems);
+        setVisits(visitItems);
 
         try {
           setUsers(await listUsers(token));
@@ -92,7 +107,29 @@ export default function DashboardPage() {
 
   const activeProjects = useMemo(() => projects.filter((p) => p.stage !== 'Won' && p.stage !== 'Lost'), [projects]);
   const wonProjects = useMemo(() => projects.filter((p) => p.stage === 'Won'), [projects]);
-  const overdueFollowUps = useMemo(() => followUps.filter((f) => f.status === 'Overdue'), [followUps]);
+  const visitsThisMonth = useMemo(() => {
+    const range = monthOffsetToRange(0);
+    const inMonth = visits.filter((visit) => {
+      const date = new Date(visit.createdAt);
+      if (Number.isNaN(date.getTime())) return false;
+      return date >= range.start && date < range.end;
+    });
+    const people = new Set(
+      inMonth.map((visit) => visit.createdById).filter((id): id is string => Boolean(id)),
+    );
+    const days = new Set(
+      inMonth.map((visit) => {
+        const date = new Date(visit.createdAt);
+        return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      }),
+    );
+    return {
+      count: inMonth.length,
+      people: people.size,
+      days: days.size,
+      label: range.label,
+    };
+  }, [visits]);
   const hotProjects = useMemo(
     () => [...activeProjects].sort((a, b) => b.probability * b.valueAed - a.probability * a.valueAed).slice(0, 4),
     [activeProjects]
@@ -175,12 +212,12 @@ export default function DashboardPage() {
           onClick={() => setKpiDetail('won')}
         />
         <KpiCard
-          label="Overdue follow-ups"
-          value={overdueFollowUps.length}
-          hint={`${followUps.filter((f) => f.status !== 'Done').length} open`}
-          icon={<Bell className="h-4 w-4" />}
-          accent="danger"
-          onClick={() => setKpiDetail('overdue')}
+          label="Visits this month"
+          value={visitsThisMonth.count}
+          hint={`${visitsThisMonth.people} people · ${visitsThisMonth.days} days · ${visitsThisMonth.label}`}
+          icon={<MapPin className="h-4 w-4" />}
+          accent="brand"
+          onClick={() => router.push('/team')}
         />
       </section>
 
@@ -297,7 +334,6 @@ export default function DashboardPage() {
           kind={kpiDetail}
           activeProjects={activeProjects}
           wonProjects={wonProjects}
-          overdueFollowUps={overdueFollowUps}
           viewerRole={user?.role}
           onClose={() => setKpiDetail(null)}
         />
@@ -310,14 +346,12 @@ function KpiDetailModal({
   kind,
   activeProjects,
   wonProjects,
-  overdueFollowUps,
   viewerRole,
   onClose,
 }: {
   kind: KpiDetailKind;
   activeProjects: ApiProject[];
   wonProjects: ApiProject[];
-  overdueFollowUps: ApiFollowUp[];
   viewerRole?: string;
   onClose: () => void;
 }) {
@@ -326,9 +360,7 @@ function KpiDetailModal({
       ? 'Pipeline value'
       : kind === 'forecast'
         ? 'Forecast (weighted)'
-        : kind === 'won'
-          ? 'Won projects'
-          : 'Overdue follow-ups';
+        : 'Won projects';
 
   const subtitle =
     kind === 'pipeline'
@@ -341,12 +373,10 @@ function KpiDetailModal({
             activeProjects.reduce((sum, project) => sum + (project.valueAed * project.probability) / 100, 0),
             true
           )}`
-        : kind === 'won'
-          ? `${wonProjects.length} won · ${formatAED(
-              wonProjects.reduce((sum, project) => sum + project.valueAed, 0),
-              true
-            )}`
-          : `${overdueFollowUps.length} overdue`;
+        : `${wonProjects.length} won · ${formatAED(
+            wonProjects.reduce((sum, project) => sum + project.valueAed, 0),
+            true
+          )}`;
 
   const stageStats =
     kind === 'pipeline' || kind === 'forecast'
@@ -368,18 +398,11 @@ function KpiDetailModal({
   const allProjectRows =
     kind === 'won'
       ? [...wonProjects].sort(byLatest)
-      : kind === 'pipeline' || kind === 'forecast'
-        ? [...activeProjects].sort(byLatest)
-        : [];
-  const allOverdueRows =
-    kind === 'overdue' ? [...overdueFollowUps].sort(byLatest) : [];
+      : [...activeProjects].sort(byLatest);
 
   const projectRows = allProjectRows.slice(0, 10);
-  const overdueRows = allOverdueRows.slice(0, 10);
-  const totalCount =
-    kind === 'overdue' ? allOverdueRows.length : allProjectRows.length;
+  const totalCount = allProjectRows.length;
   const hasMore = totalCount > 10;
-  const viewMoreHref = kind === 'overdue' ? '/follow-ups' : '/pipeline';
 
   return (
     <div
@@ -408,38 +431,7 @@ function KpiDetailModal({
         </div>
 
         <div className="overflow-y-auto flex-1 px-4 py-4 sm:px-5 overscroll-contain">
-        {kind === 'overdue' ? (
-          overdueRows.length === 0 ? (
-            <p className="text-sm text-3">No overdue follow-ups.</p>
-          ) : (
-            <div className="space-y-2">
-              {overdueRows.map((followUp) => (
-                  <Link
-                    key={followUp.id}
-                    href={`/projects/${followUp.projectId}`}
-                    onClick={onClose}
-                    className="block rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 hover:bg-[var(--surface)] transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{followUp.projectName}</p>
-                        <p className="text-xs text-3 mt-0.5">
-                          {followUp.contact}
-                          {followUp.contactRole ? ` · ${followUp.contactRole}` : ''} · {followUp.channel}
-                        </p>
-                      </div>
-                      <span className="text-[11px] text-rose-600 dark:text-rose-400 shrink-0">
-                        Due {new Date(followUp.dueAt).toLocaleDateString('en-AE', { month: 'short', day: '2-digit' })}
-                      </span>
-                    </div>
-                    {followUp.note?.trim() ? (
-                      <p className="text-xs text-3 mt-2 line-clamp-2">{followUp.note}</p>
-                    ) : null}
-                  </Link>
-                ))}
-            </div>
-          )
-        ) : projectRows.length === 0 ? (
+        {projectRows.length === 0 ? (
           <p className="text-sm text-3">
             {kind === 'won' ? 'No won projects yet.' : 'No active pipeline projects.'}
           </p>
@@ -518,7 +510,7 @@ function KpiDetailModal({
         {hasMore ? (
           <div className="shrink-0 border-t border-[var(--border)] px-4 py-3 sm:px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <Link
-              href={viewMoreHref}
+              href="/pipeline"
               onClick={onClose}
               className="inline-flex h-10 w-full sm:w-auto sm:ml-auto sm:float-right items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 text-xs font-semibold text-brand-600 hover:bg-[var(--surface)] transition-colors"
             >

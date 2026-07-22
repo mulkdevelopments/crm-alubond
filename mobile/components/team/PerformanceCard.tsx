@@ -17,6 +17,7 @@ export function PerformanceCard({
   hideTeamPerformance = false,
   onPress,
   onWonPress,
+  onSelfPress,
   onPipelinePress,
   onVisitsPress,
 }: {
@@ -34,6 +35,7 @@ export function PerformanceCard({
   hideTeamPerformance?: boolean;
   onPress?: () => void;
   onWonPress?: () => void;
+  onSelfPress?: () => void;
   onPipelinePress?: () => void;
   onVisitsPress?: () => void;
 }) {
@@ -111,10 +113,17 @@ export function PerformanceCard({
 
       {breakdown ? (
         <View style={styles.breakdownRow}>
-          <View style={styles.breakdownCell}>
-            <Text style={styles.breakdownLabel}>Self</Text>
-            <Text style={styles.breakdownValue}>{formatAed(breakdown.self, true)}</Text>
-          </View>
+          {onSelfPress ? (
+            <Pressable style={styles.breakdownCell} onPress={onSelfPress}>
+              <Text style={styles.breakdownLabel}>Self</Text>
+              <Text style={styles.breakdownValue}>{formatAed(breakdown.self, true)}</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.breakdownCell}>
+              <Text style={styles.breakdownLabel}>Self</Text>
+              <Text style={styles.breakdownValue}>{formatAed(breakdown.self, true)}</Text>
+            </View>
+          )}
           <View style={styles.breakdownCell}>
             <Text style={styles.breakdownLabel}>From people</Text>
             <Text style={styles.breakdownValue}>{formatAed(breakdown.fromPeople, true)}</Text>
@@ -126,7 +135,7 @@ export function PerformanceCard({
 
       <View style={styles.statsRow}>
         <Stat label="Pipeline" value={formatAed(metrics.pipelineAed, true)} onPress={onPipelinePress} />
-        <Stat label="Visits/wk" value={String(metrics.visitsWeek)} onPress={onVisitsPress} />
+        <Stat label="Visits/wk" value={String(metrics.visitsWeek)} accent onPress={onVisitsPress} />
         <Stat label="Convert" value={`${metrics.conversionPct}%`} />
       </View>
 
@@ -150,25 +159,31 @@ export function PerformanceCard({
 function Stat({
   label,
   value,
+  accent,
   onPress,
 }: {
   label: string;
   value: string;
+  accent?: boolean;
   onPress?: () => void;
 }) {
+  const labelStyle = accent ? styles.statLabelAccent : styles.statLabel;
+  const valueStyle = accent ? styles.statValueAccent : styles.statValue;
+  const buttonStyle = accent ? [styles.statButton, styles.statButtonAccent] : styles.statButton;
+
   if (onPress) {
     return (
-      <Pressable style={styles.statButton} onPress={onPress}>
-        <Text style={styles.statLabel}>{label}</Text>
-        <Text style={styles.statValue}>{value}</Text>
+      <Pressable style={buttonStyle} onPress={onPress}>
+        <Text style={labelStyle}>{label}</Text>
+        <Text style={valueStyle}>{value}</Text>
       </Pressable>
     );
   }
 
   return (
-    <View style={styles.stat}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue}>{value}</Text>
+    <View style={accent ? [styles.stat, styles.statButtonAccent] : styles.stat}>
+      <Text style={labelStyle}>{label}</Text>
+      <Text style={valueStyle}>{value}</Text>
     </View>
   );
 }
@@ -389,6 +404,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 6,
   },
+  statButtonAccent: {
+    borderWidth: 1,
+    borderColor: "rgba(56,189,248,0.4)",
+    backgroundColor: "rgba(14,165,233,0.18)",
+  },
   statLabel: {
     color: "rgba(255,255,255,0.45)",
     fontSize: 10,
@@ -396,9 +416,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: "uppercase",
   },
+  statLabelAccent: {
+    color: "rgba(186,230,253,0.95)",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
   statValue: {
     marginTop: 4,
     color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  statValueAccent: {
+    marginTop: 4,
+    color: "#E0F2FE",
     fontSize: 14,
     fontWeight: "700",
   },

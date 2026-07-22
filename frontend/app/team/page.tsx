@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, ChevronLeft, ChevronRight, UserRoundX } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
 import { useAuth } from '@/components/auth/AuthContext';
@@ -8,6 +8,11 @@ import { PageHeader } from '@/components/shell/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { listUsers } from '@/lib/auth-api';
 import { listActivities, listProjects, type ApiProject } from '@/lib/projects-api';
+import {
+  peopleFromRegionalCards,
+  rankMonthlyPerformers,
+  type MonthlyPerformerRow,
+} from '@/lib/monthly-performers';
 import {
   buildHierarchy,
   buildRegionHierarchy,
@@ -27,6 +32,19 @@ function wonProjectsOf(projects: ApiProject[]) {
 
 function wonAed(projects: ApiProject[]) {
   return wonProjectsOf(projects).reduce((sum, project) => sum + project.valueAed, 0);
+}
+
+function byPerformanceDesc<T extends { name: string; metrics: { achievedAed: number; attainmentPct: number } }>(
+  a: T,
+  b: T,
+) {
+  if (b.metrics.achievedAed !== a.metrics.achievedAed) {
+    return b.metrics.achievedAed - a.metrics.achievedAed;
+  }
+  if (b.metrics.attainmentPct !== a.metrics.attainmentPct) {
+    return b.metrics.attainmentPct - a.metrics.attainmentPct;
+  }
+  return a.name.localeCompare(b.name);
 }
 
 function peopleCount(card: RegionalCard) {
@@ -66,6 +84,7 @@ export default function TeamPage() {
   const [activities, setActivities] = useState<FlatActivity[]>([]);
   const [groupMode, setGroupMode] = useState<GroupMode>('manager');
   const [selectedRegionalId, setSelectedRegionalId] = useState<string | null>(null);
+  const [monthOffset, setMonthOffset] = useState(0);
   const [visitPopup, setVisitPopup] = useState<{ ownerName: string; visits: FlatActivity[] } | null>(null);
   const [pipelinePopup, setPipelinePopup] = useState<{
     ownerName: string;
@@ -109,13 +128,13 @@ export default function TeamPage() {
     void load();
   }, [token]);
 
-  const hierarchy = useMemo(
-    () =>
+  const hierarchy = useMemo(() => {
+    const cards =
       groupMode === 'region'
         ? buildRegionHierarchy(users, projects, activities)
-        : buildHierarchy(users, projects, activities),
-    [users, projects, activities, groupMode],
-  );
+        : buildHierarchy(users, projects, activities);
+    return [...cards].sort(byPerformanceDesc);
+  }, [users, projects, activities, groupMode]);
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const project of projects) {
@@ -127,14 +146,29 @@ export default function TeamPage() {
     () => hierarchy.find((regional) => regional.id === selectedRegionalId) ?? null,
     [hierarchy, selectedRegionalId],
   );
-  const bestPerformerId = useMemo(() => {
-    const sorted = [...hierarchy].sort((a, b) => b.metrics.attainmentPct - a.metrics.attainmentPct);
-    return sorted[0]?.id ?? null;
-  }, [hierarchy]);
+  const bestPerformerId = hierarchy[0]?.id ?? null;
+
+  const monthlyBoard = useMemo(() => {
+    const cards = selectedRegional ? [selectedRegional] : hierarchy;
+    const requireDailyVisitById = Object.fromEntries(
+      users.map((entry) => [entry.id, Boolean(entry.requireDailyVisit)]),
+    );
+    const people = peopleFromRegionalCards(cards, {
+      includeRegionalRoots: groupMode === 'manager',
+      requireDailyVisitById,
+    });
+    return rankMonthlyPerformers({
+      people,
+      projects,
+      visits: activities,
+      monthOffset,
+    });
+  }, [hierarchy, selectedRegional, groupMode, projects, activities, monthOffset, users]);
 
   function setMode(next: GroupMode) {
     setGroupMode(next);
     setSelectedRegionalId(null);
+    setMonthOffset(0);
   }
 
   return (
@@ -159,7 +193,10 @@ export default function TeamPage() {
           <nav className="flex flex-wrap items-center gap-1.5 text-xs text-3">
             <button
               type="button"
-              onClick={() => setSelectedRegionalId(null)}
+              onClick={() => {
+                setSelectedRegionalId(null);
+                setMonthOffset(0);
+              }}
               className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 transition-colors ${
                 selectedRegional
                   ? 'hover:bg-[var(--surface-2)] text-2'
@@ -221,7 +258,10 @@ export default function TeamPage() {
                   selfWon={selfWon}
                   topPerformer={card.id === bestPerformerId}
                   isYou={user?.id === card.id}
-                  onOpen={() => setSelectedRegionalId(card.id)}
+                  onOpen={() => {
+                    setSelectedRegionalId(card.id);
+                    setMonthOffset(0);
+                  }}
                   onWonClick={() =>
                     setPipelinePopup({
                       ownerName: card.name,
@@ -236,6 +276,7 @@ export default function TeamPage() {
                       kind: 'pipeline',
                     })
                   }
+                  onVisitsClick={() => setVisitPopup({ ownerName: card.name, visits: card.visits })}
                 />
               );
             })}
@@ -246,7 +287,6 @@ export default function TeamPage() {
           <DrillDown
             card={selectedRegional}
             currentUserId={user?.id}
-            viewerRole={user?.role}
             onWonClick={(ownerName, projects) =>
               setPipelinePopup({ ownerName, projects, kind: 'won' })
             }
@@ -255,6 +295,20 @@ export default function TeamPage() {
             }
             onVisitsClick={(ownerName, visits) => setVisitPopup({ ownerName, visits })}
           />
+        )}
+
+        {!loading && hierarchy.length > 0 && (
+          <div className="mt-6">
+            <MonthlyPerformersBoard
+              monthLabel={monthlyBoard.monthLabel}
+              canGoNext={monthlyBoard.canGoNext}
+              canGoPrev={monthlyBoard.canGoPrev}
+              top={monthlyBoard.top}
+              under={monthlyBoard.under}
+              onPrev={() => setMonthOffset((value) => value - 1)}
+              onNext={() => setMonthOffset((value) => Math.min(0, value + 1))}
+            />
+          </div>
         )}
       </section>
 
@@ -390,6 +444,138 @@ export default function TeamPage() {
   );
 }
 
+function MonthlyPerformersBoard({
+  monthLabel,
+  canGoNext,
+  canGoPrev,
+  top,
+  under,
+  onPrev,
+  onNext,
+}: {
+  monthLabel: string;
+  canGoNext: boolean;
+  canGoPrev: boolean;
+  top: MonthlyPerformerRow[];
+  under: MonthlyPerformerRow[];
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <Card className="p-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">Monthly performers</p>
+          <p className="text-xs text-3 mt-0.5">
+            Ranked by Won AED; visit-required users also judged on ≥1 visit per weekday
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onPrev}
+            disabled={!canGoPrev}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border)] text-2 disabled:opacity-40"
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <p className="min-w-[9.5rem] text-center text-sm font-medium">{monthLabel}</p>
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={!canGoNext}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--border)] text-2 disabled:opacity-40"
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <PerformerList
+          title="Top performers"
+          tone="top"
+          rows={top}
+          empty="No wins recorded this month."
+        />
+        <PerformerList
+          title="Underperformers"
+          tone="under"
+          rows={under}
+          empty="No underperformers for this month."
+        />
+      </div>
+    </Card>
+  );
+}
+
+function PerformerList({
+  title,
+  tone,
+  rows,
+  empty,
+}: {
+  title: string;
+  tone: 'top' | 'under';
+  rows: MonthlyPerformerRow[];
+  empty: string;
+}) {
+  const header =
+    tone === 'top'
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+      : 'border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-200';
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] overflow-hidden">
+      <div className={`px-3 py-2 border-b text-xs font-semibold uppercase tracking-wide ${header}`}>
+        {title}
+        {rows.length > 0 ? <span className="ml-1.5 opacity-70">({rows.length})</span> : null}
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-3 py-4 text-sm text-3">{empty}</p>
+      ) : (
+        <ul className={`divide-y divide-[var(--border)] ${tone === 'under' ? 'max-h-[28rem] overflow-y-auto' : ''}`}>
+          {rows.map((row, index) => (
+            <li key={row.id} className="flex items-start gap-3 px-3 py-2.5">
+              <span className="w-5 text-xs text-3 num-tabular pt-1">{index + 1}</span>
+              <div className="h-8 w-8 rounded-full bg-[var(--surface)] border border-[var(--border)] text-[11px] font-semibold inline-flex items-center justify-center text-2 shrink-0">
+                {nameInitials(row.name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{row.name}</p>
+                <p className="text-[11px] text-3 truncate">{row.role}</p>
+                {tone === 'under' && row.reasons.length > 0 ? (
+                  <p className="mt-1 text-[11px] text-rose-700 dark:text-rose-300">
+                    {row.reasons.join(' · ')}
+                  </p>
+                ) : null}
+              </div>
+              <div className="text-right shrink-0 space-y-1">
+                <p className="text-sm font-semibold num-tabular">{formatAED(row.wonAed, true)}</p>
+                <p
+                  className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${
+                    row.requireDailyVisit && !row.visitOnTrack
+                      ? 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                      : row.requireDailyVisit
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        : 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                  }`}
+                >
+                  {row.requireDailyVisit
+                    ? `Visits ${row.visitDays}/${row.expectedVisitDays}d`
+                    : `Visits ${row.visits}`}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function OverviewCard({
   card,
   people,
@@ -400,6 +586,7 @@ function OverviewCard({
   onOpen,
   onWonClick,
   onPipelineClick,
+  onVisitsClick,
 }: {
   card: RegionalCard;
   people: number;
@@ -410,6 +597,7 @@ function OverviewCard({
   onOpen: () => void;
   onWonClick: () => void;
   onPipelineClick: () => void;
+  onVisitsClick: () => void;
 }) {
   const pct = card.metrics.attainmentPct;
   const bar =
@@ -496,18 +684,30 @@ function OverviewCard({
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-between text-[11px] text-white/55">
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onPipelineClick();
-          }}
-          className="hover:text-white"
-        >
-          Pipeline {formatAED(card.metrics.pipelineAed, true)}
-        </button>
-        <span className="inline-flex items-center gap-1 text-white/70">
+      <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-white/55">
+        <div className="inline-flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onPipelineClick();
+            }}
+            className="hover:text-white"
+          >
+            Pipeline {formatAED(card.metrics.pipelineAed, true)}
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onVisitsClick();
+            }}
+            className="rounded-md border border-sky-400/40 bg-sky-500/15 px-2 py-1 font-semibold text-sky-200 hover:bg-sky-500/25"
+          >
+            Visits/wk {card.metrics.visitsWeek}
+          </button>
+        </div>
+        <span className="inline-flex items-center gap-1 text-white/70 shrink-0">
           Open team <ChevronRight className="h-3.5 w-3.5" />
         </span>
       </div>
@@ -518,14 +718,12 @@ function OverviewCard({
 function DrillDown({
   card,
   currentUserId,
-  viewerRole,
   onWonClick,
   onPipelineClick,
   onVisitsClick,
 }: {
   card: RegionalCard;
   currentUserId?: string;
-  viewerRole?: string;
   onWonClick: (ownerName: string, projects: ApiProject[]) => void;
   onPipelineClick: (ownerName: string, projects: ApiProject[]) => void;
   onVisitsClick: (ownerName: string, visits: FlatActivity[]) => void;
@@ -545,7 +743,7 @@ function DrillDown({
               <p className={`text-xs mt-1 ${card.online ? 'text-emerald-600' : 'text-3'}`}>{card.presenceLabel}</p>
             ) : null}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full sm:w-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 w-full sm:w-auto">
             <SummaryStat
               label="Total won"
               value={formatAED(card.metrics.achievedAed, true)}
@@ -566,28 +764,24 @@ function DrillDown({
               value={formatAED(card.metrics.pipelineAed, true)}
               onClick={() => onPipelineClick(card.name, card.pipelineProjects)}
             />
+            <SummaryStat
+              label="Visits/wk"
+              value={String(card.metrics.visitsWeek)}
+              accent
+              onClick={() => onVisitsClick(card.name, card.visits)}
+            />
           </div>
         </div>
       </Card>
 
-      {selfWonProjects.length > 0 && (
-        <SelfOwnedSection
-          ownerName={card.name}
-          projects={selfWonProjects}
-          viewerRole={viewerRole}
-          onOpenWon={() => onWonClick(`${card.name} · Self`, selfWonProjects)}
-        />
-      )}
-
       {card.managers.length > 0 && (
         <section className="space-y-2">
           <SectionTitle title="Managers" count={card.managers.length} />
-          {card.managers.map((manager) => (
+          {[...card.managers].sort(byPerformanceDesc).map((manager) => (
             <ManagerBlock
               key={manager.id}
               manager={manager}
               currentUserId={currentUserId}
-              viewerRole={viewerRole}
               onWonClick={onWonClick}
               onPipelineClick={onPipelineClick}
               onVisitsClick={onVisitsClick}
@@ -600,7 +794,7 @@ function DrillDown({
         <section className="space-y-2">
           <SectionTitle title="Direct sales reps" count={card.directReps.length} />
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {card.directReps.map((rep) => (
+            {[...card.directReps].sort(byPerformanceDesc).map((rep) => (
               <PersonCard
                 key={rep.id}
                 name={rep.name}
@@ -631,14 +825,12 @@ function DrillDown({
 function ManagerBlock({
   manager,
   currentUserId,
-  viewerRole,
   onWonClick,
   onPipelineClick,
   onVisitsClick,
 }: {
   manager: ManagerCard;
   currentUserId?: string;
-  viewerRole?: string;
   onWonClick: (ownerName: string, projects: ApiProject[]) => void;
   onPipelineClick: (ownerName: string, projects: ApiProject[]) => void;
   onVisitsClick: (ownerName: string, visits: FlatActivity[]) => void;
@@ -649,58 +841,28 @@ function ManagerBlock({
 
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold truncate">
-            {manager.name}
-            {currentUserId === manager.id ? (
-              <span className="ml-2 text-[10px] font-medium text-orange-600 dark:text-orange-300">You</span>
-            ) : null}
-          </p>
-          <p className="text-xs text-3 mt-0.5">{manager.location || 'Manager'}</p>
-          {manager.presenceLabel ? (
-            <p className={`text-xs mt-0.5 ${manager.online ? 'text-emerald-600' : 'text-3'}`}>
-              {manager.presenceLabel}
-            </p>
-          ) : null}
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full sm:w-auto">
-          <SummaryStat
-            label="Total won"
-            value={formatAED(manager.metrics.achievedAed, true)}
-            onClick={() => onWonClick(manager.name, wonProjectsOf(manager.scopedProjects))}
-          />
-          <SummaryStat
-            label="Self"
-            value={formatAED(selfWon, true)}
-            onClick={
-              selfWonProjects.length > 0
-                ? () => onWonClick(`${manager.name} · Self`, selfWonProjects)
-                : undefined
-            }
-          />
-          <SummaryStat label="From people" value={formatAED(fromPeople, true)} />
-          <SummaryStat
-            label="Pipeline"
-            value={formatAED(manager.metrics.pipelineAed, true)}
-            onClick={() => onPipelineClick(manager.name, manager.pipelineProjects)}
-          />
-        </div>
-      </div>
-
-      {selfWonProjects.length > 0 && (
-        <SelfOwnedSection
-          ownerName={manager.name}
-          projects={selfWonProjects}
-          viewerRole={viewerRole}
-          compact
-          onOpenWon={() => onWonClick(`${manager.name} · Self`, selfWonProjects)}
-        />
-      )}
-
+      <PersonCard
+        name={manager.name}
+        location={manager.location}
+        role="Manager"
+        metrics={manager.metrics}
+        online={manager.online}
+        presenceLabel={manager.presenceLabel}
+        isYou={currentUserId === manager.id}
+        selfWon={selfWon}
+        fromPeopleWon={fromPeople}
+        onWonClick={() => onWonClick(manager.name, wonProjectsOf(manager.scopedProjects))}
+        onSelfClick={
+          selfWonProjects.length > 0
+            ? () => onWonClick(`${manager.name} · Self`, selfWonProjects)
+            : undefined
+        }
+        onPipelineClick={() => onPipelineClick(manager.name, manager.pipelineProjects)}
+        onVisitsClick={() => onVisitsClick(manager.name, manager.visits)}
+      />
       {manager.reps.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 pl-1 md:pl-3">
-          {manager.reps.map((rep: SalesRepCard) => (
+          {[...manager.reps].sort(byPerformanceDesc).map((rep: SalesRepCard) => (
             <PersonCard
               key={rep.id}
               name={rep.name}
@@ -724,69 +886,6 @@ function ManagerBlock({
   );
 }
 
-function SelfOwnedSection({
-  ownerName,
-  projects,
-  viewerRole,
-  onOpenWon,
-  compact,
-}: {
-  ownerName: string;
-  projects: ApiProject[];
-  viewerRole?: string;
-  onOpenWon: () => void;
-  compact?: boolean;
-}) {
-  const won = wonProjectsOf(projects);
-  if (won.length === 0) return null;
-
-  return (
-    <section
-      className={`rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] ${compact ? 'p-3' : 'p-4'}`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          <div className="h-9 w-9 rounded-full bg-[var(--surface)] border border-[var(--border)] inline-flex items-center justify-center text-2">
-            <UserRoundX className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">{ownerName} · Self</p>
-            <p className="text-xs text-3 mt-0.5">
-              {won.length} won project{won.length === 1 ? '' : 's'} credited to this person.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onOpenWon}
-          className="h-8 px-3 rounded-lg border border-[var(--border)] text-xs font-medium"
-        >
-          Won {formatAED(wonAed(won), true)}
-        </button>
-      </div>
-      <div className="mt-3 space-y-2">
-        {[...won]
-          .sort((a, b) => b.valueAed - a.valueAed)
-          .map((project) => (
-            <div
-              key={project.id}
-              className="flex items-start justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{project.name}</p>
-                <p className="text-xs text-3">
-                  {project.city}, {project.country}
-                  {project.convertedByName ? ` · Converted by: ${project.convertedByName}` : ''}
-                </p>
-              </div>
-              <p className="text-xs font-semibold shrink-0">{formatProjectValue(project, viewerRole, true)}</p>
-            </div>
-          ))}
-      </div>
-    </section>
-  );
-}
-
 function SectionTitle({ title, count }: { title: string; count: number }) {
   return (
     <div className="flex items-center gap-2">
@@ -800,25 +899,37 @@ function SummaryStat({
   label,
   value,
   warn,
+  accent,
   onClick,
 }: {
   label: string;
   value: string;
   warn?: boolean;
+  accent?: boolean;
   onClick?: () => void;
 }) {
   const className = `rounded-xl border px-3 py-2 text-left ${
     warn
       ? 'border-amber-500/40 bg-amber-500/10'
-      : 'border-[var(--border)] bg-[var(--surface-2)]'
+      : accent
+        ? 'border-sky-500/45 bg-sky-500/10 shadow-[0_0_0_1px_rgba(14,165,233,0.12)]'
+        : 'border-[var(--border)] bg-[var(--surface-2)]'
   } ${onClick ? 'hover:border-[var(--border-strong,var(--border))] cursor-pointer' : ''}`;
 
   const body = (
     <>
-      <p className={`text-[10px] uppercase tracking-widest ${warn ? 'text-amber-700 dark:text-amber-300' : 'text-3'}`}>
+      <p
+        className={`text-[10px] uppercase tracking-widest ${
+          warn ? 'text-amber-700 dark:text-amber-300' : accent ? 'text-sky-700 dark:text-sky-300' : 'text-3'
+        }`}
+      >
         {label}
       </p>
-      <p className={`mt-1 text-sm font-semibold num-tabular ${warn ? 'text-amber-800 dark:text-amber-200' : ''}`}>
+      <p
+        className={`mt-1 text-sm font-semibold num-tabular ${
+          warn ? 'text-amber-800 dark:text-amber-200' : accent ? 'text-sky-800 dark:text-sky-200' : ''
+        }`}
+      >
         {value}
       </p>
     </>
@@ -843,8 +954,11 @@ function PersonCard({
   presenceLabel,
   isYou = false,
   note,
+  selfWon,
+  fromPeopleWon,
   compact = false,
   onWonClick,
+  onSelfClick,
   onPipelineClick,
   onVisitsClick,
 }: {
@@ -856,8 +970,11 @@ function PersonCard({
   presenceLabel?: string;
   isYou?: boolean;
   note?: string;
+  selfWon?: number;
+  fromPeopleWon?: number;
   compact?: boolean;
   onWonClick?: () => void;
+  onSelfClick?: () => void;
   onPipelineClick?: () => void;
   onVisitsClick?: () => void;
 }) {
@@ -865,10 +982,15 @@ function PersonCard({
   const pct =
     metrics.assignedTargetAed != null ? metrics.assignedAttainmentPct : metrics.attainmentPct;
   const bar = pct >= 100 ? 'bg-emerald-400' : pct >= 75 ? 'bg-amber-400' : 'bg-rose-500';
+  const showSplit = selfWon != null || fromPeopleWon != null;
 
   const handleWon = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onWonClick?.();
+  };
+  const handleSelf = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onSelfClick?.();
   };
   const handlePipeline = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -941,11 +1063,29 @@ function PersonCard({
         </div>
       </div>
 
+      {showSplit && (
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+          <button
+            type="button"
+            onClick={onSelfClick ? handleSelf : undefined}
+            disabled={!onSelfClick}
+            className="rounded-lg bg-white/5 px-2.5 py-2 text-left disabled:cursor-default"
+          >
+            <p className="text-white/45">Self</p>
+            <p className="mt-0.5 font-semibold num-tabular">{formatAED(selfWon ?? 0, true)}</p>
+          </button>
+          <div className="rounded-lg bg-white/5 px-2.5 py-2">
+            <p className="text-white/45">From people</p>
+            <p className="mt-0.5 font-semibold num-tabular">{formatAED(fromPeopleWon ?? 0, true)}</p>
+          </div>
+        </div>
+      )}
+
       {note ? <p className="mt-2 text-[11px] text-amber-200/90">{note}</p> : null}
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
         <StatButton label="Pipeline" value={formatAED(metrics.pipelineAed, true)} onClick={handlePipeline} />
-        <StatButton label="Visits/wk" value={metrics.visitsWeek} onClick={handleVisits} />
+        <StatButton label="Visits/wk" value={metrics.visitsWeek} accent onClick={handleVisits} />
         <div>
           <p className="text-[10px] uppercase tracking-widest text-white/45">Convert</p>
           <p className="mt-1 text-sm font-semibold num-tabular">{metrics.conversionPct}%</p>
@@ -958,20 +1098,28 @@ function PersonCard({
 function StatButton({
   label,
   value,
+  accent,
   onClick,
 }: {
   label: string;
   value: string | number;
+  accent?: boolean;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-lg px-1 py-1.5 hover:bg-white/10 transition-colors"
+      className={`rounded-lg px-1 py-1.5 transition-colors ${
+        accent
+          ? 'border border-sky-400/40 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25'
+          : 'hover:bg-white/10'
+      }`}
     >
-      <p className="text-[10px] uppercase tracking-widest text-white/45">{label}</p>
-      <p className="mt-1 text-sm font-semibold num-tabular">{value}</p>
+      <p className={`text-[10px] uppercase tracking-widest ${accent ? 'text-sky-200/90' : 'text-white/45'}`}>
+        {label}
+      </p>
+      <p className={`mt-1 text-sm font-semibold num-tabular ${accent ? 'text-sky-100' : ''}`}>{value}</p>
     </button>
   );
 }

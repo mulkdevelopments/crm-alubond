@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { AlertTriangle, ChevronLeft, ChevronRight, UserRoundX } from "lucide-react-native";
+import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react-native";
 
 import { ScreenLoader } from "@/components/ScreenLoader";
 import { PerformanceCard } from "@/components/team/PerformanceCard";
@@ -12,14 +12,20 @@ import { listUsers } from "@/lib/api/auth-api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { listActivities, listProjects, type ApiProject } from "@/lib/api/projects-api";
 import {
+  peopleFromRegionalCards,
+  rankMonthlyPerformers,
+  type MonthlyPerformerRow,
+} from "@/lib/monthly-performers";
+import {
   buildHierarchy,
   buildRegionHierarchy,
+  nameInitials,
   type FlatActivity,
   type ManagerCard,
   type RegionalCard,
   type SalesRepCard,
 } from "@/lib/team-performance";
-import { formatAed, formatProjectValue } from "@/lib/utils";
+import { formatAed } from "@/lib/utils";
 
 type GroupMode = "manager" | "region";
 
@@ -29,6 +35,19 @@ function wonProjectsOf(projects: ApiProject[]) {
 
 function wonAed(projects: ApiProject[]) {
   return wonProjectsOf(projects).reduce((sum, project) => sum + project.valueAed, 0);
+}
+
+function byPerformanceDesc<T extends { name: string; metrics: { achievedAed: number; attainmentPct: number } }>(
+  a: T,
+  b: T,
+) {
+  if (b.metrics.achievedAed !== a.metrics.achievedAed) {
+    return b.metrics.achievedAed - a.metrics.achievedAed;
+  }
+  if (b.metrics.attainmentPct !== a.metrics.attainmentPct) {
+    return b.metrics.attainmentPct - a.metrics.attainmentPct;
+  }
+  return a.name.localeCompare(b.name);
 }
 
 function peopleCount(card: RegionalCard) {
@@ -71,6 +90,7 @@ export default function TeamScreen() {
   const [activities, setActivities] = useState<FlatActivity[]>([]);
   const [groupMode, setGroupMode] = useState<GroupMode>("manager");
   const [selectedRegionalId, setSelectedRegionalId] = useState<string | null>(null);
+  const [monthOffset, setMonthOffset] = useState(0);
   const [visitPopup, setVisitPopup] = useState<{ ownerName: string; visits: FlatActivity[] } | null>(null);
   const [pipelinePopup, setPipelinePopup] = useState<{
     ownerName: string;
@@ -120,13 +140,13 @@ export default function TeamScreen() {
     })();
   }, [loadData]);
 
-  const hierarchy = useMemo(
-    () =>
+  const hierarchy = useMemo(() => {
+    const cards =
       groupMode === "region"
         ? buildRegionHierarchy(usersSnapshot, projects, activities)
-        : buildHierarchy(usersSnapshot, projects, activities),
-    [usersSnapshot, projects, activities, groupMode],
-  );
+        : buildHierarchy(usersSnapshot, projects, activities);
+    return [...cards].sort(byPerformanceDesc);
+  }, [usersSnapshot, projects, activities, groupMode]);
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -141,10 +161,24 @@ export default function TeamScreen() {
     [hierarchy, selectedRegionalId],
   );
 
-  const bestPerformerId = useMemo(() => {
-    const sorted = [...hierarchy].sort((a, b) => b.metrics.attainmentPct - a.metrics.attainmentPct);
-    return sorted[0]?.id ?? null;
-  }, [hierarchy]);
+  const bestPerformerId = hierarchy[0]?.id ?? null;
+
+  const monthlyBoard = useMemo(() => {
+    const cards = selectedRegional ? [selectedRegional] : hierarchy;
+    const requireDailyVisitById = Object.fromEntries(
+      usersSnapshot.map((entry) => [entry.id, Boolean(entry.requireDailyVisit)]),
+    );
+    const people = peopleFromRegionalCards(cards, {
+      includeRegionalRoots: groupMode === "manager",
+      requireDailyVisitById,
+    });
+    return rankMonthlyPerformers({
+      people,
+      projects,
+      visits: activities,
+      monthOffset,
+    });
+  }, [hierarchy, selectedRegional, groupMode, projects, activities, monthOffset, usersSnapshot]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -184,7 +218,10 @@ export default function TeamScreen() {
         <View style={styles.navRow}>
           <Pressable
             style={styles.crumbBtn}
-            onPress={() => setSelectedRegionalId(null)}
+            onPress={() => {
+              setSelectedRegionalId(null);
+              setMonthOffset(0);
+            }}
           >
             {selectedRegional ? <ChevronLeft size={14} color={colors.text2} strokeWidth={2.2} /> : null}
             <Text style={[styles.crumbText, { color: selectedRegional ? colors.text2 : colors.text1 }]}>
@@ -207,6 +244,7 @@ export default function TeamScreen() {
             onPress={() => {
               setGroupMode("manager");
               setSelectedRegionalId(null);
+              setMonthOffset(0);
             }}
           >
             <Text style={[styles.toggleText, { color: groupMode === "manager" ? colors.text1 : colors.text3 }]}>
@@ -218,6 +256,7 @@ export default function TeamScreen() {
             onPress={() => {
               setGroupMode("region");
               setSelectedRegionalId(null);
+              setMonthOffset(0);
             }}
           >
             <Text style={[styles.toggleText, { color: groupMode === "region" ? colors.text1 : colors.text3 }]}>
@@ -250,7 +289,10 @@ export default function TeamScreen() {
                   online={card.online}
                   presenceLabel={card.presenceLabel}
                   breakdown={{ fromPeople, self: selfWon }}
-                  onPress={() => setSelectedRegionalId(card.id)}
+                  onPress={() => {
+                    setSelectedRegionalId(card.id);
+                    setMonthOffset(0);
+                  }}
                   onWonPress={() =>
                     setPipelinePopup({
                       ownerName: card.name,
@@ -276,7 +318,6 @@ export default function TeamScreen() {
             colors={colors}
             styles={styles}
             currentUserId={user?.id}
-            viewerRole={user?.role}
             onWon={(ownerName, list) => setPipelinePopup({ ownerName, projects: list, kind: "won" })}
             onPipeline={(ownerName, list) =>
               setPipelinePopup({ ownerName, projects: list, kind: "pipeline" })
@@ -284,6 +325,20 @@ export default function TeamScreen() {
             onVisits={(ownerName, visits) => setVisitPopup({ ownerName, visits })}
           />
         )}
+
+        {hierarchy.length > 0 ? (
+          <MonthlyPerformersBoard
+            colors={colors}
+            styles={styles}
+            monthLabel={monthlyBoard.monthLabel}
+            canGoNext={monthlyBoard.canGoNext}
+            canGoPrev={monthlyBoard.canGoPrev}
+            top={monthlyBoard.top}
+            under={monthlyBoard.under}
+            onPrev={() => setMonthOffset((value) => value - 1)}
+            onNext={() => setMonthOffset((value) => Math.min(0, value + 1))}
+          />
+        ) : null}
       </ScrollView>
 
       <TeamVisitModal
@@ -306,12 +361,177 @@ export default function TeamScreen() {
   );
 }
 
+function MonthlyPerformersBoard({
+  colors,
+  styles,
+  monthLabel,
+  canGoNext,
+  canGoPrev,
+  top,
+  under,
+  onPrev,
+  onNext,
+}: {
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+  monthLabel: string;
+  canGoNext: boolean;
+  canGoPrev: boolean;
+  top: MonthlyPerformerRow[];
+  under: MonthlyPerformerRow[];
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <Card style={styles.monthlyCard}>
+      <View style={styles.monthlyHeader}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.monthlyTitle, { color: colors.text1 }]}>Monthly performers</Text>
+          <Text style={{ color: colors.text3, fontSize: 12, marginTop: 2 }}>
+            Won AED + weekday visit KPI for visit-required users
+          </Text>
+        </View>
+        <View style={styles.monthNav}>
+          <Pressable
+            onPress={onPrev}
+            disabled={!canGoPrev}
+            style={[styles.monthNavBtn, { borderColor: colors.border, opacity: canGoPrev ? 1 : 0.4 }]}
+          >
+            <ChevronLeft size={16} color={colors.text2} strokeWidth={2.2} />
+          </Pressable>
+          <Text style={[styles.monthLabel, { color: colors.text1 }]}>{monthLabel}</Text>
+          <Pressable
+            onPress={onNext}
+            disabled={!canGoNext}
+            style={[styles.monthNavBtn, { borderColor: colors.border, opacity: canGoNext ? 1 : 0.4 }]}
+          >
+            <ChevronRight size={16} color={colors.text2} strokeWidth={2.2} />
+          </Pressable>
+        </View>
+      </View>
+
+      <PerformerList
+        colors={colors}
+        styles={styles}
+        title="Top performers"
+        tone="top"
+        rows={top}
+        empty="No wins recorded this month."
+      />
+      <PerformerList
+        colors={colors}
+        styles={styles}
+        title="Underperformers"
+        tone="under"
+        rows={under}
+        empty="No underperformers for this month."
+      />
+    </Card>
+  );
+}
+
+function PerformerList({
+  colors,
+  styles,
+  title,
+  tone,
+  rows,
+  empty,
+}: {
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+  title: string;
+  tone: "top" | "under";
+  rows: MonthlyPerformerRow[];
+  empty: string;
+}) {
+  const headerStyle =
+    tone === "top"
+      ? { borderColor: "rgba(16,185,129,0.35)", backgroundColor: "rgba(16,185,129,0.12)" }
+      : { borderColor: "rgba(244,63,94,0.35)", backgroundColor: "rgba(244,63,94,0.12)" };
+  const headerText = tone === "top" ? "#059669" : "#e11d48";
+
+  return (
+    <View style={[styles.performerBox, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
+      <View style={[styles.performerHeader, headerStyle]}>
+        <Text style={{ color: headerText, fontSize: 11, fontWeight: "700", textTransform: "uppercase" }}>
+          {title}
+          {rows.length > 0 ? ` (${rows.length})` : ""}
+        </Text>
+      </View>
+      {rows.length === 0 ? (
+        <Text style={{ color: colors.text3, fontSize: 13, padding: 12 }}>{empty}</Text>
+      ) : (
+        rows.map((row, index) => {
+          const visitFail = row.requireDailyVisit && !row.visitOnTrack;
+          const visitOk = row.requireDailyVisit && row.visitOnTrack;
+          return (
+            <View
+              key={row.id}
+              style={[
+                styles.performerRow,
+                { borderTopColor: colors.border },
+                index === 0 && { borderTopWidth: 0 },
+              ]}
+            >
+              <Text style={{ color: colors.text3, width: 18, fontSize: 12 }}>{index + 1}</Text>
+              <View
+                style={[styles.performerAvatar, { borderColor: colors.border, backgroundColor: colors.surface }]}
+              >
+                <Text style={{ color: colors.text2, fontSize: 11, fontWeight: "700" }}>
+                  {nameInitials(row.name)}
+                </Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: colors.text1, fontSize: 14, fontWeight: "600" }} numberOfLines={1}>
+                  {row.name}
+                </Text>
+                <Text style={{ color: colors.text3, fontSize: 11 }} numberOfLines={1}>
+                  {row.role}
+                </Text>
+                {tone === "under" && row.reasons.length > 0 ? (
+                  <Text style={{ color: "#e11d48", fontSize: 11, marginTop: 2 }} numberOfLines={2}>
+                    {row.reasons.join(" · ")}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ color: colors.text1, fontSize: 13, fontWeight: "700" }}>
+                  {formatAed(row.wonAed, true)}
+                </Text>
+                <View
+                  style={[
+                    styles.visitBadge,
+                    visitFail ? styles.visitBadgeFail : null,
+                    visitOk ? styles.visitBadgeOk : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.visitBadgeText,
+                      visitFail ? styles.visitBadgeTextFail : null,
+                      visitOk ? styles.visitBadgeTextOk : null,
+                    ]}
+                  >
+                    {row.requireDailyVisit
+                      ? `Visits ${row.visitDays}/${row.expectedVisitDays}d`
+                      : `Visits ${row.visits}`}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+}
+
 function DrillDown({
   card,
   colors,
   styles,
   currentUserId,
-  viewerRole,
   onWon,
   onPipeline,
   onVisits,
@@ -320,7 +540,6 @@ function DrillDown({
   colors: ThemeColors;
   styles: ReturnType<typeof createStyles>;
   currentUserId?: string;
-  viewerRole?: string;
   onWon: (ownerName: string, projects: ApiProject[]) => void;
   onPipeline: (ownerName: string, projects: ApiProject[]) => void;
   onVisits: (ownerName: string, visits: FlatActivity[]) => void;
@@ -364,31 +583,26 @@ function DrillDown({
             value={formatAed(card.metrics.pipelineAed, true)}
             onPress={() => onPipeline(card.name, card.pipelineProjects)}
           />
+          <SummaryChip
+            colors={colors}
+            label="Visits/wk"
+            value={String(card.metrics.visitsWeek)}
+            accent
+            onPress={() => onVisits(card.name, card.visits)}
+          />
         </View>
       </Card>
-
-      {selfWonProjects.length > 0 ? (
-        <SelfOwnedBlock
-          ownerName={card.name}
-          projects={selfWonProjects}
-          colors={colors}
-          styles={styles}
-          viewerRole={viewerRole}
-          onOpenWon={() => onWon(`${card.name} · Self`, selfWonProjects)}
-        />
-      ) : null}
 
       {card.managers.length > 0 ? (
         <View style={styles.section}>
           <SectionHeading title="Managers" count={card.managers.length} colors={colors} styles={styles} />
-          {card.managers.map((manager) => (
+          {[...card.managers].sort(byPerformanceDesc).map((manager) => (
             <ManagerBlock
               key={manager.id}
               manager={manager}
               colors={colors}
               styles={styles}
               currentUserId={currentUserId}
-              viewerRole={viewerRole}
               onWon={onWon}
               onPipeline={onPipeline}
               onVisits={onVisits}
@@ -400,7 +614,7 @@ function DrillDown({
       {card.directReps.length > 0 ? (
         <View style={styles.section}>
           <SectionHeading title="Direct sales reps" count={card.directReps.length} colors={colors} styles={styles} />
-          {card.directReps.map((rep) => (
+          {[...card.directReps].sort(byPerformanceDesc).map((rep) => (
             <PersonRow
               key={rep.id}
               person={rep}
@@ -422,7 +636,6 @@ function ManagerBlock({
   colors,
   styles,
   currentUserId,
-  viewerRole,
   onWon,
   onPipeline,
   onVisits,
@@ -431,7 +644,6 @@ function ManagerBlock({
   colors: ThemeColors;
   styles: ReturnType<typeof createStyles>;
   currentUserId?: string;
-  viewerRole?: string;
   onWon: (ownerName: string, projects: ApiProject[]) => void;
   onPipeline: (ownerName: string, projects: ApiProject[]) => void;
   onVisits: (ownerName: string, visits: FlatActivity[]) => void;
@@ -442,57 +654,23 @@ function ManagerBlock({
 
   return (
     <View style={[styles.managerBlock, { borderColor: colors.border, backgroundColor: colors.surface }]}>
-      <Text style={[styles.managerName, { color: colors.text1 }]}>
-        {manager.name}
-        {currentUserId === manager.id ? " · You" : ""}
-      </Text>
-      <Text style={[styles.managerMeta, { color: colors.text3 }]}>{manager.location || "Manager"}</Text>
-      {manager.presenceLabel ? (
-        <Text style={{ color: manager.online ? "#059669" : colors.text3, fontSize: 12, marginTop: 2 }}>
-          {manager.presenceLabel}
-        </Text>
-      ) : null}
-
-      <View style={styles.summaryGrid}>
-        <SummaryChip
-          colors={colors}
-          label="Total won"
-          value={formatAed(manager.metrics.achievedAed, true)}
-          onPress={() => onWon(manager.name, wonProjectsOf(manager.scopedProjects))}
-        />
-        <SummaryChip
-          colors={colors}
-          label="Self"
-          value={formatAed(selfWon, true)}
-          onPress={
-            selfWonProjects.length > 0
-              ? () => onWon(`${manager.name} · Self`, selfWonProjects)
-              : undefined
-          }
-        />
-        <SummaryChip colors={colors} label="From people" value={formatAed(fromPeople, true)} />
-        <SummaryChip
-          colors={colors}
-          label="Pipeline"
-          value={formatAed(manager.metrics.pipelineAed, true)}
-          onPress={() => onPipeline(manager.name, manager.pipelineProjects)}
-        />
-      </View>
-
-      {selfWonProjects.length > 0 ? (
-        <SelfOwnedBlock
-          ownerName={manager.name}
-          projects={selfWonProjects}
-          colors={colors}
-          styles={styles}
-          viewerRole={viewerRole}
-          onOpenWon={() => onWon(`${manager.name} · Self`, selfWonProjects)}
-        />
-      ) : null}
-
+      <PersonRow
+        person={manager}
+        role="Manager"
+        currentUserId={currentUserId}
+        breakdown={{ self: selfWon, fromPeople }}
+        onWon={onWon}
+        onSelf={
+          selfWonProjects.length > 0
+            ? () => onWon(`${manager.name} · Self`, selfWonProjects)
+            : undefined
+        }
+        onPipeline={onPipeline}
+        onVisits={onVisits}
+      />
       {manager.reps.length > 0 ? (
         <View style={styles.repStack}>
-          {manager.reps.map((rep: SalesRepCard) => (
+          {[...manager.reps].sort(byPerformanceDesc).map((rep: SalesRepCard) => (
             <PersonRow
               key={rep.id}
               person={rep}
@@ -516,7 +694,9 @@ function PersonRow({
   role,
   currentUserId,
   note,
+  breakdown,
   onWon,
+  onSelf,
   onPipeline,
   onVisits,
 }: {
@@ -524,7 +704,9 @@ function PersonRow({
   role: string;
   currentUserId?: string;
   note?: string;
+  breakdown?: { fromPeople: number; self: number };
   onWon: (ownerName: string, projects: ApiProject[]) => void;
+  onSelf?: () => void;
   onPipeline: (ownerName: string, projects: ApiProject[]) => void;
   onVisits: (ownerName: string, visits: FlatActivity[]) => void;
 }) {
@@ -539,73 +721,12 @@ function PersonRow({
       online={person.online}
       presenceLabel={person.presenceLabel}
       note={note}
+      breakdown={breakdown}
       onWonPress={() => onWon(person.name, wonProjectsOf(person.scopedProjects))}
+      onSelfPress={onSelf}
       onPipelinePress={() => onPipeline(person.name, person.pipelineProjects)}
       onVisitsPress={() => onVisits(person.name, person.visits)}
     />
-  );
-}
-
-function SelfOwnedBlock({
-  ownerName,
-  projects,
-  colors,
-  styles,
-  viewerRole,
-  onOpenWon,
-}: {
-  ownerName: string;
-  projects: ApiProject[];
-  colors: ThemeColors;
-  styles: ReturnType<typeof createStyles>;
-  viewerRole?: string;
-  onOpenWon: () => void;
-}) {
-  const won = wonProjectsOf(projects);
-  if (won.length === 0) return null;
-
-  return (
-    <View style={[styles.selfBox, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
-      <View style={styles.selfHeader}>
-        <View style={styles.selfTitleRow}>
-          <UserRoundX size={16} color={colors.text2} strokeWidth={2.2} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.selfTitle, { color: colors.text1 }]}>{ownerName} · Self</Text>
-            <Text style={{ color: colors.text3, fontSize: 12, marginTop: 2 }}>
-              {won.length} won project{won.length === 1 ? "" : "s"} credited to this person.
-            </Text>
-          </View>
-        </View>
-        <Pressable onPress={onOpenWon} style={[styles.selfWonBtn, { borderColor: colors.border }]}>
-          <Text style={{ color: colors.text1, fontSize: 12, fontWeight: "600" }}>
-            Won {formatAed(wonAed(won), true)}
-          </Text>
-        </Pressable>
-      </View>
-      <View style={{ gap: 8, marginTop: 12 }}>
-        {[...won]
-          .sort((a, b) => b.valueAed - a.valueAed)
-          .map((project) => (
-            <View
-              key={project.id}
-              style={[styles.selfItem, { borderColor: colors.border, backgroundColor: colors.surface }]}
-            >
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: colors.text1, fontSize: 14, fontWeight: "600" }} numberOfLines={1}>
-                  {project.name}
-                </Text>
-                <Text style={{ color: colors.text3, fontSize: 12, marginTop: 2 }}>
-                  {project.city}, {project.country}
-                  {project.convertedByName ? ` · Converted by: ${project.convertedByName}` : ""}
-                </Text>
-              </View>
-              <Text style={{ color: colors.text1, fontSize: 12, fontWeight: "700" }}>
-                {formatProjectValue(project, viewerRole, true)}
-              </Text>
-            </View>
-          ))}
-      </View>
-    </View>
   );
 }
 
@@ -633,22 +754,24 @@ function SummaryChip({
   label,
   value,
   warn,
+  accent,
   onPress,
 }: {
   colors: ThemeColors;
   label: string;
   value: string;
   warn?: boolean;
+  accent?: boolean;
   onPress?: () => void;
 }) {
+  const labelColor = warn ? "#b45309" : accent ? "#0ea5e9" : colors.text3;
+  const valueColor = warn ? "#92400e" : accent ? "#0284c7" : colors.text1;
   const body = (
     <>
-      <Text style={{ color: warn ? "#b45309" : colors.text3, fontSize: 10, fontWeight: "700", textTransform: "uppercase" }}>
+      <Text style={{ color: labelColor, fontSize: 10, fontWeight: "700", textTransform: "uppercase" }}>
         {label}
       </Text>
-      <Text style={{ color: warn ? "#92400e" : colors.text1, fontSize: 13, fontWeight: "700", marginTop: 4 }}>
-        {value}
-      </Text>
+      <Text style={{ color: valueColor, fontSize: 13, fontWeight: "700", marginTop: 4 }}>{value}</Text>
     </>
   );
   const style = {
@@ -657,8 +780,16 @@ function SummaryChip({
     minWidth: 120,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: warn ? "rgba(245,158,11,0.4)" : colors.border,
-    backgroundColor: warn ? "rgba(245,158,11,0.12)" : colors.surface2,
+    borderColor: warn
+      ? "rgba(245,158,11,0.4)"
+      : accent
+        ? "rgba(14,165,233,0.45)"
+        : colors.border,
+    backgroundColor: warn
+      ? "rgba(245,158,11,0.12)"
+      : accent
+        ? "rgba(14,165,233,0.12)"
+        : colors.surface2,
     paddingHorizontal: 12,
     paddingVertical: 10,
   };
@@ -796,50 +927,93 @@ function createStyles(_colors: ThemeColors) {
       padding: 12,
       gap: 10,
     },
-    managerName: {
-      fontSize: 15,
-      fontWeight: "700",
-    },
-    managerMeta: {
-      fontSize: 12,
-      marginTop: 2,
-    },
     repStack: {
       gap: 10,
       paddingLeft: 4,
     },
-    selfBox: {
-      borderWidth: 1,
-      borderRadius: 16,
+    monthlyCard: {
       padding: 14,
+      gap: 12,
     },
-    selfHeader: {
+    monthlyHeader: {
       gap: 10,
     },
-    selfTitleRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 10,
-    },
-    selfTitle: {
-      fontSize: 14,
+    monthlyTitle: {
+      fontSize: 15,
       fontWeight: "700",
     },
-    selfWonBtn: {
-      alignSelf: "flex-start",
+    monthNav: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    monthNavBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
       borderWidth: 1,
-      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    monthLabel: {
+      minWidth: 140,
+      textAlign: "center",
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    performerBox: {
+      borderWidth: 1,
+      borderRadius: 14,
+      overflow: "hidden",
+    },
+    performerHeader: {
       paddingHorizontal: 12,
       paddingVertical: 8,
+      borderBottomWidth: 1,
     },
-    selfItem: {
-      borderWidth: 1,
-      borderRadius: 12,
+    performerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
       paddingHorizontal: 12,
       paddingVertical: 10,
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 8,
+      borderTopWidth: 1,
+    },
+    performerAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 999,
+      borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    visitBadge: {
+      marginTop: 4,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: "rgba(14,165,233,0.45)",
+      backgroundColor: "rgba(14,165,233,0.12)",
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    visitBadgeFail: {
+      borderColor: "rgba(244,63,94,0.45)",
+      backgroundColor: "rgba(244,63,94,0.12)",
+    },
+    visitBadgeOk: {
+      borderColor: "rgba(16,185,129,0.45)",
+      backgroundColor: "rgba(16,185,129,0.12)",
+    },
+    visitBadgeText: {
+      color: "#0284c7",
+      fontSize: 10,
+      fontWeight: "700",
+    },
+    visitBadgeTextFail: {
+      color: "#e11d48",
+    },
+    visitBadgeTextOk: {
+      color: "#059669",
     },
   });
 }

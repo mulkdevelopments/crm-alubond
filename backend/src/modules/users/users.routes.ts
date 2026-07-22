@@ -27,7 +27,8 @@ const createUserBodySchema = z.object({
   regions: z.array(z.string().min(1)).optional().default([]),
   operationLocations: z.array(z.string().min(1)).optional().default([]),
   yearlyTarget: z.number().positive().optional().nullable(),
-  canSetBusinessDivision: z.boolean().optional().default(false)
+  canSetBusinessDivision: z.boolean().optional().default(false),
+  requireDailyVisit: z.boolean().optional().default(false),
 });
 
 const updateUserBodySchema = z.object({
@@ -43,7 +44,8 @@ const updateUserBodySchema = z.object({
   yearlyTarget: z.number().positive().optional().nullable(),
   password: z.string().min(8).optional(),
   isActive: z.boolean().optional(),
-  canSetBusinessDivision: z.boolean().optional()
+  canSetBusinessDivision: z.boolean().optional(),
+  requireDailyVisit: z.boolean().optional(),
 });
 
 const createUserSchema = z.preprocess(normalizeUserRegionPayload, createUserBodySchema);
@@ -282,7 +284,11 @@ usersRouter.post("/", authorize(UserRole.ADMIN), async (req, res) => {
       operationLocations: payload.operationLocations,
       yearlyTarget: payload.role !== UserRole.ADMIN ? payload.yearlyTarget ?? null : null,
       canSetBusinessDivision:
-        payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false
+        payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false,
+      requireDailyVisit:
+        payload.role === UserRole.ADMIN || payload.role === UserRole.CEO
+          ? false
+          : payload.requireDailyVisit ?? false,
     }
   });
 
@@ -417,7 +423,11 @@ usersRouter.patch("/:userId", authorize(UserRole.ADMIN), async (req, res) => {
       passwordHash,
       isActive: payload.isActive ?? undefined,
       canSetBusinessDivision:
-        payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false
+        payload.role === UserRole.REGIONAL_MANAGER ? payload.canSetBusinessDivision ?? false : false,
+      requireDailyVisit:
+        payload.role === UserRole.ADMIN || payload.role === UserRole.CEO
+          ? false
+          : payload.requireDailyVisit ?? false,
     }
   });
 
@@ -554,6 +564,7 @@ usersRouter.get("/", async (req, res) => {
       yearlyTarget: true,
       isActive: true,
       canSetBusinessDivision: true,
+      requireDailyVisit: true,
       createdAt: true,
       lastSeenAt: true,
       locationPings: {
@@ -603,6 +614,7 @@ usersRouter.get("/", async (req, res) => {
     yearlyTarget: user.yearlyTarget,
     isActive: user.isActive,
     canSetBusinessDivision: user.canSetBusinessDivision,
+    requireDailyVisit: user.requireDailyVisit,
     createdAt: user.createdAt,
     manager: user.manager,
     regionalManager: user.regionalManager,
