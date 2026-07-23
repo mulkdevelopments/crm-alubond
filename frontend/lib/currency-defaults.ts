@@ -10,6 +10,8 @@ export const COUNTRY_DEFAULT_CURRENCY: Record<string, string> = {
   Kuwait: 'KWD',
   Bahrain: 'BHD',
   Egypt: 'EGP',
+  Canada: 'CAD',
+  Vietnam: 'VND',
 };
 
 export function suggestCurrencyCode(params: {

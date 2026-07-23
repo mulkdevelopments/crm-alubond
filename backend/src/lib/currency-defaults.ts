@@ -9,6 +9,8 @@ export const DEFAULT_CURRENCIES = [
   { code: "BHD", name: "Bahraini Dinar", rateToAed: 9.74, sortOrder: 7 },
   { code: "USD", name: "US Dollar", rateToAed: 3.6725, sortOrder: 8 },
   { code: "EGP", name: "Egyptian Pound", rateToAed: 0.074, sortOrder: 9 },
+  { code: "CAD", name: "Canadian Dollar", rateToAed: 2.68, sortOrder: 10 },
+  { code: "VND", name: "Vietnamese Dong", rateToAed: 0.00015, sortOrder: 11 },
 ] as const;
 
 export const REGION_DEFAULT_CURRENCY: Record<string, string> = {
@@ -19,6 +21,8 @@ export const REGION_DEFAULT_CURRENCY: Record<string, string> = {
   Qatar: "QAR",
   GCC: "AED",
   Egypt: "EGP",
+  Canada: "CAD",
+  Vietnam: "VND",
 };
 
 export const COUNTRY_DEFAULT_CURRENCY: Record<string, string> = {
@@ -33,6 +37,8 @@ export const COUNTRY_DEFAULT_CURRENCY: Record<string, string> = {
   Kuwait: "KWD",
   Bahrain: "BHD",
   Egypt: "EGP",
+  Canada: "CAD",
+  Vietnam: "VND",
 };
 
 export function suggestCurrencyCode(params: {

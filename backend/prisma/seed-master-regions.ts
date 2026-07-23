@@ -8,6 +8,8 @@ const DEFAULT_MASTER_REGIONS = [
   "Qatar",
   "GCC",
   "Egypt",
+  "Canada",
+  "Vietnam",
 ];
 
 const prisma = new PrismaClient();
